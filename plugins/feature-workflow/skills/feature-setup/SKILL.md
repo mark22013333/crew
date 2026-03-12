@@ -76,8 +76,25 @@ description: Feature Workflow 首次設定引導。自動偵測 Notion 資料庫
 - 缺少欄位 → 詢問是否自動新增
 
 若找不到 → 詢問使用者：
-- A) 指定一個現有資料庫作為功能設計庫
-- B) 跳過設計庫（`/feature-close` 結案時不同步設計庫）
+- A) 建立新的「功能設計庫」資料庫（inline 模式，含有色 Tags）
+- B) 指定一個現有資料庫作為功能設計庫
+- C) 跳過設計庫（`/feature-close` 結案時不同步設計庫）
+
+**建立功能設計庫**時（選項 A），使用 `notion-create-database`：
+- 父頁面：與「專案資料庫」同級（通常是「⇒⇒ 公司專案」）
+- 設為 **inline 模式**（`is_inline: true`），讓資料庫在頁面中直接顯示表格
+- Schema：
+  ```sql
+  CREATE TABLE (
+    "Name" TITLE,
+    "Tags" MULTI_SELECT('API':blue, '報表':purple, '標籤':green, '推播':orange, '排程':yellow, '綁定':pink, '權限':red, 'Rich Menu':brown, '匯出匯入':gray, 'Flex Message':default),
+    "設計類型" SELECT('規格書':blue, 'DB 設計':yellow, '架構設計':orange, '完整設計':green),
+    "技術棧" SELECT('spring-mvc-mybatis':blue, 'spring-boot-mybatis':green, 'spring-boot-jpa':purple, 'spring-boot-mybatis-plus':orange, 'spring-mvc-jpa':red),
+    "參考連結" URL,
+    "專案資料庫" RELATION('{專案資料庫 data_source_id}')
+  )
+  ```
+- 建立後使用 `notion-update-data-source` 設定 `is_inline: true`
 
 #### 3-3. 偵測或建立「專案資料庫」
 
