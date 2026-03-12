@@ -34,11 +34,11 @@
 ## 安裝
 
 ```bash
-# 從 marketplace 安裝（發布後）
-claude plugin install bug-workflow
+# 1. 加入 Marketplace（一次性）
+claude marketplace add --github mark22013333/bug-workflow
 
-# 或從本機目錄安裝
-claude plugin install --local ~/.claude-company/plugins/bug-workflow
+# 2. 安裝
+claude plugin install bug-workflow
 ```
 
 ## 首次設定
