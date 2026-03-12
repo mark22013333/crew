@@ -51,7 +51,7 @@ claude plugin enable feature-workflow
 
 ## 使用範例
 
-### 快捷方式：一鍵自動化
+### 快捷方式：一鍵自動化（/feature-auto）
 
 如果已有規格書檔案，可直接一行指令完成從建立到骨架的全流程：
 
@@ -59,12 +59,74 @@ claude plugin enable feature-workflow
 /feature-auto doc/訂閱推播統計.md
 ```
 
+執行後會展示計畫並等待確認：
+
+```
+📄 規格書：doc/訂閱推播統計.md
+📝 功能名稱：訂閱推播統計報表
+📋 需求摘要：提供後台查詢訂閱推播的開封率與點擊率統計...
+
+即將依序執行：
+  1. ✅ feature-start   — 建立 Notion 條目 + Git branch
+  2. ✅ feature-spec    — 技術規格書（Agent）
+  3. ✅ feature-db      — 資料庫設計（Agent）
+  4. ✅ feature-arch    — 架構設計（Agent）
+  5. ✅ feature-scaffold — 程式碼骨架（Agent）
+
+確認執行？[Y/n]
+```
+
+確認後自動依序執行，每完成一個階段會顯示進度：
+
+```
+✅ [1/5] feature-start 完成 — Notion 頁面已建立
+✅ [2/5] feature-spec 完成 — 3 個 API、5 項業務規則
+✅ [3/5] feature-db 完成 — 2 個表、4 個索引
+✅ [4/5] feature-arch 完成 — 8 個類別、策略模式
+✅ [5/5] feature-scaffold 完成 — 8 個檔案已建立
+
+🎉 功能建立完成！
+📊 Notion 頁面：https://notion.so/xxx
+🔀 Git branch：feature/subscription-push-statistics
+```
+
 支援選項：
+
 ```bash
 /feature-auto doc/spec.md --stop-at spec    # 只到規格書階段
-/feature-auto doc/spec.md --skip db         # 跳過 DB 設計
-/feature-auto doc/spec.md --dry-run         # scaffold 僅預覽
+/feature-auto doc/spec.md --skip db         # 跳過 DB 設計（功能不涉及資料庫）
+/feature-auto doc/spec.md --dry-run         # scaffold 僅預覽，不建立檔案
 ```
+
+#### 規格書範本
+
+規格書無強制格式，但結構化內容能讓 Agent 產出更精確。建議範本：
+
+```markdown
+# 訂閱推播統計報表
+
+## 需求描述
+- **功能目的**：提供後台查詢訂閱推播的開封率與點擊率統計，供營運人員分析推播成效
+- **目標使用者**：營運管理人員
+- **使用情境**：
+  1. 營運人員選擇日期範圍，查看各推播訊息的開封數、點擊數、開封率、點擊率
+  2. 可依推播類型篩選（一般推播 / 訂閱推播）
+  3. 支援匯出 Excel 報表
+
+## 驗收條件
+- [ ] 可依日期範圍查詢推播統計
+- [ ] 統計數據包含：傳送數、開封數、點擊數、開封率、點擊率
+- [ ] 支援分頁顯示
+- [ ] 支援匯出 Excel
+
+## 技術備註
+- API 需遵循現有 `/api/analysis/*` 路徑風格
+- 統計資料來源：LINE Messaging API 的 aggregation 回傳
+- 大量資料需分頁，單頁上限 50 筆
+- 需要新增統計結果暫存表，避免每次即時查詢 LINE API
+```
+
+> 規格書也可以很簡短（例如只有三行需求描述），Agent 會根據專案 CLAUDE.md 自動補充推斷。但內容越完整，產出品質越高。
 
 ### 手動逐步執行
 
