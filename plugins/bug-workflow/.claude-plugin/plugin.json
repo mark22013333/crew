@@ -12,7 +12,8 @@
     "./skills/bug-start",
     "./skills/bug-update",
     "./skills/bug-close",
-    "./skills/bug-search"
+    "./skills/bug-search",
+    "./skills/project-add"
   ],
   "keywords": [
     "bug",

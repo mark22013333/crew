@@ -27,6 +27,7 @@ claude plugin install feature-workflow
 | `/bug-update reopen <Bug>` | 重新開啟已結案 Bug |
 | `/bug-close` | 結案 + 同步知識庫 |
 | `/bug-search <關鍵字>` | 搜尋過往 Bug 解法 |
+| `/project-add` | 新增專案到共用專案資料庫 |
 
 詳細說明見 [plugins/bug-workflow/README.md](plugins/bug-workflow/README.md)
 
