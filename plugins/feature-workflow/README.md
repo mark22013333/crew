@@ -5,11 +5,9 @@
 ## 安裝
 
 ```bash
-# 1. 加入 Marketplace（一次性）
-claude plugin marketplace add mark22013333/bug-workflow
-
-# 2. 安裝
-claude plugin install feature-workflow
+claude plugin marketplace add mark22013333/bug-workflow && \
+claude plugin install feature-workflow && \
+claude plugin enable feature-workflow
 ```
 
 首次使用前執行設定引導：
