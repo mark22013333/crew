@@ -1,4 +1,4 @@
-# Claude Code Plugins — 公司內部 Marketplace
+# Claude Code Plugins
 
 整合 Notion 與 Claude Code 的自訂 Plugin 集合，涵蓋 Bug 處理與功能開發的完整工作流。
 
