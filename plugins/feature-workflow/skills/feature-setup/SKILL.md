@@ -79,34 +79,95 @@ description: Feature Workflow 首次設定引導。自動偵測 Notion 資料庫
 - A) 指定一個現有資料庫作為功能設計庫
 - B) 跳過設計庫（`/feature-close` 結案時不同步設計庫）
 
-#### 3-3. 搜尋/驗證「專案資料庫」
+#### 3-3. 偵測或建立「專案資料庫」
 
-若已從 bug-workflow 匯入 → 直接使用。
-若未匯入 → 搜尋包含「專案」的資料庫，找到後驗證並記錄 ID。
+若已從 bug-workflow 匯入 → 使用 `notion-fetch` 驗證並補齊欄位（見下方欄位表），特別確認「技術棧」欄位存在。
+
+若未匯入 → 使用 `notion-search` 搜尋包含「專案」的資料庫。
+
+**專案資料庫標準欄位**：
+
+| 欄位 | 類型 | 說明 | 必要性 |
+|------|------|------|--------|
+| 專案名稱 | Title | 顯示名稱 | 必要 |
+| 本機路徑 | Text | `pwd` 匹配用 | 必要 |
+| 技術棧 | Select | scaffold 用（`spring-mvc-mybatis` 等） | 必要（feature-workflow） |
+| Git Repo | URL | Git 遠端倉庫 | 建議 |
+| SIT 主機 | Text | SIT 部署主機資訊 | 選用 |
+| UAT 主機 | Text | UAT 部署主機資訊 | 選用 |
+| 正式環境主機 | Text | 正式環境部署主機資訊 | 選用 |
+| 部署方式 | Text | 部署指令或流程簡述 | 選用 |
+| 狀態 | Status | `進行中` / `維護中` / `已結案` | 建議 |
+| 說明 | Text | 專案簡要描述 | 選用 |
+
+**情境 A：找到現有資料庫** → 驗證欄位，缺少的詢問是否新增。
+**情境 B：找不到** → 詢問使用者建立新的或指定現有（流程同 bug-setup 的 2-3）。
 
 ### 4. 設定專案路徑對應 + 技術棧
 
-若已從 bug-workflow 匯入專案路徑對應：
-1. 列出已匯入的專案，詢問每個專案的技術棧：
-   ```
-   已匯入的專案路徑對應：
+#### 4-1. 自動偵測環境資訊
 
-   1. 北市府-TPE01P2101 → /Users/cheng/IdeaProjects/Taipei/LineBC
-      偵測到技術棧：spring-mvc-mybatis（pom.xml 含 spring-webmvc 4.x + mybatis + tk.mybatis）
-      確認使用此技術棧？[Y/n]
+取得當前工作目錄和 Git 資訊：
 
-   2. FIA01P2403 WCS → /Users/cheng/IdeaProjects/cht
-      偵測到技術棧：spring-boot-mybatis（pom.xml 含 spring-boot-starter + mybatis-spring-boot）
-      確認使用此技術棧？[Y/n]
-   ```
-2. 自動偵測邏輯：掃描專案路徑下的 `pom.xml` 或 `build.gradle`
-   - 含 `spring-webmvc` 且版本 < 5 + `tk.mybatis` → `spring-mvc-mybatis`
-   - 含 `spring-boot-starter` + `mybatis-spring-boot` → `spring-boot-mybatis`
-   - 含 `spring-boot-starter-data-jpa` → `spring-boot-jpa`
-   - 含 `mybatis-plus-boot-starter` → `spring-boot-mybatis-plus`
-   - 無法判斷 → 詢問使用者手動選擇或自訂
+```bash
+pwd
+git remote get-url origin 2>/dev/null || echo ""
+git branch --show-current 2>/dev/null || echo ""
+```
 
-若未匯入 → 同 bug-setup 流程：列出 Notion 專案供選擇，加上技術棧偵測。
+#### 4-2. 技術棧自動偵測
+
+掃描專案路徑下的 `pom.xml` 或 `build.gradle`：
+- 含 `spring-webmvc` 且版本 < 5 + `tk.mybatis` → `spring-mvc-mybatis`
+- 含 `spring-boot-starter` + `mybatis-spring-boot` → `spring-boot-mybatis`
+- 含 `spring-boot-starter-data-jpa` → `spring-boot-jpa`
+- 含 `mybatis-plus-boot-starter` → `spring-boot-mybatis-plus`
+- 無法判斷 → 詢問使用者手動選擇或自訂
+
+#### 4-3. 匹配或建立專案條目
+
+**若已從 bug-workflow 匯入專案路徑對應**：
+
+列出已匯入的專案，補充技術棧：
+```
+已匯入的專案路徑對應：
+
+1. 北市府-TPE01P2101 → /Users/cheng/IdeaProjects/Taipei/LineBC
+   偵測到技術棧：spring-mvc-mybatis（pom.xml 含 spring-webmvc 4.x + mybatis + tk.mybatis）
+   確認使用此技術棧？[Y/n]
+
+2. FIA01P2403 WCS → /Users/cheng/IdeaProjects/cht
+   偵測到技術棧：spring-boot-mybatis（pom.xml 含 spring-boot-starter + mybatis-spring-boot）
+   確認使用此技術棧？[Y/n]
+```
+
+同時檢查這些專案在 Notion 中是否已有「技術棧」欄位值，若為空則寫入偵測結果。
+
+**若未匯入**：
+
+搜尋專案資料庫中的所有專案，以 `pwd` 匹配：
+
+- **已匹配** → 確認專案資訊，補充技術棧和缺少的欄位
+- **未匹配** → 列出專案供選擇，或建立新專案
+
+**建立新專案條目**（使用 `notion-create-pages`）：
+
+```
+建立新專案，請填寫以下資訊：
+
+  專案名稱：（必填）
+  本機路徑：/Users/cheng/IdeaProjects/Taipei/LineBC（已自動偵測）
+  技術棧：spring-mvc-mybatis（已自動偵測，Enter 確認或修改）
+  Git Repo：https://github.com/xxx/yyy.git（已自動偵測，Enter 確認或修改）
+  狀態：進行中（預設）
+
+以下欄位可現在填寫，或稍後在 Notion 頁面補充：
+  SIT 主機：（如 10.0.1.100，多台用換行分隔）
+  UAT 主機：（如 10.0.1.200）
+  正式環境主機：（如 AP1: 10.0.1.10, AP2: 10.0.1.11, WEB: 10.0.1.20）
+  部署方式：（如 WAR 部署到 Tomcat、Docker、K8s 等）
+  說明：（專案簡要描述）
+```
 
 ### 5. Agent 安裝（選用）
 
@@ -127,7 +188,7 @@ Agent 清單：
 ```
 
 若選擇安裝：
-1. 讀取 `~/.claude-company/plugins/feature-workflow/agents/` 下的 4 個 `.md` 檔案
+1. 讀取 plugin 目錄下 `agents/` 的 4 個 `.md` 檔案
 2. 複製到使用者選擇的目標目錄
 3. 顯示安裝結果
 
@@ -177,3 +238,5 @@ Agent 安裝：已安裝 4 個 Agent 到 ~/.claude-company/agents/
 - **使用者想新增更多專案對應**：可重複執行 `/feature-setup`，選擇「更新專案對應」
 - **設定檔被意外刪除**：重新執行 `/feature-setup` 即可重建
 - **Agent 目標目錄已有同名檔案**：詢問是否覆蓋
+- **專案資料庫已有欄位但名稱不同**（如「路徑」vs「本機路徑」）：列出現有欄位讓使用者選擇對應
+- **Git remote 不存在**：Git Repo 欄位留空，使用者可稍後補填
