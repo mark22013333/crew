@@ -40,6 +40,20 @@ claude plugin install bug-workflow && \
 claude plugin enable bug-workflow
 ```
 
+### 更新
+
+```bash
+claude plugin update bug-workflow@company-marketplace
+```
+
+更新完成後**重啟 Claude Code** 使新版生效。
+
+> 若 `update` 顯示已是最新但功能未生效，可先卸載再重裝：
+> ```bash
+> claude plugin uninstall bug-workflow@company-marketplace && \
+> claude plugin install bug-workflow@company-marketplace
+> ```
+
 ## 首次設定
 
 安裝後執行 `/bug-setup`，自動完成：

@@ -97,6 +97,23 @@ claude plugin enable feature-workflow
 
 啟用後**重啟 Claude Code**。
 
+### 更新 Plugin
+
+當 Plugin 有新版本時，執行以下指令更新：
+
+```bash
+claude plugin update bug-workflow@company-marketplace && \
+claude plugin update feature-workflow@company-marketplace
+```
+
+更新完成後**重啟 Claude Code** 使新版生效。
+
+> 若 `update` 顯示已是最新但功能未生效，可先卸載再重裝：
+> ```bash
+> claude plugin uninstall feature-workflow@company-marketplace && \
+> claude plugin install feature-workflow@company-marketplace
+> ```
+
 ### Step 3：執行 Setup 引導
 
 在專案目錄下執行：
