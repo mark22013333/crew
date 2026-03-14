@@ -247,6 +247,7 @@ Opus Agent 掃描專案現有程式碼學習風格，產生 POJO、Mapper、Serv
 | `/feature-review` | 程式碼品質檢查 |
 | `/feature-close` | 結案 + 同步設計庫 |
 | `/feature-auto` | 讀取規格書自動執行完整流程 |
+| `/project-add` | 新增或更新專案對應（來自 bug-workflow Plugin） |
 
 ## 技術棧支援
 
@@ -292,9 +293,28 @@ Opus Agent 掃描專案現有程式碼學習風格，產生 POJO、Mapper、Serv
 - 設計模式偏好
 - Git Flow 和部署流程
 
+## 專案管理（/project-add）
+
+專案的新增與更新統一由 bug-workflow 的 `/project-add` 處理（兩個 Plugin 共用同一個專案資料庫）。
+
+在新專案目錄下執行：
+
+```
+/project-add
+```
+
+自動完成：
+1. 偵測 Git Repo 識別碼（支援公司 GitLab 與 GitHub）
+2. 偵測技術棧（掃描 pom.xml / build.gradle）
+3. 搜尋 Notion 專案資料庫，比對或建立專案條目
+4. 同步更新所有 Workflow 設定檔（bug-workflow + feature-workflow）
+
+> `/feature-setup` 完成後會自動詢問是否執行 `/project-add` 新增當前專案。
+
 ## 與 bug-workflow 的關係
 
 - 共用「任務追蹤工具」和「專案資料庫」Notion 資料庫
+- 共用 `/project-add` 管理專案對應（需安裝 bug-workflow Plugin）
 - setup 自動匯入 bug-workflow 的共用 ID 和專案對應
 - 互不干擾，可同時使用
 

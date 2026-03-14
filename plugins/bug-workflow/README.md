@@ -83,7 +83,21 @@ Plugin 透過 `git remote get-url origin` 自動偵測 Git Repo，比對 Notion 
 
 在不同專案目錄下執行 `/bug-start`，會自動對應不同的 Notion 專案，無需手動切換。
 
-新增專案對應：執行 `/project-add` 即可快速新增，或重新執行 `/bug-setup` 選擇「更新專案對應」。
+### 新增專案（/project-add）
+
+在新專案目錄下執行：
+
+```
+/project-add
+```
+
+自動完成：
+1. 偵測 Git Repo 識別碼（支援公司 GitLab 與 GitHub）
+2. 偵測技術棧（掃描 pom.xml / build.gradle）
+3. 搜尋 Notion 專案資料庫，比對或建立專案條目
+4. 同步更新所有 Workflow 設定檔（bug-workflow + feature-workflow）
+
+已存在的專案也可用 `/project-add` 更新資訊（主機、部署方式等）。
 
 ## 設定檔
 
