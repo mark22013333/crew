@@ -247,6 +247,7 @@ Opus Agent 掃描專案現有程式碼學習風格，產生 POJO、Mapper、Serv
 | `/feature-review` | 程式碼品質檢查 |
 | `/feature-close` | 結案 + 同步設計庫 |
 | `/feature-auto` | 讀取規格書自動執行完整流程 |
+| `/feature-stack` | 自動偵測專案分層結構，建立自訂技術棧掃描規則 |
 | `/project-add` | 新增或更新專案對應（來自 bug-workflow Plugin） |
 
 ## 技術棧支援
@@ -260,51 +261,32 @@ Opus Agent 掃描專案現有程式碼學習風格，產生 POJO、Mapper、Serv
 | `spring-boot-jpa` | Spring Boot 2.x+ | JPA/Hibernate | Entity + Repository + Service + Controller + DTO |
 | `spring-boot-mybatis-plus` | Spring Boot 2.x+ | MyBatis-Plus | Entity + BaseMapper + Service(IService+Impl) + Controller |
 
-### 自訂技術棧
+### 自訂技術棧（/feature-stack）
 
 適用於內建技術棧未涵蓋的框架（如 Spring WebFlux、Vert.x、純 JDBC 等）。
 
-#### 設定步驟
+在專案目錄下執行：
 
-**Step 1**：在設定檔（`feature-workflow-config.md`）的「自訂技術棧」總表新增一列：
-
-```markdown
-| 技術棧 ID | 框架 | ORM | DB | 說明 |
-|-----------|------|-----|-----|------|
-| spring-webflux-r2dbc | Spring WebFlux 3.x | R2DBC | PostgreSQL | 響應式 API |
+```
+/feature-stack
 ```
 
-**Step 2**：在總表下方新增 `#### {技術棧 ID}` 區塊，定義各層級的範本掃描規則：
+自動完成：
+1. 掃描建置檔偵測框架、ORM、DB
+2. 掃描 `src/main/java` 的 package 結構，辨識分層（Entity / Service / Controller 等）
+3. 為每個層級產生 Glob Pattern 範本掃描規則
+4. 展示結果供確認或編輯
+5. 寫入設定檔並更新專案對應的技術棧欄位
 
-```markdown
-#### spring-webflux-r2dbc
+也可指定 ID 跳過偵測：
 
-| 層級 | 名稱 | Glob Pattern | 說明 |
-|------|------|-------------|------|
-| Entity | 資料實體 | `**/entity/*.java` | R2DBC Entity |
-| Repository | 資料存取 | `**/repository/*Repository.java` | ReactiveCrudRepository |
-| Service | 業務邏輯 | `**/service/*Service.java` | 回傳 Mono/Flux |
-| Controller | API 端點 | `**/controller/*Controller.java` | @RestController |
-| DTO | 資料傳輸 | `**/dto/*DTO.java` | 請求/回應物件 |
+```
+/feature-stack my-custom-stack
 ```
 
-scaffold 會依照每列的 Glob Pattern 從專案中找到現有程式碼作為風格範本，學習後產生新的骨架檔案。
+設定完成後，`/feature-scaffold` 會自動使用自訂技術棧的掃描規則從專案找到範本產生骨架。
 
-**Step 3**（建議）：在專案 CLAUDE.md 描述該框架的分層慣例，例如：
-
-```markdown
-## 分層架構
-- Controller 回傳 `Mono<ResponseEntity<T>>`
-- Service 層全部使用響應式鏈（不可 block）
-- Repository 繼承 `ReactiveCrudRepository`
-```
-
-#### 注意事項
-
-- 技術棧 ID 不可與內建 ID 重複
-- Glob Pattern 必須能在專案中匹配到至少一個檔案，否則 scaffold 會提示手動指定範本
-- 層級數量不限，可依專案需求增減（如不需要 DTO 就不加）
-- 在專案對應表中將專案的「技術棧」欄位填入自訂 ID 即可生效
+> 建議同時在專案 CLAUDE.md 補充分層慣例說明（如回傳值包裝方式、依賴注入風格等），讓 Agent 產出更精確的程式碼。
 
 ## Agent 雙模式
 
