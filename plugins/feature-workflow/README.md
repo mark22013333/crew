@@ -262,9 +262,49 @@ Opus Agent 掃描專案現有程式碼學習風格，產生 POJO、Mapper、Serv
 
 ### 自訂技術棧
 
-1. 在設定檔的「自訂技術棧」表新增一筆
-2. 在專案 CLAUDE.md 描述該框架的分層慣例
-3. scaffold 會根據 ID 讀取專案中的範本程式碼來產生
+適用於內建技術棧未涵蓋的框架（如 Spring WebFlux、Vert.x、純 JDBC 等）。
+
+#### 設定步驟
+
+**Step 1**：在設定檔（`feature-workflow-config.md`）的「自訂技術棧」總表新增一列：
+
+```markdown
+| 技術棧 ID | 框架 | ORM | DB | 說明 |
+|-----------|------|-----|-----|------|
+| spring-webflux-r2dbc | Spring WebFlux 3.x | R2DBC | PostgreSQL | 響應式 API |
+```
+
+**Step 2**：在總表下方新增 `#### {技術棧 ID}` 區塊，定義各層級的範本掃描規則：
+
+```markdown
+#### spring-webflux-r2dbc
+
+| 層級 | 名稱 | Glob Pattern | 說明 |
+|------|------|-------------|------|
+| Entity | 資料實體 | `**/entity/*.java` | R2DBC Entity |
+| Repository | 資料存取 | `**/repository/*Repository.java` | ReactiveCrudRepository |
+| Service | 業務邏輯 | `**/service/*Service.java` | 回傳 Mono/Flux |
+| Controller | API 端點 | `**/controller/*Controller.java` | @RestController |
+| DTO | 資料傳輸 | `**/dto/*DTO.java` | 請求/回應物件 |
+```
+
+scaffold 會依照每列的 Glob Pattern 從專案中找到現有程式碼作為風格範本，學習後產生新的骨架檔案。
+
+**Step 3**（建議）：在專案 CLAUDE.md 描述該框架的分層慣例，例如：
+
+```markdown
+## 分層架構
+- Controller 回傳 `Mono<ResponseEntity<T>>`
+- Service 層全部使用響應式鏈（不可 block）
+- Repository 繼承 `ReactiveCrudRepository`
+```
+
+#### 注意事項
+
+- 技術棧 ID 不可與內建 ID 重複
+- Glob Pattern 必須能在專案中匹配到至少一個檔案，否則 scaffold 會提示手動指定範本
+- 層級數量不限，可依專案需求增減（如不需要 DTO 就不加）
+- 在專案對應表中將專案的「技術棧」欄位填入自訂 ID 即可生效
 
 ## Agent 雙模式
 
