@@ -44,6 +44,8 @@ claude plugin enable feature-workflow
 
 含 4 個 Opus Agent，在規格、DB、架構、程式碼產生階段提供專家級輸出。
 
+#### Notion 驅動模式（每個步驟即時讀寫 Notion）
+
 | 指令 | 說明 |
 |------|------|
 | `/feature-setup` | 首次設定引導（含 Agent 安裝） |
@@ -52,10 +54,33 @@ claude plugin enable feature-workflow
 | `/feature-db` | 資料庫設計（Agent） |
 | `/feature-arch` | 架構設計（Agent） |
 | `/feature-scaffold [--dry-run]` | 程式碼骨架產生（Agent） |
+| `/feature-stack` | 自訂技術棧設定 |
 | `/feature-update <進度>` | 更新開發進度 |
 | `/feature-review` | 程式碼品質檢查 |
 | `/feature-close` | 結案 + 同步設計庫 |
 | `/feature-auto <檔案路徑>` | 讀取規格書自動執行完整流程 |
+
+#### 本地規劃模式 ✨ v3 新增（`.spec/` 離線規劃，Notion 呼叫減少 75%）
+
+中間規劃全在本地 `.spec/` 目錄完成，僅在開始和結案時讀寫 Notion。同時支援 Feature 和 Bug 兩種類型。
+
+```
+Notion Layer（書擋）      ─── 只在 plan-start 和 plan-close 讀寫
+Local Spec Layer（工作台）  ─── 所有規劃和設計在本地 .spec/ 目錄
+Agent Teams Layer（施工隊） ─── Leader-delegate 模式執行
+```
+
+| 指令 | 說明 | Notion 呼叫 |
+|------|------|-------------|
+| `/plan-start <任務簡述>` | 建立 Notion 條目 + `.spec/` 目錄 + Git branch | 1 次 |
+| `/plan [spec\|db\|arch]` | 本地規劃（Feature: spec/db/arch，Bug: investigate/root-cause/fix） | **0 次** |
+| `/plan-build [--dry-run]` | Agent Teams 產生程式碼 | **0 次** |
+| `/plan-review [--quick]` | Agent Teams 3 人審查（邏輯/風格/安全） | **0 次** |
+| `/plan-close` | 一次性批次同步到 Notion + 知識庫 + Git 提交 | 3-5 次 |
+| `/plan-sync [spec\|db\|arch]` | 手動中途同步（按需） | 2-3 次 |
+| `/plan-status [--detail]` | 列出所有活躍任務 | **0 次** |
+
+**兩套模式完全並存**，可自由選擇使用 `feature-*` 或 `plan-*` 系列指令。
 
 詳細說明見 [plugins/feature-workflow/README.md](plugins/feature-workflow/README.md)
 
