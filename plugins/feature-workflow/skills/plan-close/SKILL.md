@@ -48,6 +48,7 @@ Bug 類型還需：
 | arch.md | 🏗️ 架構設計 | ✅/❌ |
 | files.md | 📁 程式碼清單 | ✅/❌ |
 | review.md | 📋 程式碼審查（新增區塊） | ✅/❌ |
+| verify.md | 🧪 驗證報告（新增區塊） | ✅/❌ |
 | log.md | 📝 開發日誌 | ✅/❌ |
 
 **Bug 類型**：
@@ -104,6 +105,9 @@ git diff $(git merge-base HEAD production)..HEAD
 
 若 review.md 存在，在「📝 開發日誌」前插入：
 📋 程式碼審查 區塊 ← review.md 內容
+
+若 verify.md 存在，在「📋 程式碼審查」後（或「📝 開發日誌」前）插入：
+🧪 驗證報告 區塊 ← verify.md 內容
 ```
 
 **Bug 類型**：

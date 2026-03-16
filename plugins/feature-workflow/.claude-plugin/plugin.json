@@ -22,6 +22,7 @@
     "./skills/plan-start",
     "./skills/plan",
     "./skills/plan-build",
+    "./skills/plan-verify",
     "./skills/plan-review",
     "./skills/plan-close",
     "./skills/plan-sync",

@@ -251,6 +251,19 @@ Opus Agent 掃描專案現有程式碼學習風格，產生 POJO、Mapper、Serv
 | `/feature-stack` | 自動偵測專案分層結構，建立自訂技術棧掃描規則 |
 | `/project-add` | 新增或更新專案對應（來自 bug-workflow Plugin） |
 
+### plan-* 本地規劃模式（v3）
+
+| Skill | 說明 | Notion 呼叫 |
+|-------|------|-------------|
+| `/plan-start` | 建立任務到 .spec/ 目錄 + Notion | **2-3 次** |
+| `/plan` | 本地規劃（spec/db/arch） | **0 次** |
+| `/plan-build` | Agent Teams 產生程式碼 | **0 次** |
+| `/plan-verify` | chrome-cdp 操作瀏覽器驗證驗收條件 | **0 次** |
+| `/plan-review` | Agent Teams 3 人程式碼審查 | **0 次** |
+| `/plan-close` | 批次同步 Notion + Git 提交 | **3-5 次** |
+| `/plan-sync` | 手動同步 .spec/ 到 Notion | **2-3 次** |
+| `/plan-status` | 查看任務狀態 | **0 次** |
+
 ## 技術棧支援
 
 ### 內建技術棧
