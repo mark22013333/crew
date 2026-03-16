@@ -7,9 +7,9 @@
 ## 安裝
 
 ```bash
-claudec plugin marketplace add mark22013333/crew && \
-claudec plugin install feature-workflow && \
-claudec plugin enable feature-workflow
+claude plugin marketplace add mark22013333/crew && \
+claude plugin install feature-workflow && \
+claude plugin enable feature-workflow
 ```
 
 首次使用前執行 `/plan-setup` 完成設定引導。
@@ -17,7 +17,7 @@ claudec plugin enable feature-workflow
 ### 更新
 
 ```bash
-claudec plugin update feature-workflow@company-marketplace
+claude plugin update feature-workflow@company-marketplace
 ```
 
 更新完成後**重啟 Claude Code** 使新版生效。
@@ -26,22 +26,24 @@ claudec plugin update feature-workflow@company-marketplace
 
 ## 流程
 
-```
-/plan-setup (首次，一次性)
-       │
-/plan-start <功能簡述>          ← 建立 Notion 頁面 + .spec/ 目錄 + Git branch
-       │
-/plan [spec|db|arch]            ← 本地規劃（寫入 .spec/）
-       │
-/plan-build                     ← Agent Teams 4 人產生程式碼
-       │
-       │  [IDE 啟動本地服務 + Chrome 開啟頁面]
-       │
-/plan-verify                    ← chrome-cdp 驗收驗證
-       │
-/plan-review                    ← Agent Teams 3 人程式碼審查
-       │
-/plan-close                     ← 批次同步 Notion + Git 提交
+```mermaid
+flowchart TD
+    setup["/plan-setup<br/><i>首次設定（一次性）</i>"]
+    start["/plan-start &lt;功能簡述&gt;<br/><i>建立 Notion + .spec/ + Git branch</i>"]
+    plan["/plan [spec|db|arch]<br/><i>本地規劃（零 Notion 呼叫）</i>"]
+    build["/plan-build<br/><i>Agent Teams 4 人產生程式碼</i>"]
+    ide(["IDE 啟動本地服務<br/>Chrome 開啟頁面"])
+    verify["/plan-verify<br/><i>chrome-cdp 驗收驗證</i>"]
+    review["/plan-review<br/><i>Agent Teams 3 人程式碼審查</i>"]
+    close["/plan-close<br/><i>批次同步 Notion + Git 提交</i>"]
+
+    setup --> start --> plan --> build --> ide --> verify --> review --> close
+
+    verify -- "❌ FAIL" --> build
+    review -- "🔴 嚴重問題" --> build
+
+    style setup fill:#f0f0f0,stroke:#999
+    style ide fill:#fff3cd,stroke:#ffc107
 ```
 
 流程非強制線性，可跳過任何步驟、反覆執行。
@@ -106,20 +108,33 @@ claudec plugin update feature-workflow@company-marketplace
 
 ### plan-build（4 人開發團隊）
 
-| 成員 | 角色 | 依賴關係 |
-|------|------|---------|
-| Backend Engineer | POJO/Mapper/Service（核心） | 最先開始 |
-| API Engineer | Controller/DTO/驗證 | 等 Backend 完成 |
-| Frontend Engineer | 前端頁面 | 與 Backend 同時開始 |
-| Test Engineer | 單元測試/整合測試 | 等 Backend 完成 |
+```mermaid
+flowchart LR
+    BE["🔧 Backend Engineer<br/>POJO / Mapper / Service"]
+    API["🌐 API Engineer<br/>Controller / DTO / 驗證"]
+    FE["🎨 Frontend Engineer<br/>前端頁面"]
+    TE["🧪 Test Engineer<br/>單元測試 / 整合測試"]
+
+    BE --> API
+    BE --> TE
+    BE -.->|同時開始| FE
+```
 
 ### plan-review（3 人審查團隊）
 
-| 成員 | 角色 | 聚焦 |
-|------|------|------|
-| Logic Reviewer | 邏輯正確性 | API 驗證、業務邏輯、邊界條件 |
-| Quality Reviewer | 程式碼品質 | 風格一致、命名規範、Error handling |
-| Security Reviewer | 安全與效能 | SQL Injection、XSS、N+1、分頁 |
+```mermaid
+flowchart LR
+    L["🔍 Logic Reviewer<br/>邏輯正確性"]
+    Q["✨ Quality Reviewer<br/>程式碼品質"]
+    S["🛡️ Security Reviewer<br/>安全與效能"]
+    X["🔄 交叉審查"]
+    R["📋 Leader 彙整報告"]
+
+    L --> X
+    Q --> X
+    S --> X
+    X --> R
+```
 
 三位 Reviewer 完成後互相分享發現，交叉審查後由 Leader 彙整報告。
 
