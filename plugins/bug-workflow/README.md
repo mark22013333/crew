@@ -17,7 +17,7 @@
 ## 前置條件
 
 1. **Notion Plugin** — 需先安裝 Notion MCP Server
-   ```
+   ```bash
    claude plugin install Notion
    ```
 
@@ -65,16 +65,22 @@ claude plugin update bug-workflow@company-marketplace
 
 ## 工作流程
 
-```
-發現 Bug → /bug-start 建立條目
-    │
-    ├── /bug-update 補充 Log、SQL、判斷
-    │
-    ├── 修復並 commit
-    │
-    ├── /bug-close 結案（自動擷取 diff → 更新 Notion → 同步知識庫）
-    │
-    └── 上線後復發？ → /bug-update reopen → 繼續調查 → /bug-close 二次結案
+```mermaid
+flowchart TD
+    discover["發現 Bug"]
+    start["/bug-start<br/><i>建立 Notion 條目</i>"]
+    update["/bug-update<br/><i>補充 Log、SQL、判斷</i>"]
+    fix["修復並 commit"]
+    close["/bug-close<br/><i>結案（diff → Notion → 知識庫）</i>"]
+    reopen{上線後復發？}
+    reopenCmd["/bug-update reopen<br/><i>重新開啟</i>"]
+
+    discover --> start --> update --> fix --> close --> reopen
+    reopen -- "是" --> reopenCmd --> update
+    reopen -- "否" --> done(["完成"])
+
+    style discover fill:#fee,stroke:#f66
+    style done fill:#efe,stroke:#6c6
 ```
 
 ## 跨專案支援
@@ -87,7 +93,7 @@ Plugin 透過 `git remote get-url origin` 自動偵測 Git Repo，比對 Notion 
 
 在新專案目錄下執行：
 
-```
+```bash
 /project-add
 ```
 
