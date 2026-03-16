@@ -19,7 +19,7 @@ Bug 類型還需檢查：
 1. `~/.claude-company/bug-workflow-config.md`
 2. `~/.claude/bug-workflow-config.md`
 
-若都不存在，提示使用者先執行 `/feature-setup` 或 `/bug-setup`。
+若都不存在，提示使用者先執行 `/plan-setup` 或 `/bug-setup`。
 
 ---
 
@@ -253,7 +253,7 @@ created: {當前日期 YYYY-MM-DD}
 
 ## 邊界情況
 
-- **設定檔不存在**：提示先執行 `/feature-setup` 或 `/bug-setup`
+- **設定檔不存在**：提示先執行 `/plan-setup` 或 `/bug-setup`
 - **不在 Git repo 中**：跳過分支和專案自動偵測
 - **`.spec/` 目錄已存在同名 slug**：加數字後綴或詢問使用者
 - **Notion API 失敗**：仍建立本地 `.spec/` 目錄，`notion_page_id` 留空，提示使用者可稍後用 `/plan-sync` 補建

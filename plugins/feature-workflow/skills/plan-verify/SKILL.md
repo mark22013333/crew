@@ -39,7 +39,7 @@ CDP="node ~/.claude-company/company-marketplace/plugins/feature-workflow/scripts
 
 | # | 項目 | 檢查方式 | 失敗處理 |
 |---|------|---------|---------|
-| 1 | cdp.mjs 存在 | `test -f ~/.claude-company/company-marketplace/plugins/feature-workflow/scripts/cdp.mjs` | 提示：`claude plugin update feature-workflow@company-marketplace` |
+| 1 | cdp.mjs 存在 | `test -f ~/.claude-company/company-marketplace/plugins/feature-workflow/scripts/cdp.mjs` | 提示：`claudec plugin update feature-workflow@company-marketplace` |
 | 2 | Node.js 22+ | `node --version`，解析主版本號 ≥ 22 | 提示：`請升級 Node.js 至 22 以上版本（https://nodejs.org/）` |
 | 3 | Chrome remote debugging | `$CDP list`，檢查回傳是否包含 tab 清單 | 提示：`請在 Chrome 開啟 chrome://inspect/#remote-debugging 並啟用切換開關` |
 | 4 | `--api-only` 模式 | 跳過第 3 項檢查 | 只需 curl 可用 |

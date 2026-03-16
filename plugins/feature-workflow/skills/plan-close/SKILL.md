@@ -62,7 +62,7 @@ Bug 類型還需：
 
 ### 3. 從 Git 擷取變更摘要
 
-複用 `feature-close` 的 Git diff 邏輯：
+從 Git diff 擷取變更摘要：
 
 ```bash
 git branch --show-current
@@ -75,7 +75,7 @@ git diff $(git merge-base HEAD production)..HEAD
 
 ### 4. 智慧判斷目標狀態
 
-複用 `feature-close` 的狀態推斷邏輯：
+狀態推斷邏輯：
 - 使用者輸入含「完成」、「done」、「上線」、「結案」→ `已完成`
 - 含「測試」、「QA」→ `測試中`
 - 無法判斷 → 詢問，預設 `測試中`
@@ -141,7 +141,7 @@ git diff $(git merge-base HEAD production)..HEAD
 
 **Feature → 功能設計庫**（1 次 `notion-create-pages`）
 
-複用 `feature-close` 的同步邏輯：
+同步邏輯：
 
 | 欄位 | 值 |
 |------|-----|

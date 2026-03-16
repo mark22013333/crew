@@ -1,24 +1,15 @@
 {
   "name": "feature-workflow",
-  "description": "功能開發工作流 — 整合 Notion 與 Claude Code，涵蓋需求分析、規格設計、DB 設計、架構設計、程式碼骨架產生、品質審查到結案的完整生命週期管理。v3 新增本地規劃模式（plan-* 系列），以 .spec/ 目錄做離線規劃，Notion 呼叫減少 75%。",
-  "version": "3.0.0",
+  "description": "功能開發工作流 — 整合 Notion 與 Claude Code，以 .spec/ 目錄做本地規劃，Agent Teams 產生程式碼與審查，chrome-cdp 驗收驗證，結案時批次同步 Notion。",
+  "version": "4.0.0",
   "author": {
     "name": "Cheng"
   },
   "license": "MIT",
   "category": "productivity",
   "skills": [
-    "./skills/feature-setup",
-    "./skills/feature-start",
-    "./skills/feature-spec",
-    "./skills/feature-db",
-    "./skills/feature-arch",
-    "./skills/feature-scaffold",
-    "./skills/feature-update",
-    "./skills/feature-review",
-    "./skills/feature-close",
-    "./skills/feature-auto",
-    "./skills/feature-stack",
+    "./skills/plan-setup",
+    "./skills/plan-stack",
     "./skills/plan-start",
     "./skills/plan",
     "./skills/plan-build",
@@ -32,13 +23,11 @@
     "feature",
     "notion",
     "workflow",
-    "architecture",
-    "database-design",
-    "code-generation",
-    "specification",
-    "agent",
-    "local-spec",
     "agent-teams",
-    "plan"
+    "chrome-cdp",
+    "local-spec",
+    "plan",
+    "code-generation",
+    "code-review"
   ]
 }

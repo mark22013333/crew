@@ -1,6 +1,6 @@
 ---
 name: plan-build
-description: 從 .spec/ 讀取設計文件，以 Agent Teams leader-delegate 模式產生程式碼。Leader 只協調不寫 code。當使用者提到「plan-build」、「build」、「產生程式碼」時觸發此 Skill。
+description: 從 .spec/ 讀取設計文件，以 Agent Teams leader-delegate 模式（4 人團隊）產生程式碼。Leader 只協調不寫 code。當使用者提到「plan-build」、「build」、「產生程式碼」時觸發此 Skill。
 ---
 
 # plan-build — Agent Teams 程式碼產生
@@ -38,7 +38,7 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 ## 使用方式
 
 ```
-/plan-build                # 完整產生（後端 + 前端）
+/plan-build                # 完整產生（後端 + 前端 + API + 測試）
 /plan-build --dry-run      # 預覽不建立檔案
 /plan-build --backend-only # 只產後端
 ```
@@ -66,25 +66,30 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 若 arch.md 不存在，警告使用者並詢問是否繼續。
 
-### 3. 判斷前端需求
+### 3. 判斷團隊組成
 
 從 `spec.md` 的「判斷」區塊讀取：
 - `FRONTEND_REQUIRED`: true/false
 - `FRONTEND_TECH`: JSP/Vue/React/無
 
-若為 true 且未指定 `--backend-only`，將建立包含前端 Coder 的 Team。
+根據判斷結果決定團隊規模：
+
+| 情境 | 團隊組成 |
+|------|---------|
+| `--backend-only` 或無前端 | 後端工程師（Subagent 模式） |
+| 有前端需求 | 4 人 Agent Teams（後端 + 前端 + API + 測試） |
 
 ### 4. 確認執行計畫
-
-向使用者展示：
 
 ```
 即將啟動 Agent Teams 產生程式碼：
 
 📄 設計來源：.spec/{slug}/
 📊 Teammate 配置：
-  • backend-coder — 讀取 arch.md + db.md 產生後端程式碼
-  {• frontend-coder — 讀取 spec.md 產生前端頁面}（條件性）
+  • backend-engineer  — 後端核心（POJO/Mapper/Service）
+  • api-engineer      — API 層（Controller/DTO/驗證）
+  • frontend-engineer — 前端頁面（{FRONTEND_TECH}）
+  • test-engineer     — 測試程式碼（單元測試/整合測試）
 
 {--dry-run: 預覽模式，不建立檔案}
 
@@ -139,41 +144,83 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 使用繁體中文撰寫註解。
 ```
 
-#### 前端 + 後端（Agent Teams）
+#### 完整 4 人團隊（Agent Teams）
 
 使用自然語言要求 Claude 建立 Agent Team：
 
 ```
-建立一個 Agent Team 來產生程式碼，生成 2 個 Teammate：
+建立一個 Agent Team 來開發 {功能名稱} 功能，生成 4 個 Teammate：
 
-1. backend-coder — 後端程式碼產生器
-   - 設計文件：{arch.md 和 db.md 的內容摘要}
-   - 讀取專案 CLAUDE.md 了解架構慣例
-   - 讀取設定檔取得技術棧 ID
-   - 掃描專案現有程式碼學習風格（POJO、Mapper、Service、Controller 各一個範本）
-   - 按架構設計產生所有後端程式碼骨架
-   - 風格必須與專案完全一致（package、import 順序、註解、縮排）
-   - Service 方法含 TODO 標記待實作邏輯
-   - 完成後向 frontend-coder 分享 API 端點清單（URL + Method + 請求/回應格式）
-   - 使用繁體中文
+【成員 1：後端工程師】Backend Engineer
+- 讀取專案 CLAUDE.md 了解架構慣例
+- 讀取設計文件：
+  * .spec/{slug}/arch.md（架構設計 — 類別清單、介面定義）
+  * .spec/{slug}/db.md（DB 設計 — 表結構）
+- 掃描專案現有程式碼學習風格（POJO、Mapper、Service 各一個範本）
+- 任務：
+  * 產生 POJO/Entity（含 Lombok、表註解）
+  * 產生 Mapper/DAO（tk.mybatis 或 JPA Repository）
+  * 產生 Mapper XML（若使用 MyBatis）
+  * 產生 Service Interface + Service Impl
+  * Service 方法含 TODO 標記待實作邏輯
+- 風格必須與專案完全一致（package、import 順序、註解、縮排）
+- 完成後通知 Lead，並向其他成員分享產出的類別清單和介面定義
+- 使用 Opus 模型
+- 使用繁體中文
 
-2. frontend-coder — 前端程式碼產生器
-   - 前端技術棧：{FRONTEND_TECH}
-   - 設計文件：{spec.md 中的 API 設計摘要}
-   - 掃描專案前端目錄，讀取 2-3 個現有頁面作為風格範本
-   - 產生前端頁面（HTML/JSP/Vue）、API 呼叫邏輯、表單驗證、表格展示
-   - 風格必須與專案完全一致
-   - 完成後向 backend-coder 分享 API 依賴清單
-   - 使用繁體中文
+【成員 2：API 工程師】API Engineer
+- 讀取設計文件：
+  * .spec/{slug}/spec.md（技術規格 — API 設計、參數驗證規則）
+  * .spec/{slug}/arch.md（架構設計）
+- 等待後端工程師完成 Service 層後開始
+- 任務：
+  * 產生 Controller（含 @RequestMapping、路由設定）
+  * 產生 DTO（Request/Response 物件）
+  * 實作 API 參數驗證邏輯
+  * 實作例外處理（BizException、ApiResult）
+  * 確保 API 回應格式與專案現有風格一致
+- 完成後通知 Lead，並向前端工程師分享 API 端點清單（URL + Method + 請求/回應格式）
+- 使用 Opus 模型
+- 使用繁體中文
 
-重要：兩位 Teammate 負責不同目錄（後端改 src/main/java，前端改 webapp/JSP/JS），不會衝突。
+【成員 3：前端工程師】Frontend Engineer
+- 前端技術棧：{FRONTEND_TECH}
+- 讀取設計文件：
+  * .spec/{slug}/spec.md（技術規格 — 畫面需求、操作流程）
+- 掃描專案前端目錄，讀取 2-3 個現有頁面作為風格範本
+- 可與後端工程師同時開始（前端不依賴後端實作）
+- 任務：
+  * 產生前端頁面（HTML/JSP/Vue）
+  * 產生 API 呼叫邏輯（待 API 工程師確認端點後對齊）
+  * 產生表單驗證、表格展示、分頁元件
+- 風格必須與專案完全一致
+- 完成後通知 Lead
+- 使用繁體中文
 
-任務依賴：兩位同時開始。
+【成員 4：測試工程師】Test Engineer
+- 讀取專案的測試慣例（掃描 src/test/ 下現有測試檔案）
+- 等待後端工程師完成後開始
+- 任務：
+  * 為 Service 層產生單元測試（JUnit + Mockito）
+  * 為 Controller 層產生整合測試（MockMvc / SpringBootTest）
+  * 測試案例涵蓋：正常流程、邊界條件、異常處理
+  * 測試命名遵循專案慣例
+- 完成後通知 Lead
+- 使用繁體中文
+
+【任務依賴關係】
+- 成員 1（後端工程師）最先開始，是核心
+- 成員 2（API 工程師）和 4（測試工程師）等成員 1 完成後再開始
+- 成員 3（前端工程師）可以跟成員 1 同時開始（前端不依賴後端實作）
+- 成員 2、3、4 之間可並行
+
+重要：四位 Teammate 負責不同目錄，不會衝突。
 完成後：互相確認 API 契約是否一致（端點 URL、參數、回應格式），
-不一致的地方由 backend-coder 為準，frontend-coder 調整。
+不一致的地方由 API 工程師為準，其他成員調整。
 {dry_run_instruction}
 
-使用 delegate mode，我只協調不寫 code。
+請使用 delegate mode，Lead 只負責協調，不要自己寫 code。
+每個 Teammate 完成後要通知 Lead。
 所有輸出使用繁體中文。
 ```
 
@@ -209,16 +256,19 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 程式碼產生完成！
 
 📁 產出清單：.spec/{slug}/files.md
-📊 統計：N 個後端檔案 {+ M 個前端檔案}
+📊 統計：N 個後端 + M 個前端 + K 個測試
 
 已完成：
-  ✅ backend-coder — N 個檔案（POJO/Mapper/Service/Controller）
-  {✅ frontend-coder — M 個檔案（JSP/JS/CSS）}
+  ✅ backend-engineer  — N 個檔案（POJO/Mapper/Service）
+  ✅ api-engineer      — N 個檔案（Controller/DTO）
+  {✅ frontend-engineer — M 個檔案（JSP/JS/CSS）}
+  ✅ test-engineer     — K 個檔案（測試）
   {✅ API 契約確認 — 一致}
 
 後續可使用：
-  • /plan-review   — Agent Teams 3 人審查
-  • /plan-close    — 結案並同步 Notion
+  • /plan-verify  — 驗收驗證
+  • /plan-review  — Agent Teams 3 人審查
+  • /plan-close   — 結案並同步 Notion
 ```
 
 ---
@@ -229,5 +279,6 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 - **Agent Teams 未啟用**：顯示設定指引
 - **--dry-run 模式**：不建立任何檔案，只展示清單和關鍵片段
 - **Teammate 失敗**：提供選項：重試 / 跳過 / 終止
-- **API 契約不一致**：以 backend-coder 為準，frontend-coder 調整
+- **API 契約不一致**：以 API 工程師為準，其他成員調整
 - **每個工作階段只能一個 Team**：建立新 Team 前確認無殘留 Team
+- **僅後端模式**：不建立 Agent Teams，使用 Subagent 完成
