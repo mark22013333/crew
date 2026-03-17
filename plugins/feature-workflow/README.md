@@ -32,7 +32,7 @@ flowchart TD
     setup["/plan-setup<br/><i>首次設定（一次性）</i>"]
     start["/plan-start &lt;功能簡述&gt;<br/><i>建立 Notion + .spec/ + Git branch</i>"]
     plan["/plan [spec|db|arch]<br/><i>本地規劃（零 Notion 呼叫）</i>"]
-    build["/plan-build<br/><i>Agent Teams 4 人產生程式碼</i>"]
+    build["/plan-build<br/><i>Agent Teams 最多 5 人產生程式碼</i>"]
     ide(["IDE 啟動本地服務<br/>Chrome 開啟頁面"])
     verify["/plan-verify<br/><i>chrome-cdp 驗收驗證</i>"]
     review["/plan-review<br/><i>Agent Teams 3 人程式碼審查</i>"]
@@ -59,7 +59,7 @@ flowchart TD
 | `/plan-stack` | 偵測專案分層結構，建立自訂技術棧 | **0 次** |
 | `/plan-start` | 建立任務到 .spec/ + Notion | **2-3 次** |
 | `/plan` | 本地規劃（spec/db/arch） | **0 次** |
-| `/plan-build` | Agent Teams 4 人產生程式碼 | **0 次** |
+| `/plan-build` | Agent Teams 最多 5 人產生程式碼（含 DB Engineer） | **0 次** |
 | `/plan-verify` | chrome-cdp 操作瀏覽器驗證驗收條件 | **0 次** |
 | `/plan-review` | Agent Teams 3 人程式碼審查 | **0 次** |
 | `/plan-close` | 批次同步 Notion + Git 提交 | **3-5 次** |
