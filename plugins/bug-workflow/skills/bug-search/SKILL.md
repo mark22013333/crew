@@ -21,6 +21,8 @@ description: 搜尋 Notion 中過往的 Bug 解法與經驗。當使用者提到
 
 ## 流程
 
+> **前置檢查**：參照 `references/prerequisites.md` 檢查設定檔是否存在。
+
 ### 1. 解析搜尋關鍵字
 
 使用者輸入格式：

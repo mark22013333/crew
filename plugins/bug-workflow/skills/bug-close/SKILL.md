@@ -24,6 +24,8 @@ description: 修復 Bug 後，從 Git diff 自動擷取修復細節並更新 Not
 - 已使用 `/bug-start` 建立 Bug 條目（Notion「任務追蹤工具」中有狀態為「進行中」的 🐞 錯誤條目）
 - 修復程式碼已 commit
 
+> **前置檢查**：參照 `references/prerequisites.md` 執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+
 ---
 
 ## 流程

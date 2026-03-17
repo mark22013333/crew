@@ -25,6 +25,8 @@ Bug 類型還需檢查：
 
 ## 流程
 
+> **前置檢查**：參照 bug-workflow plugin 的 `references/prerequisites.md` 執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+
 ### 1. 解析使用者輸入
 
 使用者會以以下格式觸發：

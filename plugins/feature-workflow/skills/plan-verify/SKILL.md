@@ -44,6 +44,8 @@ CDP="node ~/.claude-company/company-marketplace/plugins/feature-workflow/scripts
 | 3 | Chrome remote debugging | `$CDP list`，檢查回傳是否包含 tab 清單 | 提示：`請在 Chrome 開啟 chrome://inspect/#remote-debugging 並啟用切換開關` |
 | 4 | `--api-only` 模式 | 跳過第 3 項檢查 | 只需 curl 可用 |
 
+> **前置檢查**：參照 bug-workflow plugin 的 `references/prerequisites.md` 檢查 CLAUDE.md 是否存在。
+
 ---
 
 ## 流程
