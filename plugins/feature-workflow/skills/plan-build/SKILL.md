@@ -340,6 +340,19 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 ---
 
+## Gotchas
+
+- **Leader 不能自己寫 code**：Agent Teams 模式下，Leader（你自己）只負責協調和分配任務。如果 Leader 直接寫程式碼，會跟 Teammate 的產出衝突（寫同一個檔案）。所有產出必須由 Teammate 完成。
+- **Teammate 之間的檔案衝突**：雖然設計上各 Teammate 負責不同目錄，但 API 工程師的 DTO 和後端工程師的 Entity 可能放在相近的 package 下。如果兩者同時寫同一個 DTO 類別，後寫的會覆蓋先寫的。確保在 prompt 中明確劃分 DTO 歸屬。
+- **Agent Teams 環境變數未設定**：`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 不存在時，建立 Team 的指令會靜默失敗（不報錯但不產出），很難 debug。步驟 1 就要先檢查。
+- **現有程式碼範本的選擇很關鍵**：給 Teammate 參考的 POJO/Mapper/Service 範本如果選到非典型的（如有特殊 annotation 或非標準命名），Teammate 會學到錯誤風格並複製到所有產出中。優先選最簡單、最標準的範本檔。
+- **DB MCP Teammate 超時**：DB 工程師如果查詢的表很多或 DB 回應慢，可能花很長時間。設定合理的任務範圍（只查本功能相關的表，不要全表掃描）。
+- **殘留 Team 問題**：如果上次 `plan-build` 中途失敗，可能留下殘留的 Team。在建新 Team 前先用 `TeamDelete` 清理，否則會報錯「已有活躍 Team」。
+
+參考 `examples/leader-delegation.md` 了解 Leader 如何有效分配任務和協調 Teammate。
+
+---
+
 ## 邊界情況
 
 - **arch.md 不存在**：警告並詢問，允許從 spec.md 或 README.md 直接產生

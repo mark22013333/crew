@@ -26,6 +26,13 @@ Skill 透過 `git remote get-url origin` 取得 Git 遠端 URL，解析為識別
 |----------------|----------|--------|------|
 | （範例）我的專案 | `FUB03P2402/MyProject` | spring-boot-mybatis | 範例，請替換 |
 
+## CREW 工作區
+
+| 項目 | 值 |
+|------|-----|
+| 工作區頁面 ID | `<待填入>` |
+| 工作區頁面 URL | `https://www.notion.so/<待填入>` |
+
 ## 技術棧定義
 
 初始版本提供常見 Java ORM 技術棧。使用者可自行新增自訂技術棧。

@@ -159,3 +159,41 @@
 2. **按專案看板**（board）
    - Group by：專案資料庫（建立 Relation 後設定）
    - 顯示：Name, 設計類型, Tags
+
+---
+
+## E. CREW 工作區頁面
+
+### 頁面內容模板
+
+建立工作區頁面時使用以下 Notion-flavored Markdown 作為 content：
+
+```markdown
+<database data-source-url="collection://{任務DS_ID}" inline="true" icon="✅">任務追蹤工具</database>
+
+{若有功能設計庫}
+<database data-source-url="collection://{功能設計庫DS_ID}" inline="true" icon="📐">功能設計庫</database>
+
+{若有 Bug 知識庫}
+<database data-source-url="collection://{BugKB_DS_ID}" inline="true" icon="🐛">Bug 知識庫</database>
+
+<database data-source-url="collection://{專案DS_ID}" inline="true" icon="📂">專案資料庫</database>
+```
+
+### 建立步驟
+
+1. 使用 `notion-create-pages` 建立頁面，title=「🚀 CREW 工作區」，icon=「🚀」
+2. 使用 `notion-update-page` 的 `replace_content` 寫入上述模板（替換變數）
+
+### 更新步驟（plan-setup 追加功能設計庫時）
+
+使用 `notion-update-page` 的 `update_content`，在 Bug 知識庫前插入功能設計庫的 linked view。
+
+### 排版順序
+
+最終工作區頁面中資料庫的排列順序：
+
+1. 任務追蹤工具
+2. 功能設計庫（若有）
+3. Bug 知識庫（若有）
+4. 專案資料庫

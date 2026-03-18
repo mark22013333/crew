@@ -148,6 +148,18 @@ git diff HEAD~1..HEAD
 
 ---
 
+## Gotchas
+
+- **update_content 找不到區塊標題**：如果使用者手動修改過 Notion 頁面（例如把「🧠 根因分析」改成「根因分析」），`update_content` 的搜尋模式會匹配失敗。遇到這種情況，改用 `replace_content` 重寫整個頁面內容（先讀取現有內容合併）。
+- **diff 包含二進位檔案**：`git diff` 遇到圖片、Excel 等二進位檔案會顯示 `Binary files differ`，不要把這些納入「修改後程式碼」區塊。只擷取文字類檔案的 diff。
+- **知識庫 Tags 推測容易偏離**：自動推測 Tags 時，Claude 傾向選太多標籤。限制最多 3 個，優先選與 bug 直接相關的模組標籤（如「推播」、「排程」），避免選泛用標籤（如「API」、「效能」除非確實是那類問題）。
+- **commit 範圍判斷**：使用者可能在修 bug 過程中穿插了不相關的 commit（如 merge commit）。若 `git log --oneline -10` 中混有非修復用途的 commit，應先確認正確範圍再擷取 diff，不要盲目用 `HEAD~1..HEAD`。
+- **難易度判斷閾值偏保守**：「≤3 檔案且 ≤50 行 → 普通」的規則在重構型修復（改很多檔但每個只改一行）時會誤判為困難。若 diff 中大部分是 import 變更或 rename，應降級為「普通」。
+
+參考 `examples/good-closure-report.md` 了解理想的結案報告結構和品質。
+
+---
+
 ## 邊界情況
 
 - **設定檔不存在**：提示使用者先執行 `/bug-setup` 完成初始設定
