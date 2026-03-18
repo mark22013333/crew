@@ -1,6 +1,6 @@
-# Feature Workflow Plugin `v4.1.0`
+# Feature Workflow Plugin `v4.2.0`
 
-功能開發工作流 — 整合 Notion 與 Claude Code，以 `.spec/` 目錄做本地規劃，Agent Teams 產生程式碼與審查，chrome-cdp 驗收驗證，結案時批次同步 Notion。
+功能開發工作流 — 整合 Notion 與 Claude Code，以 `.spec/` 目錄做本地規劃，Agent Teams 產生程式碼與審查，Chrome DevTools 驗收驗證，結案時批次同步 Notion。
 
 不綁定特定專案架構，所有 Skill 執行時讀取當前專案的 CLAUDE.md 動態適配。
 
@@ -60,7 +60,7 @@ flowchart TD
 | `/plan-start` | 建立任務到 .spec/ + Notion | **2-3 次** |
 | `/plan` | 本地規劃（spec/db/arch） | **0 次** |
 | `/plan-build` | Agent Teams 最多 5 人產生程式碼（含 DB Engineer） | **0 次** |
-| `/plan-verify` | chrome-cdp 操作瀏覽器驗證驗收條件 | **0 次** |
+| `/plan-verify` | chrome-devtools-mcp 或 cdp.mjs 操作瀏覽器驗證驗收條件 | **0 次** |
 | `/plan-review` | Agent Teams 3 人程式碼審查 | **0 次** |
 | `/plan-close` | 批次同步 Notion + Git 提交 | **3-5 次** |
 | `/plan-sync` | 手動中途同步 .spec/ 到 Notion | **2-3 次** |
@@ -94,19 +94,30 @@ flowchart TD
 
 > tmux session 中自動啟用 Split Pane，只需 `tmux new-session -s dev` 後啟動 Claude Code。
 
-### Chrome Remote Debugging（plan-verify）
+### plan-verify 前置條件
 
 `/plan-verify` 透過 Chrome DevTools Protocol 連接已開啟的 Chrome session，直接操作已登入的頁面驗證驗收條件。對需要 SSO/VPN 的內部系統特別有用。
 
-| 項目 | 需求 |
-|------|------|
-| Node.js | **22 以上** |
-| Chrome | 啟用 Remote Debugging |
-
-**啟用方式**：Chrome 網址列輸入 `chrome://inspect/#remote-debugging`，開啟切換開關。也支援 Chromium、Brave、Edge、Vivaldi。
+**方式 A：chrome-devtools-mcp（推薦）**
 
 ```bash
-/plan-verify                    # 完整驗證所有驗收條件
+claude mcp add chrome-devtools --scope user -- \
+  npx chrome-devtools-mcp@latest --autoConnect
+```
+
+Google 官方維護，29 種工具，安裝後重啟 Claude Code。需 Chrome 144+。
+
+**方式 B：cdp.mjs（內建 fallback）**
+
+- Node.js 22+
+- 無需額外安裝，Plugin 內建
+
+兩種方式都需要 Chrome 啟用 Remote Debugging：
+Chrome 網址列 → `chrome://inspect/#remote-debugging` → 開啟切換開關。
+也支援 Chromium、Brave、Edge、Vivaldi。
+
+```bash
+/plan-verify                    # 完整驗證（自動偵測 MCP 或 cdp.mjs）
 /plan-verify --manual           # 互動模式，每步驟等待確認
 /plan-verify <URL>              # 指定目標頁面
 /plan-verify --api-only         # 只驗證 API（不需 Chrome）

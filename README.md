@@ -78,7 +78,7 @@ flowchart TD
 
 ### Feature Workflow
 
-功能開發全生命週期管理 — 本地規劃、Agent Teams 產生程式碼與審查、chrome-cdp 驗收驗證、結案同步 Notion。
+功能開發全生命週期管理 — 本地規劃、Agent Teams 產生程式碼與審查、Chrome DevTools 驗收驗證、結案同步 Notion。
 
 含 4 個 Opus Agent，在規格、DB、架構、程式碼產生階段提供專家級輸出。
 
@@ -108,7 +108,7 @@ flowchart TD
 | `/plan-start <任務簡述>` | 建立 Notion 條目 + `.spec/` 目錄 + Git branch | **2-3 次** |
 | `/plan [spec\|db\|arch]` | 本地規劃（Feature: spec/db/arch，Bug: investigate/root-cause/fix） | **0 次** |
 | `/plan-build [--dry-run]` | Agent Teams 最多 5 人產生程式碼（含 DB Engineer） | **0 次** |
-| `/plan-verify [--api-only]` | chrome-cdp 操作瀏覽器驗證驗收條件 | **0 次** |
+| `/plan-verify [--api-only]` | chrome-devtools-mcp 或 cdp.mjs 驗證驗收條件 | **0 次** |
 | `/plan-review [--quick]` | Agent Teams 3 人審查（邏輯/品質/安全） | **0 次** |
 | `/plan-close` | 一次性批次同步到 Notion + 知識庫 + Git 提交 | **3-5 次** |
 | `/plan-sync` | 手動中途同步（按需） | **2-3 次** |
@@ -253,7 +253,7 @@ claude mcp remove dbhub      # 移除 DBHub
 ## 前置條件
 
 1. **Claude Code** — <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank">安裝指南</a>
-2. **Node.js 22+** — `/plan-verify` 的 chrome-cdp 需要（其他指令不需要）
+2. **Chrome DevTools MCP**（推薦）或 **Node.js 22+** — `/plan-verify` 驗收驗證需要（其他指令不需要）
 3. **Chrome Remote Debugging** — `/plan-verify` 需要（其他指令不需要）
 4. **Notion Workspace** — 需有以下資料庫（或由 setup 引導建立）：
    - **任務追蹤工具**：Bug / 功能 生命週期管理（兩個 Plugin 共用）
@@ -261,10 +261,24 @@ claude mcp remove dbhub      # 移除 DBHub
    - **Bug 知識庫**（選用）：Bug 精簡索引
    - **功能設計庫**（選用）：設計文件索引
 
-### Chrome Remote Debugging 設定
+### Chrome DevTools（plan-verify）
 
 `/plan-verify` 透過 Chrome DevTools Protocol 連接已開啟的 Chrome，直接操作已登入的 session 驗證驗收條件。
 
+**方式 A：chrome-devtools-mcp（推薦）**
+
+```bash
+claude mcp add chrome-devtools --scope user -- \
+  npx chrome-devtools-mcp@latest --autoConnect
+```
+
+Google 官方維護，29 種工具。安裝後重啟 Claude Code。
+
+**方式 B：cdp.mjs（內建 fallback）**
+
+需 Node.js 22+，Plugin 內建無需額外安裝。
+
+兩種方式都需要 Chrome 啟用 Remote Debugging：
 1. Chrome 網址列輸入 `chrome://inspect/#remote-debugging`
 2. 開啟「Remote debugging」切換開關
 
