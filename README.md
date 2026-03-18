@@ -72,7 +72,6 @@ flowchart TD
 | `/bug-update <內容>` | 更新調查資訊（Log、SQL、判斷） |
 | `/bug-update reopen <Bug>` | 重新開啟已結案 Bug |
 | `/bug-close` | 結案 + 同步知識庫 |
-| `/bug-search <關鍵字>` | 搜尋過往 Bug 解法 |
 | `/project-add` | **偵測專案架構** + Notion 註冊 + DB MCP 安裝 |
 
 詳細說明見 [plugins/bug-workflow/README.md](plugins/bug-workflow/README.md)

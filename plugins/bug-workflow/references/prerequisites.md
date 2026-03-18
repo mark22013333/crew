@@ -56,7 +56,6 @@
 | `bug-start` | ✅ | 完整檢查 1 + 2 + 3 |
 | `bug-update` | ✅ | 完整檢查 1 + 2 + 3 |
 | `bug-close` | ✅ | 完整檢查 1 + 2 + 3 |
-| `bug-search` | ✅ | 只檢查第 2 項 |
 | `plan-start` | ✅ | 完整檢查 1 + 2 + 3 |
 | `plan` | ✅ | 只檢查第 1 項 |
 | `plan-build` | ✅ | 只檢查第 1 項 |

@@ -11,7 +11,6 @@
 | `/bug-update <內容>` | 調查過程中更新 Bug 頁面（Log、SQL、判斷等） |
 | `/bug-update reopen <Bug>` | 重新開啟已結案的 Bug（復發處理） |
 | `/bug-close` | 從 Git diff 自動擷取修復細節，結案並同步知識庫 |
-| `/bug-search <關鍵字>` | 搜尋過往 Bug 解法與經驗 |
 | `/project-add` | **偵測專案架構**（簡單型/產品型）→ Notion 註冊 → 可選安裝 DB MCP |
 
 ## 前置條件
@@ -116,11 +115,7 @@ flowchart TD
 
 > 不帶參數時會列出該專案近期已結案的 Bug，可輸入編號、關鍵字、或 Notion 連結來選擇。
 
-### 搜尋過往 Bug
-
-```bash
-/bug-search 推播 token 過期    # 搜尋知識庫中的相關 Bug 解法
-```
+> 搜尋過往 Bug 解法可直接在 Notion 的 Bug 知識庫中搜尋，不需額外指令。
 
 ---
 
