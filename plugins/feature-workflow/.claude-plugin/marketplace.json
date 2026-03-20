@@ -9,7 +9,7 @@
     {
       "name": "feature-workflow",
       "description": "功能開發工作流 — 本地規劃、Agent Teams 開發與審查、Chrome DevTools 驗證、Notion 結案同步",
-      "version": "4.4.0",
+      "version": "4.6.4",
       "author": {
         "name": "Cheng"
       },
