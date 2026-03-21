@@ -129,6 +129,8 @@ scaffold: {scaffold 行為摘要}
 notion_name: {Notion 專案名稱}
 git_repo: {Git Repo 識別碼}
 stack: {技術棧 ID，選填}
+prod_branch: {正式環境分支}
+uat_branch: {測試環境分支，選填}
 ---
 {專案說明}
 ```
@@ -142,6 +144,8 @@ stack: {技術棧 ID，選填}
 notion_name: 北富銀Push API(微服務)-FUB03P2402
 git_repo: FUB03P2402/PushAPIService
 stack: spring-boot-jpa
+prod_branch: production
+uat_branch: uat
 ---
 富邦銀行 LINE 推播微服務
 ```

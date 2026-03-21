@@ -143,6 +143,8 @@ projects/{sanitized-repo-id}.md
 notion_name: 北富銀Push API(微服務)-FUB03P2402
 git_repo: FUB03P2402/PushAPIService
 stack: spring-boot-jpa
+prod_branch: production
+uat_branch: uat
 ---
 富邦銀行 LINE 推播微服務
 ```
@@ -151,6 +153,8 @@ frontmatter 欄位：
 - `notion_name`（必要）：Notion 專案資料庫中的專案名稱
 - `git_repo`（必要）：Git Repo 識別碼（用於自動匹配）
 - `stack`（選填）：技術棧 ID（內建或自訂）
+- `prod_branch`（必要）：正式環境分支名稱（`/plan-start` 從此分支建立 feature branch）
+- `uat_branch`（選填）：測試環境分支名稱
 
 body：專案說明（一句話）。
 

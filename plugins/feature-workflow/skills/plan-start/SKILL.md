@@ -219,17 +219,22 @@ created: {當前日期 YYYY-MM-DD}
 
 ### 8. 建立 Git branch
 
+從專案設定檔讀取 `prod_branch`（PROD 分支），作為新分支的基準：
+
 ```
 是否建立 Git branch？
-1. 是，建立 {feature|hotfix}/{slug}（從當前分支）
+1. 是，建立 {feature|hotfix}/{slug}（從 {prod_branch} 分支）
 2. 是，自訂分支名稱
 3. 否，稍後再建立
 ```
 
 若選擇建立：
-1. `git checkout -b {type}/{slug}`（feature → `feature/{slug}`，bug → `hotfix/{slug}`）
+1. `git checkout {prod_branch} && git pull && git checkout -b {type}/{slug}`
+   （feature → `feature/{slug}`，bug → `hotfix/{slug}`，從 PROD 分支建立）
 2. 更新 Notion 條目的「修復分支」欄位
 3. 更新 `.spec/{slug}/README.md` 的 `branch` 欄位
+
+> 若 `prod_branch` 未設定（舊專案），回退到從當前分支建立，並提示使用者執行 `/project-add` 補充分支設定。
 
 ### 9. 回傳結果
 

@@ -63,14 +63,17 @@ Bug 類型還需 bug-workflow 設定檔（`~/.claude-company/bug-workflow-config
 
 ### 3. 從 Git 擷取變更摘要
 
-從 Git diff 擷取變更摘要：
+從專案設定檔讀取 `prod_branch`（PROD 分支），用作 merge-base 計算 diff：
 
 ```bash
+# {prod_branch} 從 projects/{repo-id}.md 的 prod_branch 欄位讀取
 git branch --show-current
-git log --oneline $(git merge-base HEAD production)..HEAD
-git diff $(git merge-base HEAD production)..HEAD --stat
-git diff $(git merge-base HEAD production)..HEAD
+git log --oneline $(git merge-base HEAD {prod_branch})..HEAD
+git diff $(git merge-base HEAD {prod_branch})..HEAD --stat
+git diff $(git merge-base HEAD {prod_branch})..HEAD
 ```
+
+> 若 `prod_branch` 未設定（舊專案），依序嘗試 `production` → `master` → `main`，使用第一個存在的分支。
 
 根據 CLAUDE.md 的架構描述，產出分層變更摘要。
 

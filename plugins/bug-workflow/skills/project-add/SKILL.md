@@ -181,6 +181,47 @@ Notion 專案資料庫中有以下專案：
 是否正確？[Y/n]
 ```
 
+#### 4-5. Git Flow 分支偵測
+
+掃描所有本地與遠端分支，自動推測正式環境（PROD）和測試環境（UAT）分支：
+
+```bash
+git branch -a --format='%(refname:short)' 2>/dev/null
+```
+
+**推測邏輯**（依優先順序匹配第一個存在的）：
+
+| 分支類型 | 候選名稱（優先順序） |
+|---------|-------------------|
+| PROD（正式環境） | `production` → `master` → `main` → `release` → `prod` |
+| UAT（測試環境） | `uat` → `staging` → `develop` → `dev` → `test` → `sit` |
+
+> 遠端分支（`origin/xxx`）和本地分支都算，去除 `origin/` 前綴後比對。
+
+**展示偵測結果並詢問確認**：
+
+```
+Git Flow 分支偵測：
+
+  正式環境（PROD）分支：production（已偵測到）
+  測試環境（UAT）分支：uat（已偵測到）
+
+確認？[Y/n]
+  輸入 n 可手動指定，或輸入分支名稱直接覆蓋
+  輸入「無」跳過該欄位（如專案無 UAT 環境）
+```
+
+**若完全偵測不到**：
+
+```
+未偵測到常見分支命名，請手動輸入：
+
+  正式環境（PROD）分支：（如 production、master、main）
+  測試環境（UAT）分支：（如 uat、staging、develop，輸入「無」跳過）
+```
+
+> 此資訊會影響 `/plan-start`（從 PROD 分支建立 feature branch）、`/plan-close` 和 `/plan-review`（用 PROD 分支做 merge-base 計算 diff）。
+
 ### 5. 建立新專案條目
 
 #### 5-1. 引導填寫專案資訊
@@ -191,6 +232,8 @@ Notion 專案資料庫中有以下專案：
   專案名稱：（必填）
   Git Repo：FUB03P2402/NewProject（已自動偵測）
   技術棧：spring-boot-mybatis（已自動偵測，Enter 確認或修改）
+  PROD 分支：production（已自動偵測，Enter 確認或修改）
+  UAT 分支：uat（已自動偵測，Enter 確認或修改）
   狀態：進行中（預設）
 
 以下欄位可現在填寫，或稍後在 Notion 頁面補充：
@@ -210,6 +253,8 @@ Notion 專案資料庫中有以下專案：
 | 專案名稱 | 使用者填入 |
 | Git Repo | Git Repo 識別碼（從 `git remote get-url origin` 解析） |
 | 技術棧 | 自動偵測或使用者指定 |
+| PROD 分支 | 自動偵測或使用者指定 |
+| UAT 分支 | 自動偵測或使用者指定（可空） |
 | 狀態 | `進行中`（預設） |
 | 本機路徑 | `pwd` 的結果 |
 | SIT 主機 | 使用者填入（可空） |
@@ -303,7 +348,7 @@ claude mcp add dbhub --scope project -- npx @bytebase/dbhub --transport stdio --
 
 在「專案對應」表中新增一列：
 ```markdown
-| {專案名稱} | `{Git Repo 識別碼}` | {說明} |
+| {專案名稱} | `{Git Repo 識別碼}` | {PROD 分支} | {UAT 分支} | {說明} |
 ```
 
 #### feature-workflow（階層式目錄格式）
@@ -320,13 +365,15 @@ claude mcp add dbhub --scope project -- npx @bytebase/dbhub --transport stdio --
 notion_name: {專案名稱}
 git_repo: {Git Repo 識別碼}
 stack: {技術棧 ID}
+prod_branch: {PROD 分支名稱}
+uat_branch: {UAT 分支名稱，可空}
 ---
 {說明}
 ```
 
 **舊格式**（向下相容）：在「專案對應」表中新增一列：
 ```markdown
-| {專案名稱} | `{Git Repo 識別碼}` | {技術棧} | {說明} |
+| {專案名稱} | `{Git Repo 識別碼}` | {技術棧} | {PROD 分支} | {UAT 分支} | {說明} |
 ```
 
 **更新已存在的專案**（步驟 2 選擇「更新」時）：
@@ -365,6 +412,8 @@ git ls-files --error-unmatch CLAUDE.md 2>/dev/null
   Git Repo：FUB03P2402/NewProject
   專案類型：{簡單型 / 產品型}
   技術棧：spring-boot-mybatis
+  PROD 分支：production
+  UAT 分支：uat
   DB：MSSQL {+ H2（Quartz）}
   DB MCP：{✅ 已安裝 DBHub / ⏭️ 已跳過}
 
