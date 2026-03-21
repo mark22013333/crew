@@ -41,13 +41,16 @@ flowchart TD
         cd["cd ~/project"]
         init["/init<br/><i>建立 CLAUDE.md</i>"]
         projAdd["/project-add<br/><i>偵測架構 + Notion + DB MCP</i>"]
-        cd --> init --> projAdd
+        stack["/plan-stack<br/><i>自訂技術棧掃描規則</i>"]
+        cd --> init --> projAdd --> stack
+
+        style stack fill:#fff3cd,stroke:#ffc107
     end
 
     subgraph Phase2["🚀 Phase 2：日常使用"]
         direction TB
         bugFlow["/bug-start → /bug-update → /bug-close"]
-        planFlow["/plan-start → /plan → /plan-build<br/>→ /plan-verify → /plan-review → /plan-close"]
+        planFlow["/plan-start → /plan-spec → /plan-db → /plan-arch<br/>→ /plan-build → /plan-verify → /plan-review → /plan-close"]
     end
 
     Phase0 --> Phase1 --> Phase2
@@ -56,6 +59,8 @@ flowchart TD
     style Phase1 fill:#e3f2fd,stroke:#2196f3
     style Phase2 fill:#fff3e0,stroke:#ff9800
 ```
+
+> `/plan-stack` 為可選步驟 — 若 `/project-add` 偵測到的技術棧屬於內建（如 `spring-boot-jpa`），可跳過。若專案使用非標準分層結構或內建定義不夠精確，建議執行。
 
 ---
 
@@ -85,19 +90,21 @@ flowchart TD
 ```mermaid
 flowchart TD
     setup["/plan-setup<br/><i>首次設定</i>"]
+    stack["/plan-stack<br/><i>自訂技術棧（可選）</i>"]
     start["/plan-start<br/><i>建立 Notion + .spec/ + Git branch</i>"]
-    plan["/plan [spec|db|arch]<br/><i>本地規劃</i>"]
+    plan["/plan-spec → /plan-db → /plan-arch<br/><i>本地規劃</i>"]
     build["/plan-build<br/><i>Agent Teams 產生程式碼</i>"]
     ide(["IDE 啟動 + Chrome 開啟頁面"])
     verify["/plan-verify<br/><i>chrome-cdp 驗收驗證</i>"]
     review["/plan-review<br/><i>Agent Teams 3 人審查</i>"]
     close["/plan-close<br/><i>批次同步 Notion</i>"]
 
-    setup --> start --> plan --> build --> ide --> verify --> review --> close
+    setup --> stack -.-> start --> plan --> build --> ide --> verify --> review --> close
     verify -- "❌ FAIL" --> build
     review -- "🔴 嚴重" --> build
 
     style setup fill:#f0f0f0,stroke:#999
+    style stack fill:#fff3cd,stroke:#ffc107
     style ide fill:#fff3cd,stroke:#ffc107
 ```
 
@@ -106,7 +113,10 @@ flowchart TD
 | `/plan-setup` | 首次設定引導（Notion 偵測 + Agent 安裝） | 一次性 |
 | `/plan-stack` | 偵測專案分層結構，建立自訂技術棧 | **0 次** |
 | `/plan-start <任務簡述>` | 建立 Notion 條目 + `.spec/` 目錄 + Git branch | **2-3 次** |
-| `/plan [spec\|db\|arch]` | 本地規劃（Feature: spec/db/arch，Bug: investigate/root-cause/fix） | **0 次** |
+| `/plan` | 完整規劃串接（自動依序 spec→db→arch） | **0 次** |
+| `/plan-spec` | 技術規格書 | **0 次** |
+| `/plan-db` | 資料庫設計 | **0 次** |
+| `/plan-arch` | 架構設計 | **0 次** |
 | `/plan-build [--dry-run]` | Agent Teams 最多 5 人產生程式碼（含 DB Engineer） | **0 次** |
 | `/plan-verify [--api-only]` | chrome-devtools-mcp 或 cdp.mjs 驗證驗收條件 | **0 次** |
 | `/plan-review [--quick]` | Agent Teams 3 人審查（邏輯/品質/安全） | **0 次** |
@@ -336,10 +346,21 @@ claude plugin install feature-workflow
 cd ~/IdeaProjects/YourProject   # 切換到專案目錄
 /init                           # 建立 CLAUDE.md（Claude Code 內建指令）
 /project-add                    # 偵測架構 → Notion 註冊 → 可選安裝 DB MCP
+/plan-stack                     # （可選）自訂技術棧掃描規則
 ```
 
 > ⚠️ `/init` 後建議 `git add CLAUDE.md && git commit && git push`，讓團隊共用。
 > `/project-add` 會在結束時自動提醒。
+
+**何時需要 `/plan-stack`？**
+
+| 情境 | 是否需要 |
+|------|---------|
+| 技術棧是內建四種之一，分層結構標準 | ❌ 可跳過 |
+| 內建技術棧但有額外分層（如 DB Service、UI Service） | ✅ 建議執行 |
+| 完全自訂的技術棧（非 Spring 系列等） | ✅ 必須執行 |
+
+`/plan-stack` 會掃描專案的 `src/main/java` 目錄，自動辨識各層級的 package 命名慣例，產生掃描規則寫入 `stacks/{id}.md`。`/plan-build` 的 Agent 會讀取這些規則找到現有程式碼學習風格。
 
 ### 更新 Plugin
 
@@ -409,13 +430,15 @@ Plugin 透過 `git remote get-url origin` 自動偵測 Git Repo 識別碼（如 
 
 ## 設定檔
 
-| 設定檔 | 路徑 | 說明 |
-|--------|------|------|
-| Bug Workflow | `~/.claude-company/bug-workflow-config.md` | Notion ID、專案對應、欄位對照 |
-| Feature Workflow | `~/.claude-company/feature-workflow-config.md` | 同上 + 技術棧定義 |
-| DB MCP | `.claude/settings.local.json`（專案級） | DBHub 連線資訊（含密碼，勿提交 Git） |
+| 設定 | 路徑 | 格式 | 說明 |
+|------|------|------|------|
+| Bug Workflow | `~/.claude-company/bug-workflow-config.md` | 單一檔案 | Notion ID、專案對應、欄位對照 |
+| Feature Workflow | `~/.claude-company/feature-workflow/` | 階層式目錄 | config.md + stacks/ + projects/ |
+| DB MCP | `.claude/settings.local.json`（專案級） | JSON | DBHub 連線資訊（含密碼，勿提交 Git） |
 
-設定檔儲存位置可在 setup 時選擇公司環境（`~/.claude-company/`）或個人環境（`~/.claude/`）。
+Feature Workflow 採階層式目錄結構，技術棧和專案各自獨立檔案，避免單一設定檔膨脹。詳見 `plugins/feature-workflow/references/config-resolver.md`。
+
+設定儲存位置可在 setup 時選擇公司環境（`~/.claude-company/`）或個人環境（`~/.claude/`）。
 
 ## 授權
 

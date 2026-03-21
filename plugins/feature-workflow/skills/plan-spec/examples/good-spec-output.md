@@ -1,6 +1,6 @@
 # 範例：理想的 spec.md 產出
 
-以下展示 `/plan spec` 的理想產出格式，供 Agent 參考。
+以下展示 `/plan-spec` 的理想產出格式，供 Agent 參考。
 
 ---
 

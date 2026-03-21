@@ -425,7 +425,7 @@ chrome-devtools-mcp 提供 cdp.mjs 沒有的進階工具，在驗證時可視情
 
 ## 邊界情況
 
-- **無驗收條件**：提示使用者手動輸入，或建議先執行 `/plan spec`
+- **無驗收條件**：提示使用者手動輸入，或建議先執行 `/plan-spec`
 - **chrome-devtools-mcp 與 cdp.mjs 都沒有**：優先提示安裝 chrome-devtools-mcp（推薦），附上安裝指令
 - **Chrome 未啟用 remote debugging**：顯示詳細啟用步驟（`chrome://inspect/#remote-debugging`）
 - **Node.js 版本不足**（Bash 模式）：顯示升級指引，或建議改用 chrome-devtools-mcp

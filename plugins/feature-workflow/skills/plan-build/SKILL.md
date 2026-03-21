@@ -31,7 +31,7 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 ### 設計文件
 
-**必須**至少完成 `/plan arch`（arch.md 存在）。若 arch.md 不存在，**禁止繼續**，直接告知使用者先執行 `/plan arch` 產生架構設計。
+**必須**至少完成 `/plan-arch`（arch.md 存在）。若 arch.md 不存在，**禁止繼續**，直接告知使用者先執行 `/plan-arch` 產生架構設計。
 
 > **前置檢查**：參照 bug-workflow plugin 的 `references/prerequisites.md` 檢查 CLAUDE.md 是否存在。
 
@@ -66,7 +66,7 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 | `db.sql` | SQL 檔案 | 選讀 |
 | `arch.md` | 架構設計（類別清單、介面定義） | **必要** |
 
-若 arch.md 不存在，**停止流程**，告知使用者必須先執行 `/plan arch` 產生架構設計後再回來執行 `/plan-build`。不提供跳過選項。
+若 arch.md 不存在，**停止流程**，告知使用者必須先執行 `/plan-arch` 產生架構設計後再回來執行 `/plan-build`。不提供跳過選項。
 
 ### 3. 判斷團隊組成
 
@@ -109,7 +109,7 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 收集一次，嵌入到 Team 建立指令中：
 
 - 專案 CLAUDE.md 內容
-- 技術棧 ID 和定義（從設定檔）
+- 技術棧 ID 和定義（依 `references/config-resolver.md` 第 3 層載入：內建 → `stacks/_builtin.md`，自訂 → `stacks/{id}.md`）
 - 1-2 個現有程式碼範本（POJO、Mapper、Service、Controller 各一個）的檔案路徑
 - **DB MCP 可用性**：檢查 `claude mcp list` 是否有 `dbhub`，若有則在後端工程師和測試工程師的提示詞中啟用 DB 查詢能力
 
@@ -355,7 +355,7 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 ## 邊界情況
 
-- **arch.md 不存在**：**hard block** — 停止流程，要求使用者先執行 `/plan arch`
+- **arch.md 不存在**：**hard block** — 停止流程，要求使用者先執行 `/plan-arch`
 - **Agent Teams 未啟用**：顯示設定指引
 - **--dry-run 模式**：不建立任何檔案，只展示清單和關鍵片段
 - **Teammate 失敗**：提供選項：重試 / 跳過 / 終止

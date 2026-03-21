@@ -29,25 +29,39 @@ claude plugin update feature-workflow@company-marketplace
 
 ```mermaid
 flowchart TD
-    setup["/plan-setup<br/><i>首次設定（一次性）</i>"]
-    start["/plan-start &lt;功能簡述&gt;<br/><i>建立 Notion + .spec/ + Git branch</i>"]
-    plan["/plan [spec|db|arch]<br/><i>本地規劃（零 Notion 呼叫）</i>"]
-    build["/plan-build<br/><i>Agent Teams 最多 5 人產生程式碼</i>"]
-    ide(["IDE 啟動本地服務<br/>Chrome 開啟頁面"])
-    verify["/plan-verify<br/><i>chrome-cdp 驗收驗證</i>"]
-    review["/plan-review<br/><i>Agent Teams 3 人程式碼審查</i>"]
-    close["/plan-close<br/><i>批次同步 Notion + Git 提交</i>"]
+    subgraph init["🔧 初始設定（每個專案一次）"]
+        direction TB
+        setup["/plan-setup<br/><i>首次設定（全域一次）</i>"]
+        projAdd["/project-add<br/><i>專案註冊 + Notion + DB MCP</i>"]
+        stack["/plan-stack<br/><i>自訂技術棧掃描規則</i>"]
+        setup --> projAdd --> stack
+    end
 
-    setup --> start --> plan --> build --> ide --> verify --> review --> close
+    subgraph dev["🚀 開發循環（每個功能重複）"]
+        direction TB
+        start["/plan-start &lt;功能簡述&gt;<br/><i>建立 Notion + .spec/ + Git branch</i>"]
+        plan["/plan-spec → /plan-db → /plan-arch<br/><i>本地規劃（零 Notion 呼叫）</i>"]
+        build["/plan-build<br/><i>Agent Teams 最多 5 人產生程式碼</i>"]
+        ide(["IDE 啟動本地服務<br/>Chrome 開啟頁面"])
+        verify["/plan-verify<br/><i>chrome-cdp 驗收驗證</i>"]
+        review["/plan-review<br/><i>Agent Teams 3 人程式碼審查</i>"]
+        close["/plan-close<br/><i>批次同步 Notion + Git 提交</i>"]
 
-    verify -- "❌ FAIL" --> build
-    review -- "🔴 嚴重問題" --> build
+        start --> plan --> build --> ide --> verify --> review --> close
+        verify -- "❌ FAIL" --> build
+        review -- "🔴 嚴重問題" --> build
+    end
 
-    style setup fill:#f0f0f0,stroke:#999
+    init --> dev
+
+    style init fill:#e3f2fd,stroke:#2196f3
+    style dev fill:#fff3e0,stroke:#ff9800
+    style stack fill:#fff3cd,stroke:#ffc107
     style ide fill:#fff3cd,stroke:#ffc107
 ```
 
-流程非強制線性，可跳過任何步驟、反覆執行。
+> `/plan-stack` 為可選步驟 — 內建技術棧且分層結構標準時可跳過。
+> 開發循環非強制線性，可跳過任何步驟、反覆執行。
 
 ---
 
@@ -58,7 +72,10 @@ flowchart TD
 | `/plan-setup` | 首次設定引導（Notion 偵測 + Agent 安裝） | 一次性 |
 | `/plan-stack` | 偵測專案分層結構，建立自訂技術棧 | **0 次** |
 | `/plan-start` | 建立任務到 .spec/ + Notion | **2-3 次** |
-| `/plan` | 本地規劃（spec/db/arch） | **0 次** |
+| `/plan` | 完整規劃串接（自動依序 spec→db→arch） | **0 次** |
+| `/plan-spec` | 技術規格書 | **0 次** |
+| `/plan-db` | 資料庫設計 | **0 次** |
+| `/plan-arch` | 架構設計 | **0 次** |
 | `/plan-build` | Agent Teams 最多 5 人產生程式碼（含 DB Engineer） | **0 次** |
 | `/plan-verify` | chrome-devtools-mcp 或 cdp.mjs 操作瀏覽器驗證驗收條件 | **0 次** |
 | `/plan-review` | Agent Teams 3 人程式碼審查 | **0 次** |
@@ -181,7 +198,17 @@ flowchart LR
 
 ### 自訂
 
-執行 `/plan-stack` 自動掃描專案結構產生掃描規則。
+執行 `/plan-stack` 自動掃描專案的 `src/main/java` 目錄，辨識各層級 package 命名慣例，產生掃描規則寫入 `stacks/{id}.md`。
+
+```
+/plan-stack                    # 自動偵測後引導設定
+/plan-stack my-custom-stack    # 直接指定技術棧 ID
+```
+
+**何時需要？**
+- 內建四種技術棧覆蓋不了的框架組合
+- 專案有非標準分層（如額外的 DB Service、UI Service 層）
+- 需要精確控制 `/plan-build` 的程式碼範本掃描範圍
 
 ---
 
@@ -193,6 +220,25 @@ flowchart LR
 | **獨立 Agent 檔案** | `/plan-setup` 時可選安裝，可獨立使用 |
 
 獨立 Agent：`spec-analyst`、`db-designer`、`backend-designer`、`code-generator`。
+
+---
+
+## 設定目錄
+
+採階層式目錄結構，技術棧和專案各自獨立檔案，避免單一設定檔膨脹：
+
+```
+~/.claude-company/feature-workflow/
+├── config.md              # Notion IDs、工作區、欄位對照（固定，不膨脹）
+├── stacks/                # 技術棧定義
+│   ├── _builtin.md        # 內建技術棧總表
+│   └── spring-mvc-jpa.md  # 自訂技術棧（/plan-stack 產生）
+└── projects/              # 專案對應（/project-add 產生）
+    ├── FUB02P2101--LineBC.md
+    └── FUB03P2402--PushAPIService.md
+```
+
+Skill 按需載入 — 只讀取當前專案需要的層級，不載入全部。詳見 `references/config-resolver.md`。
 
 ---
 

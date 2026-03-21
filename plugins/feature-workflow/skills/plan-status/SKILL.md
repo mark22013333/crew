@@ -93,8 +93,8 @@ ls -d .spec/*/
    設計文件：
      ✅ README.md（問題描述）
      ✅ investigation.md（含 Log 和 SQL）
-     ❌ root-cause.md（待 /plan root-cause）
-     ❌ fix.md（待 /plan fix）
+     ❌ root-cause.md
+     ❌ fix.md
 ```
 
 ### 4. 暫停/恢復模式
