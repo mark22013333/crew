@@ -70,6 +70,24 @@ flowchart TD
 
 自動化 Bug 生命週期管理 — 建立、調查、結案、搜尋、復發處理。
 
+```mermaid
+flowchart TD
+    discover["發現 Bug"]
+    start["/bug-start<br/><i>建立 Notion 條目</i>"]
+    update["/bug-update<br/><i>補充 Log、SQL、判斷</i>"]
+    fix["修復並 commit"]
+    close["/bug-close<br/><i>結案（diff → Notion → 知識庫）</i>"]
+    reopen{上線後復發？}
+    reopenCmd["/bug-update reopen<br/><i>重新開啟</i>"]
+
+    discover --> start --> update --> fix --> close --> reopen
+    reopen -- "是" --> reopenCmd --> update
+    reopen -- "否" --> done(["完成"])
+
+    style discover fill:#fee,stroke:#f66
+    style done fill:#efe,stroke:#6c6
+```
+
 | 指令 | 說明 |
 |------|------|
 | `/bug-setup` | 首次設定引導 |
