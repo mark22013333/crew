@@ -79,7 +79,22 @@ git remote get-url origin 2>/dev/null || echo ""
 /bug-start SSO登入找不到使用者 正式 高
 ```
 
-### 4. 建立 Notion 條目
+### 4. 偵測負責人
+
+在建立 Notion 條目前，自動偵測負責人以填入「負責人」（people 類型）欄位：
+
+1. 取得 Git 提交 email：
+   ```bash
+   git config user.email 2>/dev/null || echo ""
+   ```
+2. 呼叫 `notion-get-users` 取得 Notion 工作區使用者列表
+3. 比對 Git email 與 Notion 使用者的 email 欄位（case-insensitive）
+4. 若匹配成功 → 記錄該使用者的 Notion user ID，後續填入「負責人」欄位
+5. 若匹配失敗或 API 呼叫失敗 → 跳過，不阻塞流程，在回傳結果中提示「負責人未自動設定，請至 Notion 手動指派」
+
+> **注意**：`notion-get-users` 回傳的使用者物件包含 `id`、`name`、`person.email` 等欄位。比對時使用 `person.email`。
+
+### 5. 建立 Notion 條目
 
 使用 `notion-create-pages` 在「任務追蹤工具」資料庫建立新條目：
 
@@ -96,8 +111,9 @@ git remote get-url origin 2>/dev/null || echo ""
 | 環境 | 使用者選擇（預設「正式」） |
 | 修復分支 | Git branch 名稱（若有） |
 | 專案資料庫 | 關聯的專案頁面 URL |
+| 負責人 | 步驟 4 偵測到的 Notion 使用者（若有） |
 
-### 5. 填入頁面模板
+### 6. 填入頁面模板
 
 頁面的 content 使用以下標準模板：
 
@@ -154,7 +170,7 @@ git remote get-url origin 2>/dev/null || echo ""
 
 若使用者在初始輸入中已提供問題描述內容，將其預填入「問題描述」區塊的「實際行為」欄位。
 
-### 6. 回傳結果
+### 7. 回傳結果
 
 向使用者回傳：
 - Notion 頁面連結

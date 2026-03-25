@@ -79,7 +79,22 @@ Git Repo 識別碼解析規則：
 - 已經是英文 → 轉為 kebab-case
 - 確認 `.spec/{slug}/` 不存在，若存在則加數字後綴
 
-### 5. 建立 Notion 條目
+### 5. 偵測負責人
+
+在建立 Notion 條目前，自動偵測負責人以填入「負責人」（people 類型）欄位：
+
+1. 取得 Git 提交 email：
+   ```bash
+   git config user.email 2>/dev/null || echo ""
+   ```
+2. 呼叫 `notion-get-users` 取得 Notion 工作區使用者列表
+3. 比對 Git email 與 Notion 使用者的 email 欄位（case-insensitive）
+4. 若匹配成功 → 記錄該使用者的 Notion user ID，後續填入「負責人」欄位
+5. 若匹配失敗或 API 呼叫失敗 → 跳過，不阻塞流程，在回傳結果中提示「負責人未自動設定，請至 Notion 手動指派」
+
+> **注意**：`notion-get-users` 回傳的使用者物件包含 `id`、`name`、`person.email` 等欄位。比對時使用 `person.email`。
+
+### 6. 建立 Notion 條目
 
 #### Feature 類型
 
@@ -94,6 +109,7 @@ Git Repo 識別碼解析規則：
 | 難度 | 使用者選擇 |
 | 開發階段 | `需求分析` |
 | 專案資料庫 | 關聯的專案頁面 URL |
+| 負責人 | 步驟 5 偵測到的 Notion 使用者（若有） |
 
 頁面 content 使用 `references/notion-page-template.md` 的標準 7 區塊模板。
 
@@ -109,12 +125,13 @@ Git Repo 識別碼解析規則：
 | 優先順序 | 使用者選擇 |
 | 環境 | 使用者選擇 |
 | 專案資料庫 | 關聯的專案頁面 URL |
+| 負責人 | 步驟 5 偵測到的 Notion 使用者（若有） |
 
 頁面 content 使用 bug-start 的標準模板。
 
-### 6. 建立 .spec/ 本地規劃目錄
+### 7. 建立 .spec/ 本地規劃目錄
 
-#### 6-1. 確保 .gitignore 包含 .spec/
+#### 7-1. 確保 .gitignore 包含 .spec/
 
 檢查專案根目錄的 `.gitignore`，若不包含 `.spec/` 則追加：
 
@@ -123,7 +140,7 @@ Git Repo 識別碼解析規則：
 .spec/
 ```
 
-#### 6-2. 建立目錄結構
+#### 7-2. 建立目錄結構
 
 **Feature 類型**：
 
@@ -182,7 +199,7 @@ created: {當前日期 YYYY-MM-DD}
 {使用者提供的描述，或待填寫}
 ```
 
-#### 6-3. Bug 自動關聯 Feature
+#### 7-3. Bug 自動關聯 Feature
 
 若使用者指定 `--related <feature-slug>`：
 - 驗證 `.spec/{feature-slug}/` 存在
@@ -196,7 +213,7 @@ created: {當前日期 YYYY-MM-DD}
 4. 若匹配成功，提示使用者確認
 5. 若無法判斷，跳過（使用者可後續手動指定）
 
-### 7. 更新 .spec/_index.md
+### 8. 更新 .spec/_index.md
 
 讀取或建立 `.spec/_index.md`：
 
@@ -217,7 +234,7 @@ created: {當前日期 YYYY-MM-DD}
 
 在「進行中」表格新增一列。
 
-### 8. 建立 Git branch
+### 9. 建立 Git branch
 
 從專案設定檔讀取 `prod_branch`（PROD 分支），作為新分支的基準：
 
@@ -236,7 +253,7 @@ created: {當前日期 YYYY-MM-DD}
 
 > 若 `prod_branch` 未設定（舊專案），回退到從當前分支建立，並提示使用者執行 `/project-add` 補充分支設定。
 
-### 9. 回傳結果
+### 10. 回傳結果
 
 ```
 任務已建立！
