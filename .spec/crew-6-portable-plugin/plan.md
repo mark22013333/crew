@@ -36,7 +36,7 @@ drift_policy: off
 - [x] AC-22 已完成 close→UAT hard gate 相容性評估；決策為「此刻不全域啟用」，避免直接破壞 bug workflow。
 - [x] AC-23 Bug workflow 建立合法的人類 UAT 寫入點：`/bug-close` 只能在使用者明確接受修復後寫 `uat=approved`；Agent 不得把 C1-C4 或測試結果自動等同 UAT。
 - [x] AC-24 UAT gate prerequisite 改為 type-aware：feature 仍要求 review 完成；bug 不得被 feature 的 review prerequisite 卡死。
-- [ ] AC-25 Feature + Bug 都有合法 UAT 路徑後，再啟用 close→uat runtime hard block，並以 smoke test 驗證兩種 type 都能合法結案、未核准都會 BLOCK。
+- [x] AC-25 Feature + Bug 都有合法 UAT 路徑後，再啟用 close→uat runtime hard block，並以 smoke test 驗證兩種 type 都能合法結案、未核准都會 BLOCK。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -58,6 +58,7 @@ drift_policy: off
 - D-17 [phase3b] 暫不全域啟用 `close→uat` hard gate。原因：`/bug-close` 共用同一個 `crew-state.py close` transition，但 bug workflow 目前沒有 `review` step，也沒有合法的 UAT approve 路徑；直接啟用會讓所有 bug 結案被永久 BLOCK。
 - D-18 [phase3b] close hard gate 的正確導入順序：先讓 UAT prerequisite type-aware → `/bug-close` 加人類 acceptance gate → 再把 `close` 加入 runtime transition gate。v1 feature 不受此變更影響，因 legacy-v1 相容模式本來就不呼叫 `crew-state.py`。
 - D-19 [phase3b] UAT source prerequisite 採 type-aware：feature 必須 `review=done/skipped`；bug 不要求 feature review step，由 `/bug-close` 的本輪 explicit human acceptance 決定 UAT。這不是降低核准標準，而是對齊兩種 workflow lifecycle。
+- D-20 [phase3b] `TRANSITION_GATES["close"] = ["uat"]` 正式啟用。`/plan-close` 與 `/bug-close` 每次執行都先 reset `uat=pending`，強制本輪重新取得 Human UAT，避免 stale approval；Feature 的 `/plan-next` 在 review 完成後指向 `/plan-close` 作為 UAT + 結案入口。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -147,3 +148,10 @@ drift_policy: off
 - [2026-09-27] [phase3b-3c] C1-C4、測試 PASS、迴歸測試、Notion 驗證 checkbox、目標狀態=已完成都明文不得自動等同 UAT approved；waive 也只能由使用者明確要求且必須留 reason。
 - [2026-09-27] [phase3b-3c] Commit `02ac58b`；GitHub Actions run 36312991689（#93）共 13 個 job 全部 success。
 - [2026-09-27] [next] 下一小批才正式啟用 `TRANSITION_GATES["close"] = ["uat"]`，並補 Feature + Bug 的 close hard-block smoke test；不再同批擴充其他 workflow。
+
+- [2026-09-27] [phase3b-3d] Runtime 已正式加入 `TRANSITION_GATES["close"] = ["uat"]`；Feature / Bug 的 `close=done` 在 UAT pending/rejected 時一律 BLOCK，approved/waived 才能通過。
+- [2026-09-27] [phase3b-3d] `/plan-close` 現在是 Feature Human UAT + 結案入口；`/plan-next` 在 review 完成後即使 UAT pending 也會指向 `/plan-close`，但 runtime 會在核准前硬擋真正的 close transition。
+- [2026-09-27] [phase3b-3d] `/plan-close` 與 `/bug-close` 每次都先 reset uat=pending，再要求本輪使用者 acceptance，避免沿用前一次結案嘗試的 stale approval。
+- [2026-09-27] [phase3b-3d] Feature commit `6186c67`；smoke-test 對齊 commit `00d2565`；GitHub Actions run 36317931121（#96）共 13 個 job 全部 success。
+- [2026-09-27] [phase3b] AC-17～AC-25 全部完成：requirement / architecture / UAT 三道人類決策 Gate 已由 runtime hard rule 強制。
+- [2026-09-27] [next] Phase 3B 已完成。下一小批不要直接做 Phase 4 Runtime/MCP；先做一次「Phase 1～3B 收斂盤點」：找出仍殘留的 Host-specific / legacy / state lifecycle 缺口，判斷哪些值得進 Phase 4，哪些應留給後續版本。AC-1 的 Codex CLI 實機 smoke 仍保持未勾選，沒有實際 CLI 就不得宣稱完成。
