@@ -387,5 +387,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 - **--dry-run 模式**：不建立任何檔案，只展示清單和關鍵片段
 - **Teammate 失敗**：提供選項：重試 / 跳過 / 終止
 - **API 契約不一致**：以 API 工程師為準，其他成員調整
-- **每個工作階段只能一個 Team**：建立新 Team 前確認無殘留 Team
-- **僅後端模式**：依角色數使用單一 `delegate_write` 或序列委派
+- **避免重疊寫入執行單元**：同一工作階段若已有未完成的可寫 role，先依 `state.json.work_unit` 續跑或收斂，再啟動新的實作單元
+- **僅後端模式**：依角色數使用 `delegate_write`（實作者 `model: opus`）或序列委派
