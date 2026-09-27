@@ -119,8 +119,9 @@ ROLE_POLICY = {
         "why": "bug-investigate 預設 Sonnet；Opus 只允許出現在條件式升級段落",
     },
     "bug-fix": {
-        "require": ["sonnet", "opus"],
-        "why": "定位／驗證整理 sonnet + 正式修改實作者 opus",
+        "require": ["opus"],
+        "require_profiles": ["FAST"],
+        "why": "唯讀定位／驗證整理必須走 FAST profile；正式修改實作者仍維持 opus（Phase 3A 保守值）",
     },
 }
 

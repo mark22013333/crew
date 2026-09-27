@@ -92,18 +92,20 @@ description: CREW bug 修復紀律 —— 根因確認才能改（鐵律）、�
 鐵律：沒有根因確認，不能開始修復。
 ```
 
-### 4. 修復建議與實作（唯讀 sonnet → 實作者 opus）
+### 4. 修復建議與實作（唯讀 FAST → 實作者 DEEP）
 
 > **模型分工（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
 >
-> | 階段 | 工作 | model |
-> |------|------|-------|
-> | 4a 定位（唯讀） | 讀取已確認根因、定位相關檔案、搜尋相似修正模式、尋找既有測試範本 | `sonnet` |
-> | 4b 實作 | 決定修正策略、修改正式程式碼、處理跨模組影響、建立必要的迴歸測試 | `opus` |
-> | 5 驗證整理 | 分析編譯與測試輸出、整理驗證結果、更新 `.spec/` 或 Notion 紀錄 | `sonnet` |
+> | 階段 | 工作 | routing / model |
+> |------|------|-----------------|
+> | 4a 定位（唯讀） | 讀取已確認根因、定位相關檔案、搜尋相似修正模式、尋找既有測試範本 | `task: repository_search` + `profile: FAST` |
+> | 4b 實作 | 決定修正策略、修改正式程式碼、處理跨模組影響、建立必要的迴歸測試 | `profile: DEEP`；Claude adapter 目前 `model: opus` |
+> | 5 驗證執行 | 編譯／測試指令與 pass/fail 判定 | `profile: NONE`（deterministic tooling） |
+> | 5 驗證整理（唯讀） | 大量編譯／測試輸出摘要、整理結果、更新 `.spec/` 或 Notion 紀錄 | `task: test_output_summary` + `profile: FAST` |
 >
-> - 4a 派 subagent 時實際傳入 `{"model": "sonnet"}`；4b **正式修改 Agent 必須實際傳入** `{"model": "opus"}`。
-> - 同一個 agent 的模型 spawn 後不能換 → 4a 與 4b **必須是兩個 agent**，不是同一個 agent「先探索再實作」。
+> - 4a 依 `../../references/host-capabilities.md` 使用 `delegate_readonly`，routing=`task: repository_search`、`profile: FAST`、`risk: low`、`complexity: low`；執行前由 `crew-model-route.py` 取得 Host mapping。
+> - 4b **正式修改 Agent 必須維持 DEEP**；Claude adapter 目前實際傳入 `model: opus`。
+> - 4a 與 4b **必須是兩個工作單元**，不是同一個 agent「先探索再實作」。
 > - 4b 的實作者只吃 4a 的交接（相關檔案、呼叫關係、風格／測試範本、已確認限制、測試方式），🔴 不重新全域掃描 repository。
 > - 🔴 沒有根因確認（步驟 3 BLOCK）不得進入 4b。🔴 最小 diff：只動與根因直接相關的程式碼。
 
@@ -121,7 +123,7 @@ AI 根據 Notion 頁面的根因分析，產出修復建議：
 ⚠️ 最小 diff 原則：只修改與根因直接相關的程式碼
 ```
 
-使用者確認方向後自行修復，或請 AI 修復 —— 由 AI 修復時，依 `../../references/host-capabilities.md` 使用 **`delegate_write`**，role=`bug-fix-implementer`、`model: opus`，輸入 4a 的交接內容與最小 diff scope。Host 無獨立 worker 時可由主 Agent inline 實作，但不得放寬可寫範圍與驗證要求。
+使用者確認方向後自行修復，或請 AI 修復 —— 由 AI 修復時，依 `../../references/host-capabilities.md` 使用 **`delegate_write`**，role=`bug-fix-implementer`、`profile: DEEP`（Claude adapter 目前 `model: opus`），輸入 4a 的交接內容與最小 diff scope。Host 無獨立 worker 時可由主 Agent inline 實作，但不得放寬可寫範圍與驗證要求。
 
 ### 5. 修復後驗證
 
@@ -140,7 +142,7 @@ AI 根據 Notion 頁面的根因分析，產出修復建議：
 
 #### 5.2 迴歸測試產出
 
-AI 根據根因分析和修復 diff，產出 1 個迴歸測試：
+若需要 AI **新增或修改迴歸測試程式碼**，這屬可寫工作，必須沿用 4b 的 `delegate_write` + `profile: DEEP`（Claude adapter 目前 `model: opus`）；不得交給 FAST 驗證整理角色。AI 根據根因分析和修復 diff 產出 1 個迴歸測試：
 
 ```
 迴歸測試需滿足：
@@ -276,7 +278,7 @@ Bug 修復驗證完成！
 - **迴歸測試無法產出**：某些修復（如純設定變更）難以寫自動化測試，標記為 WARN 並在 Notion 說明原因
 - **gstack 不可用**：跳過 UI 驗證，在 Notion 標記「UI 驗證：⏭️ 跳過（gstack 不可用）」
 - **API 驗證服務未啟動**：跳過 API 驗證，在 Notion 標記「API 驗證：⏭️ 跳過（服務未啟動）」
-- **--verify-only 模式**：跳過『修復建議與實作』一節，直接從『修復後驗證』一節開始。此模式不修改正式程式碼，**預設 `model: "sonnet"`**（只跑編譯／測試、分析輸出、寫紀錄）；只有驗證失敗、且使用者同意繼續修正時，才啟動 `{"model": "opus"}` 的實作者
+- **--verify-only 模式**：跳過『修復建議與實作』一節，直接從『修復後驗證』一節開始。編譯／測試執行本身是 `profile: NONE`；需要摘要大量輸出或整理紀錄時用 `task: test_output_summary` + `profile: FAST`。若驗證失敗且使用者同意修改程式碼，才進 `profile: DEEP` 的 `delegate_write` 實作者。
 - **diff 過大（> 500 行）**：提示使用者確認是否所有變更都與 bug 修復相關，遵循最小 diff 原則；其他改善（如 code style、重構旁邊的邏輯）應在另一個 commit 完成，否則 revert 時會連帶
 - **Bug 無「修復分支」欄位**：『分支檢查』一節跳過
 - **feature-workflow 未安裝或未設定**：分支引導顯示通用提示，不阻擋流程
