@@ -4,10 +4,10 @@
 政策來源：plugins/*/references/model-policy.md（共用 reference，兩 plugin sha256 一致）
 起點 gotcha（plan-common.md「共用 Gotchas」）：
   「prompt 中寫『使用 Opus 模型』只是自然語言指示，不保證生效。
-   必須在 Agent tool 的 `model` 參數實際設定 `"opus"`。」
+   Capability request 必須帶結構化 `model: opus`；Host adapter 不得假裝已套用。」
 
 七項檢查（對應 model-policy.md）：
-  1. STRUCTURED  — Agent 呼叫描述附近必須有結構化 model 標示（原有規則，保留）
+  1. STRUCTURED  — 委派 capability／舊式 Agent 呼叫附近必須有結構化 model 標示
   2. AGENT_FM    — agents/*.md frontmatter 必須宣告 model，且已知 agent 的值需符合政策
                    （規格分析 agent 不得 opus；正式實作 agent 不得 sonnet）
   3. ROLE_POLICY — 各 skill 的角色模型對照（plan-spec 只准 sonnet、bug-investigate 預設
@@ -17,8 +17,10 @@
   6. 掃描範圍含 references/ 與 agents/，不只 SKILL.md（自然語言模板也會被實際送出去）
   7. 優先檢查結構化宣告：`model: "opus"` / `{"model": "sonnet"}` / `model=opus` 才算數
 
-無法靜態確認 runtime 真的傳了參數（skill 只是「描述 Claude 該怎麼呼叫」），
-因此本 lint 的契約是：**指令文字必須明確要求傳入結構化 model 參數**。
+無法靜態確認 Host runtime 是否真的套用了模型目標，
+因此本 lint 的契約是：**指令文字必須以 capability request 明確帶結構化 model 目標**。
+Claude adapter 可精準轉成 Agent/subagent model 參數；其他 Host 若無此能力，應依
+host-capabilities.md 回報 routing degraded，而不是假裝成功。
 
 用法：
   python3 scripts/lint-agent-model.py            # advisory：列出問題但 return 0
@@ -42,9 +44,14 @@ AGENT_GLOB = "plugins/*/agents/*.md"
 WINDOW = 250
 VALID_MODELS = ("opus", "sonnet", "haiku")
 
-# --- 1. Agent 呼叫描述 -------------------------------------------------------
+# --- 1. 委派 capability／舊式 Agent 呼叫描述 -------------------------------
+# 新版 CREW 以 host-capabilities.md 的 capability 名稱為準；舊字樣暫時保留，
+# 讓尚未遷移的 reference 仍受 model lint 保護。
 AGENT_CALL_RE = re.compile(
-    r"(?:啟動\s*(?:唯讀\s*|實作者\s*)?subagent"
+    r"(?:delegate_readonly"
+    r"|delegate_write"
+    r"|parallel_delegate"
+    r"|啟動\s*(?:唯讀\s*|實作者\s*)?subagent"
     r"|啟動\s*Agent\s*Teams"
     r"|使用\s*Agent\s*tool"
     r"|Agent\s*tool\s*啟動"
@@ -87,10 +94,9 @@ AGENT_MODEL_POLICY = {
 # require: 檔案中必須出現的結構化模型；forbid: 全檔禁止出現的結構化模型
 # section_rules: (段落標題關鍵字, require, forbid) — 段落 = 該標題到下一個同級或更高級標題
 ROLE_POLICY = {
-    "plan-spec": {
-        "require": ["sonnet"],
-        "forbid": ["opus"],
-        "why": "規格分析階段（讀需求／探索程式碼／產出 spec.md）固定 Sonnet",
+    "plan": {
+        "require": ["sonnet", "opus"],
+        "why": "spec pass 的唯讀規格分析目標 sonnet；db/arch 複雜設計目標 opus",
     },
     "plan-build": {
         "require": ["sonnet", "opus"],
@@ -218,7 +224,7 @@ def check_nl_model(text: str, path: Path) -> list[str]:
             continue  # 這行是在說明「不可以這樣做」
         findings.append(
             f"{rel(path)}:{line_of(text, m.start())} [NL_MODEL] 「{m.group(0)}」是自然語言指定，"
-            f"不保證生效；改為結構化標示（例：`spawn 參數：name=xxx、model: opus`）"
+            f"不保證生效；改為 capability 結構化標示（例：`delegate_write, role=xxx, model: opus`）"
         )
     return findings
 
@@ -357,7 +363,7 @@ def main() -> int:
 
     scope = (
         f"{counts['skills']} 個 SKILL.md、{counts['references']} 個 reference、"
-        f"{counts['agents']} 個 agent 定義、{counts['calls']} 個 Agent 呼叫"
+        f"{counts['agents']} 個 agent 定義、{counts['calls']} 個委派／Agent 呼叫"
     )
 
     if findings:
