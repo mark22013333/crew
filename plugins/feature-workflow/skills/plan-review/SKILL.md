@@ -1,6 +1,6 @@
 ---
 name: plan-review
-description: 以 3 個 reviewer 角色審查 .spec 任務的程式碼（邏輯/品質/效能）並交叉審查；Host 支援時可平行，否則序列。報告全文在對話輸出、摘要一行進 plan.md。
+description: 以 3 個 reviewer 角色審查 .spec 任務的程式碼（邏輯/品質/效能），Host 支援時可平行、否則序列。當使用者提到 /plan-review、「CREW 程式碼審查」、「plan-review 審查」時觸發此 Skill。
 argument-hint: "[--quick]"
 ---
 
