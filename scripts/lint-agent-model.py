@@ -10,8 +10,8 @@
   1. STRUCTURED  — 委派 capability／舊式 Agent 呼叫附近必須有結構化 model 或 profile 標示
   2. AGENT_FM    — agents/*.md frontmatter 必須宣告 model，且已知 agent 的值需符合政策
                    （規格分析 agent 不得 opus；正式實作 agent 不得 sonnet）
-  3. ROLE_POLICY — 各 skill 的角色模型對照（plan-spec 只准 sonnet、bug-investigate 預設
-                   sonnet、bug-fix 需有 opus 實作者、plan-review --quick 需 sonnet…）
+  3. ROLE_POLICY — 各 skill 的角色模型對照（bug-investigate 必須 FAST/STANDARD/DEEP 且禁 provider 名稱、
+                   bug-fix 需有 opus 實作者、plan-review --quick 需 sonnet…）
   4. NL_MODEL    — 禁止用自然語言「使用 Opus 模型」指定模型（除了明確在講「這樣不行」的句子）
   5. VAGUE       — 禁止「視情況使用模型」這類沒有具體參數的含糊措辭
   6. 掃描範圍含 references/ 與 agents/，不只 SKILL.md（自然語言模板也會被實際送出去）
@@ -114,9 +114,9 @@ ROLE_POLICY = {
         "why": "邏輯／品質 Reviewer sonnet + 效能 Reviewer opus",
     },
     "bug-investigate": {
-        "require": ["sonnet"],
-        "opus_only_in_sections": ["升級"],
-        "why": "bug-investigate 預設 Sonnet；Opus 只允許出現在條件式升級段落",
+        "require_profiles": ["FAST", "STANDARD", "DEEP"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "bug-investigate 已完成 provider-neutral routing：證據 FAST、一般 debugging STANDARD、條件式深度調查 DEEP",
     },
     "bug-fix": {
         "require": ["opus"],
@@ -301,7 +301,7 @@ def check_role_policy(path: Path, text: str) -> list[str]:
                     f"`model: {banned}`（{policy['why']}）"
                 )
 
-    # opus 只准出現在指定段落（bug-investigate 的條件式升級）
+    # legacy policy 若需要限制 opus 只能出現在指定段落，仍保留通用檢查。
     allow_keys = policy.get("opus_only_in_sections")
     if allow_keys:
         allowed_ranges = [

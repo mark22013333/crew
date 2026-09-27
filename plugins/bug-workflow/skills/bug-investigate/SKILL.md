@@ -161,11 +161,12 @@ git diff HEAD~5..HEAD -- <affected-file>
 （接續共用區塊：環境狀態／歷史參考／歷史學習，見 references/evidence-collection.md）
 ```
 
-### 3. Phase 2：模式比對（model: sonnet）
+### 3. Phase 2：模式比對（profile: STANDARD）
 
 AI 根據收集到的證據，比對已知 bug 模式表（plugin 根目錄 `references/bug-patterns.md`，相對 SKILL.md 為 `../../references/`）。
 
-> 模式比對、相關程式碼搜尋與關鍵方法閱讀屬唯讀工作：由主對話直接做，或派 subagent 時實際傳入 `{"model": "sonnet"}`。
+> 模式比對、跨檔語意閱讀與一般假說推理屬正常工程 debugging：routing=`task: debugging`、`profile: STANDARD`、`risk: medium`、`complexity: medium`。
+> 執行前用 `crew-model-route.py` 取得 Host mapping；需要委派時依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，role=`bug-investigator`，並把上述 routing 結構化傳入。Host 無 subagent 時可 inline 執行，但仍遵守 STANDARD profile 與唯讀邊界。
 
 讀取 plugin 根目錄 `references/bug-patterns.md`（相對 SKILL.md 為 `../../references/`）的 7 種模式定義，將證據中的症狀逐一比對：
 
@@ -280,26 +281,26 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
   • 可能需要在測試環境重現
   • 或請熟悉此模組的同事協助
 
-要繼續調查（Sonnet）、升級深度根因推理（Opus）、還是暫停？
+要繼續標準調查、升級深度根因推理，還是暫停？
 ```
 
-- 使用者選擇**繼續** → 重置計數器，維持 `model: "sonnet"` 繼續調查。
+- 使用者選擇**繼續** → 重置計數器，維持 `profile: STANDARD` + `task: debugging` 繼續調查。
 - 使用者選擇**暫停** → 記錄當前進度到 Notion，並把下一個待查方向留在 `work_unit.remaining`；**不要**把 investigate 標成 done、不要 clear work_unit。此時 `next` 應維持 `/bug-investigate --resume`。
-- 使用者選擇**升級** → 依下方「升級 Opus 深度推理」執行。
+- 使用者選擇**升級** → 依下方「升級 DEEP 深度推理」執行。
 
-#### 4.5 升級 Opus 深度推理（條件式）
+#### 4.5 升級 DEEP 深度推理（條件式）
 
 完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）。
-預設一律 `model: "sonnet"`，🔴 **不得因第一次假說被否定就升級**。只有符合下列任一條件才允許升級：
+預設維持 `profile: STANDARD`；🔴 **不得因第一次假說被否定就升級**。只有符合下列任一條件才允許升級：
 
 - 連續三個可驗證假說都被證據否定（即 4.4 的 3-Strike）
 - 問題跨越三個以上模組
 - 涉及複雜並行、交易一致性、記憶體或分散式狀態
 - 多份證據互相矛盾
-- 一般 Sonnet 調查無法收斂
+- 一般 STANDARD 調查無法收斂
 - 使用者明確要求深度分析
 
-升級前，Sonnet 必須先整理下列交接（寫入 Notion「調查過程」並附在派工 prompt 內）：
+升級前，STANDARD 調查角色必須先整理下列交接（寫入 Notion「調查過程」並附在派工 prompt 內）：
 
 ```markdown
 ## 深度調查交接
@@ -320,8 +321,18 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
 - ...
 ```
 
-派工規則：依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，role=`deep-investigator`、`model: opus`；深度模型 **只針對「尚未解答的問題」推理**，
-🔴 不得重做全部證據收集，🔴 不得修改正式程式碼（本 skill 仍是唯讀調查）。
+派工前先用 Router 取得深度 mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task deep_investigation --risk high --complexity high \
+  --host portable --format json
+```
+
+派工規則：依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，role=`deep-investigator`，
+routing=`task: deep_investigation`、`profile: DEEP`、`risk: high`、`complexity: high`。
+Host adapter 必須依 Router mapping 套用可用的模型／reasoning；做不到 per-worker routing 時回報 `routing_degraded=true`，不得假裝已套用。
+DEEP 角色 **只針對「尚未解答的問題」推理**，🔴 不得重做全部證據收集，🔴 不得修改正式程式碼（本 skill 仍是唯讀調查）。
 
 ### 5. Phase 4：根因確認
 
