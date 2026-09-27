@@ -32,7 +32,8 @@ drift_policy: off
 - [x] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
 - [x] AC-19 Phase 3B Skills 只在使用者明確核准後呼叫 crew-state.py gate，不得由 Agent 自行 approve。
 - [x] AC-20 `/plan` arch pass 提供明確人工確認迴圈，只有本輪確認後才寫 architecture=approved；架構修訂會讓舊 approval 失效。
-- [ ] AC-21 UAT gate 與 `/plan-close` 的語意先完成設計與 smoke test，再決定是否把 close transition 設為 hard block；不得直接沿用 verify=PASS 取代人工 UAT。
+- [x] AC-21 UAT gate 與 `/plan-close` 的語意先完成設計與 smoke test，再決定是否把 close transition 設為 hard block；不得直接沿用 verify=PASS 取代人工 UAT。
+- [ ] AC-22 評估既有流程相容性後，決定是否啟用 `TRANSITION_GATES["close"] = ["uat"]`；若啟用，補 `/plan-close` 人工 UAT 確認流程與 close hard-block smoke test。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -50,6 +51,7 @@ drift_policy: off
 - D-13 [phase2] AGENTS.md 與 CLAUDE.md 都是 project_instructions；有衝突必須留下歧義，不自行忽略其中一份。
 - D-14 [phase3] Model Profile 先抽象後調參；Phase 3A 只把機械型唯讀工作移到 FAST，高風險角色先維持既有 DEEP。
 - D-15 [phase3b] Approval Gate 是 runtime hard rule：requirement 核准前禁止 DB/arch/build；architecture 核准前禁止 build。UAT 先進 schema 但本批不強制 close，待 UAT workflow 整合後再啟用。
+- D-16 [phase3b] UAT 與 machine verify / code review 分離：verify=PASS 不等於 uat=approved；uat 只能在 review 完成後由人類決策。Phase 3B-3A 先讓 `next` 等待 UAT，但暫不 hard-block close transition。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -121,3 +123,9 @@ drift_policy: off
 - [2026-09-27] [phase3b-2b] Feature commit `4f1dadb`；lint 修正 commit `7c0948f`；GitHub Actions run 36302263923（#88）共 13 個 job 全部 success。
 - [2026-09-27] [phase3b] AC-17～AC-20 完成：requirement + architecture 兩道人類 Gate 已由 runtime hard rule + Skill 明確確認迴圈共同執行。
 - [2026-09-27] [next] 下一小批先只盤點 `/plan-close`、`/plan-verify` 與目前 UAT 語意，設計 UAT gate contract 與 smoke test；先不直接強制 close，避免把 verify=PASS 錯當成人工 UAT。
+
+- [2026-09-27] [phase3b-3a] 新增 `feature-workflow/references/uat-gate.md`：Machine Verify、Code Review、Human UAT 三層語意分離，明訂 `verify=PASS` ≠ `uat=approved`。
+- [2026-09-27] [phase3b-3a] `crew-state.py` 規定 uat gate 只有 `review=done/skipped` 後才能做非 pending 決策；review 完成但 UAT 未通過時，`/plan-next` 不再直接建議 `/plan-close`。
+- [2026-09-27] [phase3b-3a] `/plan-verify` 明文禁止寫 `gates.uat`；`/plan-close` 加入 advisory UAT 檢查，但此批仍未把 close 放進 `TRANSITION_GATES`，保留 legacy compatibility。
+- [2026-09-27] [phase3b-3a] Commit `6524013`；GitHub Actions run 36304354314（#90）共 13 個 job 全部 success，Approval gates smoke test 含 UAT timing / next / compatibility。
+- [2026-09-27] [next] 下一小批只評估是否正式啟用 close→uat hard block：先盤點 `/plan-close` legacy/bug 相容性與 `/bug-close` 邊界，再決定；不要直接改 transition。
