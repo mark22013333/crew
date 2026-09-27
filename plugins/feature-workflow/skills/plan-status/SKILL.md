@@ -7,7 +7,7 @@ description: 列出 .spec/ 目錄中所有活躍與已完成的任務（純本�
 
 純本地操作。狀態一律由 `crew-state.py` 讀寫（`.spec/{slug}/state.json` 是唯一權威），本 skill 只負責呈現與清理。**不呼叫任何 Notion API**。
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查 CLAUDE.md 是否存在。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查專案指令是否存在。
 
 ---
 
