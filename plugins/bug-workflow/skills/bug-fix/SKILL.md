@@ -27,7 +27,7 @@ description: CREW bug 修復紀律 —— 根因確認才能改（鐵律）、�
 - 已使用 `/bug-start` 建立 Bug 條目（Notion 有「進行中」的 🐞 錯誤）
 - 修復程式碼已 commit 或即將 commit
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
 ---
 
@@ -121,8 +121,7 @@ AI 根據 Notion 頁面的根因分析，產出修復建議：
 ⚠️ 最小 diff 原則：只修改與根因直接相關的程式碼
 ```
 
-使用者確認方向後自行修復，或請 AI 修復 —— 由 AI 修復時，用 **Agent tool** 啟動實作者 subagent
-並實際傳入 `{"model": "opus"}`，prompt 附上 4a 的交接內容與最小 diff 要求。
+使用者確認方向後自行修復，或請 AI 修復 —— 由 AI 修復時，依 `../../references/host-capabilities.md` 使用 **`delegate_write`**，role=`bug-fix-implementer`、`model: opus`，輸入 4a 的交接內容與最小 diff scope。Host 無獨立 worker 時可由主 Agent inline 實作，但不得放寬可寫範圍與驗證要求。
 
 ### 5. 修復後驗證
 
