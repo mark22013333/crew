@@ -74,6 +74,7 @@ drift_policy: off
 - D-27 [convergence] `crew-state.py next` 對 type=bug 獨立決策：investigate 未完成→`/bug-investigate`；fix 未完成→`/bug-fix`；fix 完成且 UAT pending→`/bug-close`；UAT rejected→回 `/bug-fix`；close 完成→結案。
 - D-28 [convergence] schema v1 Bug state normalize 到 v2 時不搬運舊 Feature steps 當 Bug 進度；只保留同義的 start/close，新增 investigate/fix，並可由 `work_unit.skill` 修正 phase。
 - D-29 [convergence] `/bug-start` 是 Bug runtime 的最小入口：建立 Notion Bug + `.spec/{slug}/state.json`，但不建立 `plan.md` 或新 Git branch。slug 沿用 `/plan-start` 的英文 kebab-case + collision suffix 規則；Notion 暫時失敗也不得讓 Bug lifecycle 沒有 state。
+- D-30 [convergence] `/bug-investigate` 的 resumable work unit 定義為「一個可驗證根因假說」。進入調查即建立 0/1 work unit；每個假說落地後立即更新 done/total/evidence/remaining；只有根因正式確認、報告與必要釐清完成後才 clear unit + investigate=done。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -189,3 +190,10 @@ drift_policy: off
 - [2026-09-27] [convergence-3] Notion API 暫時失敗時仍建立本地 Bug state（page id 留空），避免 intake 成功但 runtime 無斷點。
 - [2026-09-27] [convergence-3] Commit `fb26755`；GitHub Actions run 36323564244（#101）共 14 個 job 全部 success。
 - [2026-09-27] [next] AC-28 繼續逐支接線。下一小批只處理 `/bug-investigate`：進入時寫 investigate=in_progress／work_unit，根因調查正式完成時寫 investigate=done；中斷時 next 應回 `/bug-investigate --resume`。不要同批修改 `/bug-fix`。
+
+- [2026-09-27] [convergence-4] `/bug-investigate` 已接 runtime：定位 Notion Bug 後以 `state.notion.page_id` 綁定既有 slug；找不到/多筆都 BLOCK，不自行建立第二份 state。
+- [2026-09-27] [convergence-4] 正常進入調查先寫 `investigate=in_progress`，再建立 `work_unit(skill=bug-investigate, done=0, total=1)`；每個假說結果落地即更新 progress/evidence/remaining。
+- [2026-09-27] [convergence-4] 中斷時 `next` 會回 `/bug-investigate --resume`；`--resume` 不重設 done/total，直接依 state + Notion 從斷點續跑。3-Strike 暫停也保留未完成 work_unit。
+- [2026-09-27] [convergence-4] 只有根因正式確認、調查報告完成且必要釐清已解決後，才 `unit --clear` + `investigate=done`；exit gate 要求 next=`/bug-fix`。
+- [2026-09-27] [convergence-4] Commit `7bf0d33`；GitHub Actions run 36324177901（#103）共 14 個 job 全部 success。
+- [2026-09-27] [next] AC-28 下一小批只處理 `/bug-fix`：進入時 fix=in_progress + work_unit；正式修改/測試/驗證依工作單元即時寫 state；修復與迴歸驗證完成才 fix=done，next 應進 `/bug-close`。不要同批做 model-routing AC-29。
