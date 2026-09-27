@@ -15,7 +15,7 @@ argument-hint: "[--skip-bug] [--skip-plan] [--resume]"
 依序執行：
 1. `/bug-setup`（建立 Notion 資料庫 + bug-workflow 設定檔）
 2. `/plan-setup`（匯入共用 ID + feature-workflow 設定）
-3. 提示 `/init`（如當前專案無 CLAUDE.md）
+3. 檢查專案指令（`AGENTS.md` / `CLAUDE.md`）；缺失時提示對應 Host 初始化方式
 4. 提示 `/project-add`（如當前專案未註冊）
 
 ---
@@ -120,34 +120,36 @@ bug-setup 失敗或使用者中斷 → 停止 crew-init，提示「下次可用 
 
 呼叫 `/plan-setup`，完成後驗證 config.md 存在。
 
-### 階段 3：當前專案 CLAUDE.md
+### 階段 3：當前專案指令
 
 #### 3a. 偵測
 
-讀取當前 working directory 是否有 `CLAUDE.md`：
+依 `../../references/host-capabilities.md` 的 `project_instructions` 檢查當前 working directory 是否有 `AGENTS.md` 或 `CLAUDE.md`：
 
 ```bash
-test -f CLAUDE.md
+test -f AGENTS.md || test -f CLAUDE.md
 ```
 
-**有** → 標示為 ✅ 跳過，進階段 4。
-**無** → 進 3b。
+**至少一份存在** → 標示為 ✅，進階段 4。
+**都不存在** → 進 3b。
 
 #### 3b. 提示
 
 ```
-階段 3/4：當前專案 CLAUDE.md
+階段 3/4：當前專案指令
 偵測當前目錄：{pwd}
-此目錄無 CLAUDE.md，無法執行 plan-* / bug-* 指令。
+此目錄沒有 AGENTS.md 或 CLAUDE.md，CREW 缺少專案架構與規範上下文。
 
-請執行（Claude Code 內建指令，非本 plugin）：
+請依目前 Host 建立至少一份：
+  • Codex：建立 AGENTS.md
+  • Claude Code：可用 /init 建立 CLAUDE.md
+  • 其他 Host：建立 CREW 可讀的 AGENTS.md
 
-  /init
+建立後建議 commit 並 push，讓團隊共用：
+  git add AGENTS.md CLAUDE.md 2>/dev/null || true
+  git commit -m "docs: add project instructions" && git push
 
-執行後建議將 CLAUDE.md commit 到 Git，讓團隊共用：
-  git add CLAUDE.md && git commit -m "docs: 新增 CLAUDE.md" && git push
-
-[Enter 我已執行 /init，或 s 跳過此步驟]
+[Enter 我已建立專案指令，或 s 跳過此步驟]
 ```
 
 使用者選擇 Enter 後重新檢查；選 s 則標示為 ⚠️ 跳過。
@@ -197,7 +199,7 @@ git remote get-url origin
 
 階段 1/4 bug-workflow 設定        ✅
 階段 2/4 feature-workflow 設定    ✅
-階段 3/4 當前專案 CLAUDE.md       ✅
+階段 3/4 當前專案指令            ✅
 階段 4/4 專案註冊                  ✅
 
 可用指令：
@@ -228,7 +230,7 @@ git remote get-url origin
 - 只想設定 bug 側 → 改用 `/bug-setup`
 - 只想設定 feature 側 → 改用 `/plan-setup`
 - 只想註冊專案到 Notion → 改用 `/project-add`
-- 只想初始化 CLAUDE.md → 改用內建 `/init`
+- 只想初始化專案指令 → Codex 建立 `AGENTS.md`；Claude Code 可用內建 `/init`
 - 只想做 CREW 環境檢查 → 改用 `/crew-doctor`
 
 ---
@@ -244,7 +246,7 @@ git remote get-url origin
 
 ## 邊界情況
 
-- **CLAUDE.md 存在但不完整**：本 skill 只檢查存在，不解析內容。內容不完整由 plan-* / bug-* 各自處理
+- **專案指令存在但不完整**：本 skill 只檢查 `AGENTS.md` / `CLAUDE.md` 至少一份存在，不判斷內容品質；後續 Skill 依 `project_instructions` 讀取
 - **使用者跳過所有步驟（連按 s）**：摘要顯示全部 ⚠️，提示「至少需完成階段 1+2 才能用大部分 Skill」
 - **非 Git 專案**：階段 4 偵測 `git remote` 失敗時，標示為 ⏭️ 不適用（非 git 專案不需註冊）
 - **WSL2 / Windows 桌面版混用**：設定檔路徑共享 `~/.claude-company/`，重複設定會偵測為已存在自動跳過
