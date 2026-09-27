@@ -68,11 +68,11 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 執行前**依序檢查**，決定使用工具：
 
 ```
-1. 檢查 claude mcp list 是否含 "playwright"
+1. 依 `../../references/host-capabilities.md` 執行 `tool_probe(tool_kind=browser, preferred_names=[playwright])`
    → 有 → 使用 Playwright MCP（預設）
    → 沒有 → 繼續下一項檢查（chrome-devtools MCP 退回）
 
-2. 檢查 claude mcp list 是否含 "chrome-devtools"
+2. 執行 `tool_probe(tool_kind=browser, preferred_names=[chrome-devtools])`
    → 有 → 退回使用 chrome-devtools-mcp
    → 沒有 → 提示安裝 Playwright MCP（推薦）
 
@@ -108,7 +108,7 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 - `python-docx`：.NET 未安裝，python-docx 已就緒，可產出基礎排版報告
 - `python-docx（需安裝）`：兩者皆未安裝，到 step 10 時引導安裝
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查 CLAUDE.md 是否存在。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查專案指令是否存在。
 
 ---
 
@@ -417,7 +417,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 後續可使用：
   • /plan-verify --recheck — 重新驗證失敗項目
   • /plan-verify --word    — 產 Word 驗收報告（可選，讀 .cache/）
-  • /plan-review          — Agent Teams 程式碼審查
+  • /plan-review          — 多角色程式碼審查
   • /plan-close           — 結案並同步 Notion
 ```
 
