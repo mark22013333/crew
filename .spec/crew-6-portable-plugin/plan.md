@@ -4,7 +4,7 @@ name: CREW 6.0 Portable Plugin 與 Codex 相容
 type: feature
 verified_at_commit:
 verified_at:
-drift_policy: normal
+drift_policy: off
 ---
 
 # CREW 6.0 Portable Plugin 與 Codex 相容
@@ -52,6 +52,7 @@ drift_policy: normal
 - hooks 可利用 Codex 對 CLAUDE_PLUGIN_ROOT 的相容變數，但長期仍應改用 Host-neutral path abstraction。
 - marketplace authentication policy 目前先使用官方文件範例值；若之後 bundle MCP/auth，再依實際認證流程調整。
 - 不為了 Artifact-driven 再拆出大量 YAML；維持 plan.md + state.json + deploy.sql 的 compact artifact 哲學。
+- 本遷移 plan 尚在規劃/實作中且不以程式碼錨點追蹤，故暫設 drift_policy=off；完成 Host-neutral 遷移後再決定是否轉回 normal。
 
 ## 指路              <!-- crew:map  append-only -->
 - Claude marketplace：`.claude-plugin/marketplace.json`
