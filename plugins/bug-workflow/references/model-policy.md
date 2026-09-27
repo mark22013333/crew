@@ -37,20 +37,72 @@ Claude Code adapter 會把上述 `model` 目標轉成實際 Agent/subagent 結�
 
 ---
 
-## Sonnet：文件、探索與驗證（預設）
+## Provider-neutral Model Profile（權威：model-routing.json）
 
-下列工作**固定或預設**使用 `model: "sonnet"`：
+Workflow 先選 Profile，再由 Host adapter 對映實際模型。**Profile 是流程契約，model 名稱不是。**
+
+| Profile | 適合工作 | Claude adapter | Codex adapter |
+|---|---|---|---|
+| `NONE` | Git、grep、JSON/schema validation、build/test 等 deterministic tooling | 不呼叫 LLM | 不呼叫 LLM |
+| `FAST` | repository search、證據蒐集、log/test output 摘要、分類抽取 | `haiku` / low | inherit model / low reasoning |
+| `STANDARD` | 需求分析、一般 review、一般實作與 debugging | `sonnet` / medium | inherit model / medium reasoning |
+| `DEEP` | architecture、DB schema、security、performance、複雜根因、高風險修改 | `opus` / high | inherit model / high reasoning |
+
+實際路由由 `scripts/crew-model-route.py` 讀取 `references/model-routing.json` 決定。Skill 不自行複製 routing table。
+
+範例：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task repository_search --risk low --complexity low --host portable --format json
+```
+
+路由會依 task default 再套用三種 escalation：
+
+- `risk=medium/high` → 至少 STANDARD / DEEP
+- `complexity=medium/high` → 至少 STANDARD / DEEP
+- sensitive tag（security/payment/concurrency/transaction/schema migration 等）→ DEEP
+- 同類工作連續失敗達門檻 → 升一級，最多 DEEP
+
+> Host adapter 必須確認自己真的能套用 mapping。做不到 per-worker model/reasoning 時，保留 role/write boundary 並標 `routing_degraded=true`，不得假裝成功。
+
+---
+
+## FAST：機械型唯讀工作
+
+下列工作優先 `profile: FAST`：
+
+- repository 搜尋、檔案／symbol inventory
+- 尋找相似功能與風格範本
+- Bug 證據蒐集與既有 log / Git history 摘要
+- build/test output 摘要
+- 分類、抽取、格式轉換
+
+FAST **不得**負責架構決策、正式程式碼修改或自行擴大需求範圍。需要一般推理時由 Router 升至 STANDARD；碰到 sensitive/high risk 時直接 DEEP。
+
+---
+
+## STANDARD：一般工程推理
+
+需求分析、一般品質 review、routine implementation/debugging 的預設 Profile 是 `STANDARD`。
+Phase 3A 為降低一次改動風險，既有正式實作者暫時仍維持 DEEP；等 D-1 加入 risk/complexity/sensitive 後，再由 Router 動態決定 STANDARD/DEEP。
+
+---
+
+## DEEP：複雜／高風險推理
+
+DB schema、architecture、security、performance、複雜交易／並行、跨服務與深度根因分析固定或最低為 `DEEP`。
+
+---
+
+## 舊有 Claude mapping：Sonnet（STANDARD）
+
+下列工作原本以 `model: "sonnet"` 表示；Phase 3 起應優先理解為 `profile: STANDARD`，其中純機械探索已拆到 FAST：
 
 - 閱讀需求與規格文件
 - 閱讀與整理 `.spec/` 文件
 - 產出、摘要或修改技術規格
-- 搜尋與閱讀既有程式碼
-- 尋找相似功能與程式風格範本
-- 追蹤呼叫關係及影響範圍
-- 收集 Bug 證據
-- 閱讀及分析日誌
-- 分析 Git 歷史
-- 分析編譯與測試輸出
+- 需要語意判斷的程式碼閱讀與跨檔推理
 - 一般程式碼品質檢查
 - 整理交接給實作者的上下文
 
@@ -64,9 +116,9 @@ Claude Code adapter 會把上述 `model` 目標轉成實際 Agent/subagent 結�
 
 ---
 
-## Opus：決策、開發與修正
+## 舊有 Claude mapping：Opus（DEEP）
 
-只有下列工作使用 `model: "opus"`：
+下列工作以 `profile: DEEP` 為最低目標；Claude adapter 目前對映 `model: opus`：
 
 - 已確認規格後的功能實作
 - 已確認根因後的 Bug 修正
@@ -114,22 +166,23 @@ Sonnet 探索完成後產出下列交接，Opus 只讀這份加上指定的設�
 
 ## 角色 → 模型對照表
 
-| 流程 | 角色 | 模型 | 可改正式程式碼 |
-|------|------|------|----------------|
-| `/plan` spec pass | 規格分析（`feature-spec-analyst`） | `sonnet` | ✗ |
-| `/plan` db pass | DB 設計（`feature-db-designer`） | `opus` | ✗（只產 `deploy.sql` 與決策條目） |
-| `/plan` arch pass | 架構設計（`feature-backend-designer`） | `opus` | ✗ |
-| `/plan-build` | 探索官（專案結構、相似功能、風格範本、交叉引用） | `sonnet` | ✗ |
-| `/plan-build` | DB／後端／API／前端／測試工程師（`feature-code-generator`） | `opus` | ✓ |
-| `/plan-review` | Reviewer 1 邏輯正確性 | `sonnet` | ✗ |
-| `/plan-review` | Reviewer 2 程式碼品質 | `sonnet` | ✗ |
-| `/plan-review` | Reviewer 3 效能審查 | `opus` | ✗ |
-| `/plan-review --quick` | 單一快速審查員 | `sonnet` | ✗ |
-| `/plan-security` | 安全審查 | `opus` | ✗ |
-| `/bug-investigate` | 證據收集、模式比對、假說驗證 | `sonnet` | ✗ |
-| `/bug-investigate` | 深度根因推理（僅升級條件成立時） | `opus` | ✗ |
-| `/bug-fix` | 定位、相似修正搜尋、測試範本、編譯／測試輸出分析 | `sonnet` | ✗ |
-| `/bug-fix` | 修復實作者 | `opus` | ✓ |
+| 流程 | 角色 | Profile | Claude mapping | 可改正式程式碼 |
+|------|------|------|------|----------------|
+| `/plan` spec pass | 規格分析（`feature-spec-analyst`） | STANDARD | sonnet | ✗ |
+| `/plan` db pass | DB 設計（`feature-db-designer`） | DEEP | opus | ✗（只產 `deploy.sql` 與決策條目） |
+| `/plan` arch pass | 架構設計（`feature-backend-designer`） | DEEP | opus | ✗ |
+| `/plan-build` | 探索官（搜尋／範本／交叉引用） | **FAST** | haiku | ✗ |
+| `/plan-build` | DB／後端／API／前端／測試工程師 | DEEP（Phase 3A 保守值） | opus | ✓ |
+| `/plan-review` | Reviewer 1 邏輯正確性 | STANDARD | sonnet | ✗ |
+| `/plan-review` | Reviewer 2 程式碼品質 | STANDARD | sonnet | ✗ |
+| `/plan-review` | Reviewer 3 效能審查 | DEEP | opus | ✗ |
+| `/plan-review --quick` | 單一快速審查員 | STANDARD | sonnet | ✗ |
+| `/plan-security` | 安全審查 | DEEP | opus | ✗ |
+| `/bug-investigate` | 證據收集、模式比對 | **FAST** | haiku | ✗ |
+| `/bug-investigate` | 一般假說推理 | STANDARD | sonnet | ✗ |
+| `/bug-investigate` | 深度根因推理（升級條件成立） | DEEP | opus | ✗ |
+| `/bug-fix` | 定位、相似修正搜尋、測試輸出整理 | **FAST** | haiku | ✗ |
+| `/bug-fix` | 修復實作者 | DEEP（Phase 3A 保守值） | opus | ✓ |
 
 > **為何設計類（`/plan-db`、`/plan-arch`、`/plan-security`）保留 Opus**：
 > 它們雖然只產出 `.spec/` 文件、不碰正式程式碼，但內容是 DB schema／索引／交易一致性、
@@ -155,8 +208,8 @@ Sonnet 探索完成後產出下列交接，Opus 只讀這份加上指定的設�
 
 ## Bug 調查何時可以升級 Opus
 
-`/bug-investigate` 預設 `model: "sonnet"`，且**不得因第一次假說被否定就升級**。
-只有符合下列任一條件才允許升級 Opus 做深度根因推理：
+`/bug-investigate` 的證據收集預設 `profile: FAST`；一般假說推理為 STANDARD，且**不得因第一次假說被否定就升級**。
+只有符合下列任一條件才允許升級 `profile: DEEP` 做深度根因推理：
 
 - 連續三個可驗證假說都被證據否定（`bug-investigate` 的 3-Strike）
 - 問題跨越三個以上模組
@@ -165,7 +218,7 @@ Sonnet 探索完成後產出下列交接，Opus 只讀這份加上指定的設�
 - 一般 Sonnet 調查無法收斂
 - 使用者明確要求深度分析
 
-升級前 Sonnet 必須先整理下列交接，Opus **只針對「尚未解答的問題」推理**，不得重做全部證據收集：
+升級前 FAST/STANDARD 工作單元必須先整理下列交接，DEEP worker **只針對「尚未解答的問題」推理**，不得重做全部證據收集：
 
 ```markdown
 ## 深度調查交接
