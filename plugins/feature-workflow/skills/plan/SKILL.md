@@ -63,7 +63,7 @@ argument-hint: "[spec|db|arch]"
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
 > - Capability request 必須實際帶 `model: sonnet`；只在 prompt 裡描述模型名稱不算。Host 若無法精準指定 worker model，依 `host-capabilities.md` 降級並回報。
 > - 本 pass 只做需求分析、程式碼探索與規格判斷；🔴 禁止修改正式程式碼。
-> - 🔴 禁止自動啟動 `/plan-build`（或任何實作階段 skill）、禁止建立 Agent Team、禁止要求 Dynamic Workflow。
+> - 🔴 禁止自動啟動 `/plan-build`（或任何實作階段 skill）、禁止啟動實作委派、禁止要求 Host-specific Dynamic Workflow。
 > - 🔴 不得因需求文件多或內容長就自行升級 Opus；範圍過大就分節產出。
 > - 規格確認迴圈（1-3）照原樣執行，不可略過。
 
