@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # bump-version.sh — 版本同步腳本
 #
-# 一次同步 plugin 版本到三處：
+# 一次同步 plugin 版本到四處：
 #   1. plugins/<plugin>/.claude-plugin/plugin.json
-#   2. .claude-plugin/marketplace.json
-#   3. plugins/<plugin>/README.md（第一行 vX.Y.Z）
+#   2. plugins/<plugin>/plugin.json（Agent Plugins portable manifest）
+#   3. .claude-plugin/marketplace.json
+#   4. plugins/<plugin>/README.md（第一行 vX.Y.Z）
 #
 # 另支援 --check 模式：僅檢查不修改，CI 用。
 #
@@ -26,7 +27,7 @@ usage() {
   cat <<'EOF'
 用法：
   bump-version.sh <plugin> <new_version>     # 同步版本到三處
-  bump-version.sh --check                    # 僅檢查三處一致性（CI 用）
+  bump-version.sh --check                    # 僅檢查四處一致性（CI 用）
   bump-version.sh -h | --help
 
 範例：
@@ -58,6 +59,15 @@ with open('$REPO_ROOT/plugins/$plugin/.claude-plugin/plugin.json') as f:
 "
 }
 
+get_portable_json_version() {
+  local plugin="$1"
+  python3 -c "
+import json
+with open('$REPO_ROOT/plugins/$plugin/plugin.json') as f:
+    print(json.load(f)['version'])
+"
+}
+
 get_marketplace_version() {
   local plugin="$1"
   python3 -c "
@@ -85,6 +95,21 @@ set_plugin_json_version() {
   python3 - <<PYEOF
 import json
 path = '$REPO_ROOT/plugins/$plugin/.claude-plugin/plugin.json'
+with open(path) as f:
+    data = json.load(f)
+data['version'] = '$version'
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PYEOF
+}
+
+set_portable_json_version() {
+  local plugin="$1"
+  local version="$2"
+  python3 - <<PYEOF
+import json
+path = '$REPO_ROOT/plugins/$plugin/plugin.json'
 with open(path) as f:
     data = json.load(f)
 data['version'] = '$version'
@@ -129,18 +154,20 @@ PYEOF
 check_consistency() {
   local rc=0
   for plugin in bug-workflow feature-workflow; do
-    local pv mv rv
-    pv=$(get_plugin_json_version "$plugin")
+    local cv pv mv rv
+    cv=$(get_plugin_json_version "$plugin")
+    pv=$(get_portable_json_version "$plugin")
     mv=$(get_marketplace_version "$plugin")
     rv=$(get_readme_version "$plugin")
 
-    if [[ "$pv" == "$mv" && "$mv" == "$rv" ]]; then
-      echo "✅ $plugin: $pv"
+    if [[ "$cv" == "$pv" && "$pv" == "$mv" && "$mv" == "$rv" ]]; then
+      echo "✅ $plugin: $cv"
     else
       echo "❌ $plugin 版本不一致："
-      echo "   plugin.json:      $pv"
-      echo "   marketplace.json: $mv"
-      echo "   README.md:        $rv"
+      echo "   .claude-plugin/plugin.json: $cv"
+      echo "   portable plugin.json:       $pv"
+      echo "   marketplace.json:           $mv"
+      echo "   README.md:                  $rv"
       rc=1
     fi
   done
@@ -164,12 +191,14 @@ bump_version() {
   echo "🔄 $plugin: $old_pv → $version"
 
   set_plugin_json_version "$plugin" "$version"
+  set_portable_json_version "$plugin" "$version"
   set_marketplace_version "$plugin" "$version"
   set_readme_version "$plugin" "$version"
 
   echo ""
-  echo "✅ 已同步三處版本："
+  echo "✅ 已同步四處版本："
   echo "   plugins/$plugin/.claude-plugin/plugin.json"
+  echo "   plugins/$plugin/plugin.json"
   echo "   .claude-plugin/marketplace.json"
   echo "   plugins/$plugin/README.md"
   echo ""
