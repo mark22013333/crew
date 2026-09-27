@@ -17,6 +17,7 @@ EVIDENCE_COLLECTION = REPO / "plugins" / "bug-workflow" / "references" / "eviden
 LEARNINGS_SCHEMA = REPO / "plugins" / "bug-workflow" / "references" / "learnings-schema.md"
 BUG_FIX_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-fix" / "SKILL.md"
 MERGE_GUIDE = REPO / "plugins" / "bug-workflow" / "references" / "merge-guide.md"
+PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-close" / "SKILL.md"
 
 
 def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -186,6 +187,16 @@ def main() -> int:
             assert ".claude-company/feature-workflow/projects" not in consumer_text
             assert "~/.claude/feature-workflow/projects" not in consumer_text
         print("✅ dev_branch consumers resolve feature project config portably")
+
+        plan_close_text = PLAN_CLOSE_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_close_text
+        assert "--key bug/config" in plan_close_text
+        assert "--mode read" in plan_close_text
+        assert "--format path" in plan_close_text
+        assert '[ -f "$BUG_CONFIG_FILE" ]' in plan_close_text
+        assert ".claude-company/bug-workflow-config.md" not in plan_close_text
+        assert "~/.claude/bug-workflow-config.md" not in plan_close_text
+        print("✅ plan-close reads bug config through portable resolver")
 
         print("✅ portable config resolver smoke tests passed")
         return 0

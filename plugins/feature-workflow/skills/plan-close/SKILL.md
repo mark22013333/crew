@@ -28,7 +28,19 @@ description: 結案前先跑文件漂移硬關卡（FAIL 擋、WARN 需明示放
 - **第 2 層**：`projects/{repo-id}.md`（專案對應、技術棧 ID）
 - **第 3 層**：`stacks/{id}.md`（技術棧定義，用於設計庫同步）
 
-Bug 類型還需 bug-workflow 設定檔（`~/.claude-company/bug-workflow-config.md` 或 `~/.claude/bug-workflow-config.md`）。
+Bug 類型還需讀取 bug-workflow 設定。不要自行判斷 Host 路徑，改用 portable config resolver：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+BUG_CONFIG_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format path)"
+```
+
+- `[ -f "$BUG_CONFIG_FILE" ]` → 讀取 Bug 知識庫等 bug-workflow 設定。
+- 檔案不存在 → 依既有邊界提示先執行 `/bug-setup`；不得自行回退到 Host-specific 實體路徑。
+- `--mode read` 的 portable/legacy fallback 由 `config-contract.md` 統一負責。
 
 ---
 
@@ -460,7 +472,7 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 - **exit 3 不是漂移**：環境問題代表「這次沒檢查成」。把它說成「有漂移」或「檢查通過」都是假資訊，一律原文照登 script 的「修法：」那行，並且**不蓋章**。
 - **蓋章是承諾，不是儀式**：`verified_at_commit` 只有 `/plan-drift` 與本 skill 能寫，且必須在檢查真的通過之後。這個欄位一旦被隨手蓋，整套漂移偵測就失去意義（下次 D6 的比較基準也會錯）。
 - **一次 update_content 的大小限制**：Notion API request body 約 2MB 上限。v2 只同步 plan.md（≤100 行）＋ deploy.sql，通常遠低於上限；`deploy.sql` 特別大時才需分批呼叫 `update_content`。
-- **Bug 類型需讀取兩個設定檔**：知識庫 ID（Bug 知識庫）在 bug-workflow 設定檔中，只讀 feature-workflow 設定檔會靜默跳過知識庫同步。Bug 類型結案時，兩個 workflow 的設定檔都要讀取。
+- **Bug 類型需讀取兩個設定來源**：知識庫 ID（Bug 知識庫）在 `bug/config` logical key 中；只讀 feature-workflow 設定會靜默跳過知識庫同步。Bug 類型結案時，feature 設定照既有流程載入，bug 設定一律經 `crew-config.py resolve --key bug/config --mode read`。
 - **提交 .spec/ 用 `git add -f`，但要逐檔指定**：`plan-start` 在 `.gitignore` 忽略整個 `.spec/`，而 Git 無法用 `!.spec/{slug}/` 反向取消對「已排除目錄」的忽略（re-include 對已被排除目錄下的內容無效），故必須用 `-f`；力求不改動 `.gitignore`，避免規則順序踩坑。但 `-f` 對整個目錄會連 `.cache/`、`screenshots/`、`evidence/` 一起強制加入 —— 只逐檔加 `plan.md` / `deploy.sql` / `state.json`。強制加入後檔案即成 tracked，後續修改 Git 會正常追蹤。
 - **Notion 呼叫次數統計**：基本情況 3-5 次，但 Bug 有來源 feature 時會多 2 次（fetch + update 關聯 Feature 頁面），實際可達 7 次。回傳結果的統計數字要如實反映。
 
