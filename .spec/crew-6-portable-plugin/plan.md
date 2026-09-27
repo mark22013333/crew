@@ -30,8 +30,9 @@ drift_policy: off
 - [x] AC-16 Phase 3A 純探索/蒐證工作可路由 FAST；架構/DB/security 保持 DEEP。
 - [x] AC-17 Phase 3B state.json 具 approval gates，未核准需求不得進 build。
 - [x] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
-- [ ] AC-19 Phase 3B Skills 只在使用者明確核准後呼叫 crew-state.py gate，不得由 Agent 自行 approve。
-- [ ] AC-20 `/plan` arch pass 提供明確人工確認迴圈，只有本輪確認後才寫 architecture=approved；架構修訂會讓舊 approval 失效。
+- [x] AC-19 Phase 3B Skills 只在使用者明確核准後呼叫 crew-state.py gate，不得由 Agent 自行 approve。
+- [x] AC-20 `/plan` arch pass 提供明確人工確認迴圈，只有本輪確認後才寫 architecture=approved；架構修訂會讓舊 approval 失效。
+- [ ] AC-21 UAT gate 與 `/plan-close` 的語意先完成設計與 smoke test，再決定是否把 close transition 設為 hard block；不得直接沿用 verify=PASS 取代人工 UAT。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -114,3 +115,9 @@ drift_policy: off
 - [2026-09-27] [phase3b-2a] `/plan-build` 前置條件新增 runtime validate requirement + architecture；任一 gate 未通過立即 BLOCK，且明文禁止 plan-build 自行 approve architecture。
 - [2026-09-27] [phase3b-2a] Commit `8098ba9`；GitHub Actions run 36301550205 共 13 個 job 全部 success。
 - [2026-09-27] [next] 下一小批只整合 `/plan` arch pass 的人工確認迴圈 → architecture gate；架構被修改時先 reset pending。完成後再評估 AC-19 是否可勾選；不碰 UAT、不碰 bug workflow。
+
+- [2026-09-27] [phase3b-2b] `/plan` arch pass 已加入 architecture confirmation：實質架構修訂先 reset architecture=pending；只有使用者在本輪明確確認後，才先寫 arch=done，再 gate architecture=approved，最後 validate --require-gate architecture。
+- [2026-09-27] [phase3b-2b] Approval Gate CI 現在只解析 bash code block 裡真正可執行的 approve 命令；active Skill 中只有 `/plan` 可以執行 approval，禁止說明文字不再造成假陽性。
+- [2026-09-27] [phase3b-2b] Feature commit `4f1dadb`；lint 修正 commit `7c0948f`；GitHub Actions run 36302263923（#88）共 13 個 job 全部 success。
+- [2026-09-27] [phase3b] AC-17～AC-20 完成：requirement + architecture 兩道人類 Gate 已由 runtime hard rule + Skill 明確確認迴圈共同執行。
+- [2026-09-27] [next] 下一小批先只盤點 `/plan-close`、`/plan-verify` 與目前 UAT 語意，設計 UAT gate contract 與 smoke test；先不直接強制 close，避免把 verify=PASS 錯當成人工 UAT。
