@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -114,14 +115,33 @@ def main() -> int:
         assert "--require-gate requirement --require-gate architecture" in build_text
         assert "--name architecture --status approved" not in build_text
 
-        # 只有 /plan 可以把 feature Approval Gate 設為 approved。
-        # 其他 active Skill 即使知道 gate 存在，也只能驗證／阻擋，不可替人核准。
+        # 只有 /plan 可以真的執行 Approval Gate approve。
+        # 禁止說明裡可以提到 "--status approved"，所以只掃 bash code block 中的實際命令。
+        def approved_gate_commands(text_value: str) -> list[str]:
+            commands = []
+            for block in re.findall(r"```bash\n(.*?)```", text_value, re.DOTALL):
+                normalized = " ".join(
+                    line.strip().rstrip("\\").strip()
+                    for line in block.splitlines()
+                    if line.strip() and not line.lstrip().startswith("#")
+                )
+                if (
+                    "crew-state.py" in normalized
+                    and " gate " in f" {normalized} "
+                    and "--status approved" in normalized
+                ):
+                    commands.append(normalized)
+            return commands
+
+        plan_approvals = approved_gate_commands(plan_text)
+        assert len(plan_approvals) == 2, plan_approvals
+
         offenders = []
         for skill in sorted((REPO / "plugins").glob("*/skills/*/SKILL.md")):
             if skill == PLAN_SKILL:
                 continue
             text_value = skill.read_text(encoding="utf-8")
-            if "--status approved" in text_value:
+            if approved_gate_commands(text_value):
                 offenders.append(str(skill.relative_to(REPO)))
         assert not offenders, f"non-plan skills may not approve gates: {offenders}"
 
