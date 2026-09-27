@@ -14,6 +14,9 @@ REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-state.py"
 PLAN_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan" / "SKILL.md"
 PLAN_BUILD_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-build" / "SKILL.md"
+PLAN_VERIFY_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-verify" / "SKILL.md"
+PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-close" / "SKILL.md"
+UAT_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "uat-gate.md"
 
 
 def run(project: Path, *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -84,6 +87,43 @@ def main() -> int:
             )
             print("✅ approved gates allow build + validate")
 
+            early_uat = run(
+                project, "gate", "--slug", slug, "--name", "uat",
+                "--status", "approved", "--by", "human", expect=1
+            )
+            assert "review 尚未完成" in early_uat.stderr
+            print("✅ UAT cannot be approved before review")
+
+            run(project, "set", "--slug", slug, "--step", "build", "--status", "done")
+            run(project, "set", "--slug", slug, "--step", "security", "--status", "done")
+            run(project, "result", "--slug", slug, "--kind", "verify", "--status", "PASS")
+            run(project, "set", "--slug", slug, "--step", "verify", "--status", "done")
+            run(project, "set", "--slug", slug, "--step", "review", "--status", "done")
+
+            pending_uat = json.loads(
+                run(project, "next", "--slug", slug, "--format", "json").stdout
+            )
+            assert pending_uat["command"] is None
+            assert "等待人類 UAT" in pending_uat["reason"]
+            print("✅ verify PASS + review done do not imply UAT approval")
+
+            # Phase 3B-3A：close 尚未放進 TRANSITION_GATES，保留 legacy compatibility。
+            run(project, "set", "--slug", slug, "--step", "close", "--status", "done")
+            print("✅ close is not hard-blocked by UAT yet")
+
+            run(project, "set", "--slug", slug, "--step", "close", "--status", "pending")
+            run(project, "set", "--slug", slug, "--phase", "review")
+            run(
+                project, "gate", "--slug", slug, "--name", "uat",
+                "--status", "approved", "--by", "human",
+                "--reason", "user explicitly accepted current delivery"
+            )
+            after_uat = json.loads(
+                run(project, "next", "--slug", slug, "--format", "json").stdout
+            )
+            assert after_uat["command"] == "/plan-close", after_uat
+            print("✅ human UAT approval unlocks plan-close recommendation")
+
             legacy = load(project, slug)
             legacy.pop("gates", None)
             legacy["steps"]["build"]["status"] = "pending"
@@ -103,6 +143,9 @@ def main() -> int:
 
         plan_text = PLAN_SKILL.read_text(encoding="utf-8")
         build_text = PLAN_BUILD_SKILL.read_text(encoding="utf-8")
+        verify_text = PLAN_VERIFY_SKILL.read_text(encoding="utf-8")
+        close_text = PLAN_CLOSE_SKILL.read_text(encoding="utf-8")
+        uat_contract = UAT_CONTRACT.read_text(encoding="utf-8")
 
         assert "--name requirement --status approved --by human" in plan_text
         assert "--name requirement --status pending --by crew" in plan_text
@@ -148,6 +191,14 @@ def main() -> int:
         assert "只有使用者本輪明確核准" in plan_text
         assert "Agent 不得自行 approve" in plan_text
         print("✅ feature skills wire requirement + architecture approvals to explicit human confirmation")
+
+        assert "不是人類 UAT 決策" in verify_text
+        assert "本 skill 不得寫 `gates.uat`" in verify_text
+        assert "Phase 3B advisory" in close_text
+        assert "尚未" in close_text and "hard block" in close_text
+        assert "verify=PASS" in uat_contract and "uat=approved" in uat_contract
+        assert 'TRANSITION_GATES["close"] = ["uat"]' in uat_contract
+        print("✅ UAT contract keeps machine verify separate from human acceptance")
 
         print("✅ approval gate smoke tests passed")
         return 0

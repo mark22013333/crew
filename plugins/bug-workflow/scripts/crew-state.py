@@ -51,6 +51,7 @@ GATE_PASSED = {"approved", "waived"}
 GATE_SOURCE_STEP = {
     "requirement": "spec",
     "architecture": "arch",
+    "uat": "review",
 }
 TRANSITION_GATES = {
     "db": ["requirement"],
@@ -541,7 +542,13 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
             "reason": f"審查有 {as_int(review.get('critical'))} 個 🔴 嚴重發現要先修",
         }
     if step_status(state, "review") in DONE_LIKE:
-        return {"command": STEP_COMMAND["close"], "reason": "所有階段完成，可以結案"}
+        if not gate_passed(state, "uat"):
+            return {
+                "command": None,
+                "reason": "機器驗證與程式碼審查已完成，但仍等待人類 UAT 決策"
+                f"（uat gate={gate_status(state, 'uat')}）；verify=PASS 不等於 UAT 通過",
+            }
+        return {"command": STEP_COMMAND["close"], "reason": "UAT 已通過，所有階段完成，可以結案"}
 
     return {"command": "/plan-status", "reason": "狀態無法對應到既定流程，先看任務清單確認"}
 

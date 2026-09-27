@@ -397,6 +397,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 `results.verify` 取代舊流程「解析 verify.md 文字」的做法 —— 下游（`/plan-review`、`/plan-next`、`/plan-close`）一律讀這裡。
 
+> **UAT 邊界**：本 skill 的 PASS/WARN/FAIL 是機器驗證結果，**不是人類 UAT 決策**。
+> 完整契約見 `../../references/uat-gate.md`。本 skill 不得寫 `gates.uat`，
+> 即使全部 PASS、即使使用 `--manual` 模式，也不得宣稱「UAT 已通過」。
+
 ### 9. 回傳結果
 
 ```
@@ -418,7 +422,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
   • /plan-verify --recheck — 重新驗證失敗項目
   • /plan-verify --word    — 產 Word 驗收報告（可選，讀 .cache/）
   • /plan-review          — 多角色程式碼審查
-  • /plan-close           — 結案並同步 Notion
+  • review 完成後由使用者做 UAT 決策；UAT 通過後，/plan-next 才會建議 /plan-close
 ```
 
 ### 9.5 記憶升級判斷

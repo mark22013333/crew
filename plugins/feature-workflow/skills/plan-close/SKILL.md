@@ -94,9 +94,22 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 - 含「測試」、「QA」→ `測試中`
 - 無法判斷 → 詢問，預設 `測試中`
 
-### 5. 漂移硬關卡（唯一硬關卡，🔴 不可跳過）
+### 4.5 UAT Gate 語意檢查（Phase 3B advisory，尚非 close hard block）
 
-**必須在 `git add -f` 與任何 Notion 呼叫之前執行。** 這是全流程唯一會擋下結案的檢查。
+先讀 `state.json.gates.uat`。完整契約見 `../../references/uat-gate.md`：
+
+- `approved` / `waived` → 可繼續後續結案流程。
+- `pending` / `rejected` → 明確警告「人類 UAT 尚未通過」。
+- 🔴 **不得**因 `results.verify.status=PASS`、`steps.review=done` 或使用者曾執行 `/plan-verify --manual`，自行改成 UAT approved。
+- 🔴 本階段為相容性觀察期，`crew-state.py` **尚未**對 `close` transition 強制 UAT hard block；因此「close 可以寫入」不代表「UAT 已通過」。
+
+若 UAT 尚未通過，預設建議中止結案並回到使用者做 UAT 決策。只有明確的 legacy compatibility 情境才可繼續，且最終回報必須寫「UAT 未完成／未作為本次結案依據」。
+
+> 下一階段若 smoke test 與既有流程確認無相容性問題，才考慮把 `TRANSITION_GATES["close"] = ["uat"]` 升級成真正 hard block。
+
+### 5. 漂移硬關卡（文件硬關卡，🔴 不可跳過）
+
+**必須在 `git add -f` 與任何 Notion 呼叫之前執行。** 這是目前已正式強制的文件硬關卡；UAT gate 此批仍處於 advisory compatibility 階段。
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
