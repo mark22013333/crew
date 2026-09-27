@@ -1,13 +1,13 @@
 ---
 name: plan-demo
-description: 純本地產出範例 .spec/ 任務，不依賴 Notion / Agent Teams / DB MCP，讓評估者快速看到 CREW 完整流程效果。當使用者提到 /plan-demo、「評估 CREW 流程」、「CREW 試跑範例」時觸發此 Skill。
+description: 純本地產出範例 .spec/ 任務，不依賴 Notion / 多角色委派 / DB MCP，讓評估者快速看到 CREW 完整流程效果。當使用者提到 /plan-demo、「評估 CREW 流程」、「CREW 試跑範例」時觸發此 Skill。
 ---
 
 # plan-demo — 純本地評估模式
 
 給未設定 Notion 但想評估 CREW 的人一個 5 分鐘看到完整流程的入口。
 產出真實的 `.spec/demo-{task}/` 目錄，結構與真實任務**完全同構**：`plan.md` ＋ `state.json` ＋ `deploy.sql`，
-但**不寫 Notion、不啟 Agent Teams、不連 DB MCP**。
+但**不寫 Notion、不啟多角色委派、不連 DB MCP**。
 
 > **這個 demo 想讓你看到的重點**：一個 CREW 任務只有一份給人讀的文件（`plan.md`），
 > 它只寫**程式碼裡看不到的東西**（需求、決策與理由、被否決方案、驗收條件、取捨）；
@@ -38,7 +38,7 @@ description: 純本地產出範例 .spec/ 任務，不依賴 Notion / Agent Team
 **最低需求**：當前目錄有寫入權限即可。**不需要**：
 - ❌ Notion MCP 安裝
 - ❌ Notion 授權
-- ❌ Agent Teams 環境變數
+- ❌ 平行委派能力（本 demo 不需要）
 - ❌ DB MCP 安裝
 - ❌ CLAUDE.md 或 /project-add 註冊
 - ❌ `/bug-setup` 或 `/plan-setup`
