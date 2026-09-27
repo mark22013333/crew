@@ -13,7 +13,7 @@ description: 自動偵測或互動式建立自訂技術棧 —— 掃描專案�
 
 依 plugin 根目錄 `references/config-resolver.md`（相對 SKILL.md 為 `../../references/`）的解析邏輯載入設定目錄。技術棧檔案寫入 `stacks/{id}.md`。
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查 CLAUDE.md 是否存在。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查專案指令是否存在。
 
 ---
 
