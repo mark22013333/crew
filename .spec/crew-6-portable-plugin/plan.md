@@ -33,7 +33,10 @@ drift_policy: off
 - [x] AC-19 Phase 3B Skills 只在使用者明確核准後呼叫 crew-state.py gate，不得由 Agent 自行 approve。
 - [x] AC-20 `/plan` arch pass 提供明確人工確認迴圈，只有本輪確認後才寫 architecture=approved；架構修訂會讓舊 approval 失效。
 - [x] AC-21 UAT gate 與 `/plan-close` 的語意先完成設計與 smoke test，再決定是否把 close transition 設為 hard block；不得直接沿用 verify=PASS 取代人工 UAT。
-- [ ] AC-22 評估既有流程相容性後，決定是否啟用 `TRANSITION_GATES["close"] = ["uat"]`；若啟用，補 `/plan-close` 人工 UAT 確認流程與 close hard-block smoke test。
+- [x] AC-22 已完成 close→UAT hard gate 相容性評估；決策為「此刻不全域啟用」，避免直接破壞 bug workflow。
+- [ ] AC-23 Bug workflow 建立合法的人類 UAT 寫入點：`/bug-close` 只能在使用者明確接受修復後寫 `uat=approved`；Agent 不得把 C1-C4 或測試結果自動等同 UAT。
+- [ ] AC-24 UAT gate prerequisite 改為 type-aware：feature 仍要求 review 完成；bug 不得被 feature 的 review prerequisite 卡死。
+- [ ] AC-25 Feature + Bug 都有合法 UAT 路徑後，再啟用 close→uat runtime hard block，並以 smoke test 驗證兩種 type 都能合法結案、未核准都會 BLOCK。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -52,6 +55,8 @@ drift_policy: off
 - D-14 [phase3] Model Profile 先抽象後調參；Phase 3A 只把機械型唯讀工作移到 FAST，高風險角色先維持既有 DEEP。
 - D-15 [phase3b] Approval Gate 是 runtime hard rule：requirement 核准前禁止 DB/arch/build；architecture 核准前禁止 build。UAT 先進 schema 但本批不強制 close，待 UAT workflow 整合後再啟用。
 - D-16 [phase3b] UAT 與 machine verify / code review 分離：verify=PASS 不等於 uat=approved；uat 只能在 review 完成後由人類決策。Phase 3B-3A 先讓 `next` 等待 UAT，但暫不 hard-block close transition。
+- D-17 [phase3b] 暫不全域啟用 `close→uat` hard gate。原因：`/bug-close` 共用同一個 `crew-state.py close` transition，但 bug workflow 目前沒有 `review` step，也沒有合法的 UAT approve 路徑；直接啟用會讓所有 bug 結案被永久 BLOCK。
+- D-18 [phase3b] close hard gate 的正確導入順序：先讓 UAT prerequisite type-aware → `/bug-close` 加人類 acceptance gate → 再把 `close` 加入 runtime transition gate。v1 feature 不受此變更影響，因 legacy-v1 相容模式本來就不呼叫 `crew-state.py`。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -71,6 +76,7 @@ drift_policy: off
 - marketplace authentication policy 目前先使用官方文件範例值；若之後 bundle MCP/auth，再依實際認證流程調整。
 - 不為了 Artifact-driven 再拆出大量 YAML；維持 plan.md + state.json + deploy.sql 的 compact artifact 哲學。
 - 本遷移 plan 尚在規劃/實作中且不以程式碼錨點追蹤，故暫設 drift_policy=off；完成 Host-neutral 遷移後再決定是否轉回 normal。
+- Bug workflow 的 state lifecycle 尚未像 feature workflow 一樣完整：`bug-investigate` / `bug-fix` 目前沒有正式寫入 `steps.verify/review`；因此 UAT prerequisite 不能直接共用 feature 的 `review=done` 規則。
 
 ## 指路              <!-- crew:map  append-only -->
 - Claude marketplace：`.claude-plugin/marketplace.json`
@@ -129,3 +135,8 @@ drift_policy: off
 - [2026-09-27] [phase3b-3a] `/plan-verify` 明文禁止寫 `gates.uat`；`/plan-close` 加入 advisory UAT 檢查，但此批仍未把 close 放進 `TRANSITION_GATES`，保留 legacy compatibility。
 - [2026-09-27] [phase3b-3a] Commit `6524013`；GitHub Actions run 36304354314（#90）共 13 個 job 全部 success，Approval gates smoke test 含 UAT timing / next / compatibility。
 - [2026-09-27] [next] 下一小批只評估是否正式啟用 close→uat hard block：先盤點 `/plan-close` legacy/bug 相容性與 `/bug-close` 邊界，再決定；不要直接改 transition。
+
+- [2026-09-27] [phase3b-3b-analysis] close hard gate 相容性盤點完成：v1 feature 不受影響（legacy mode 不呼叫 crew-state.py）；v2 feature 已有 review→UAT 路徑；bug workflow 會受全域 gate 直接破壞。
+- [2026-09-27] [phase3b-3b-analysis] `/bug-close` 直接呼叫 `crew-state.py set --step close --status done`，但 bug workflow 沒有 `--step verify` / `--step review` transition；目前 `uat` 又要求 review done，因此 bug 無法合法 approve UAT。
+- [2026-09-27] [phase3b-3b-analysis] 決策：暫不修改 `TRANSITION_GATES["close"]`。先完成 AC-23/AC-24，再於 AC-25 一次啟用 runtime hard block。
+- [2026-09-27] [next] 下一小批只做 type-aware UAT prerequisite + `/bug-close` 明確人類 acceptance → `uat=approved`；仍先不 hard-block close。
