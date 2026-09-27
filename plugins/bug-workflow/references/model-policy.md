@@ -1,29 +1,39 @@
 # 模型分工政策（共用）
 
 > 適用 `bug-workflow` 與 `feature-workflow` 的所有 skill。
-> 本檔只規範「哪個角色用哪個模型、怎麼傳參數、誰可以改正式程式碼」，
-> **不改變任何既有流程步驟**（判斷區塊、退出驗證、`.spec/` 狀態、Notion 同步一律照原本走）。
+> 本檔只規範「哪個角色需要哪種模型能力、怎麼把模型目標交給 Host capability、誰可以改正式程式碼」，
+> Host 工具對映見 `host-capabilities.md`。**不改變任何既有流程步驟**（判斷區塊、退出驗證、`.spec/` 狀態、Notion 同步一律照原本走）。
 >
 > 兩 plugin 各帶一份副本；權威來源是 `plugins/bug-workflow/references/model-policy.md`
 > （同步規則見 CONTRIBUTING.md「共用 reference 同步規則」）。
 
 ---
 
-## 鐵律：模型一律用結構化參數指定
+## 鐵律：模型目標一律結構化，Host 不得假裝已套用
 
 | 規則 | 說明 |
 |------|------|
-| 只認參數，不認敘述 | prompt 裡寫「使用 Opus 模型」只是自然語言指示，**不保證生效**。必須在 Agent tool 呼叫實際傳入 `model` 參數 |
-| 每個 agent 各自帶 | 多角色時逐一具名 spawn，每個 agent 各自帶自己的參數（`model: sonnet` 或 `model: opus`）；不可用「建立一個 Agent Team……使用 Opus 模型」的自然語言假裝指定成功 |
-| spawn 時決定，不能中途換 | 同一個 agent 的模型在 spawn 當下固定。「先 Sonnet 探索、再 Opus 實作」**必須拆成兩個 agent**，不是同一個 agent 換腦袋 |
+| 只認結構化目標，不認敘述 | prompt 裡寫「使用 Opus 模型」只是自然語言指示，**不保證生效**。Capability request 必須帶 `model: opus|sonnet|haiku` |
+| 每個委派各自帶 | 多角色時每個 `delegate_readonly` / `delegate_write` 都各自帶自己的 `model` 目標；不可用自然語言假裝整個 team 已切模型 |
+| 角色切換要拆工作單元 | 「先 Sonnet 探索、再 Opus 實作」必須是兩個 capability invocation；不可在同一個模糊工作單元裡說「中途換模型」 |
+| Host 做不到就明說 | Host 若無 per-worker model selection，保留角色與權限邊界並回報 `routing_degraded=true`；**不得宣稱已套用指定模型** |
 | 不許含糊 | 禁止寫「視情況選用模型」「依需求決定 model」這類沒有具體參數的措辭。條件式配置要寫清楚「什麼條件 → 哪個值」 |
 
-正確寫法：
+正確寫法（Capability request）：
 
-```json
-{ "model": "sonnet" }
-{ "model": "opus" }
+```yaml
+capability: delegate_readonly
+role: explorer
+model: sonnet
 ```
+
+```yaml
+capability: delegate_write
+role: implementer
+model: opus
+```
+
+Claude Code adapter 會把上述 `model` 目標轉成實際 Agent/subagent 結構化參數；其他 Host 依 `host-capabilities.md` 對映。
 
 ---
 
@@ -49,7 +59,7 @@
 - 優先使用唯讀工具。
 - **不得修改正式產品程式碼**；可以寫入 `.spec/`、報告、規格與工作紀錄。
 - 不得因文件數量多或內容較長，就自行升級為 Opus。
-- 呼叫時必須實際傳入 `model: "sonnet"`，不得只在 prompt 中寫「請使用 Sonnet」。
+- capability request 必須實際帶 `model: sonnet`，不得只在 prompt 中寫「請使用 Sonnet」。
 - 不得啟動 Agent Team、不得要求 Dynamic Workflow、不得自行往下觸發實作階段的 skill。
 
 ---
@@ -206,8 +216,9 @@ Dynamic Workflow 僅適合額外用於：
 - **不要**設定 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` 或 `=opus`：它會覆寫本檔所有個別
   Subagent／Agent Teams／Dynamic Workflow Agent 的模型選擇，讓混用政策完全失效。
   需要混用就移除該變數（或設 `inherit`）。設定細節見 `docs/prerequisites.md`。
-- Agent Teams 協作模式仍需 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`。本檔要求的
-  「逐一具名 spawn 並帶 `model`」**不改變**這項既有前置條件。
+- Claude Code 若選擇 Agent Teams 作為 `parallel_delegate` adapter，仍可能需要
+  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`；但這是 Claude adapter 的最佳化條件，
+  **不是 CREW workflow 的跨 Host 前置條件**。無 team 能力時依 `host-capabilities.md` 退化為 subagent 或序列執行。
 
 ---
 
