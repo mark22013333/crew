@@ -360,7 +360,25 @@ Bug 修復驗證完成！
 
 **分支引導**（若當前在 feature branch 且不是 DEV/PRD 分支）：
 
-讀取 feature-workflow 的 `projects/{repo-id}.md` 取得 `dev_branch`。若取得成功，額外顯示：
+先沿用 `/project-add` 的 Git remote 規則取得 `{repo-id}`，再用 portable config resolver 解析 project config：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{repo-id}" \
+  --mode read \
+  --format json
+```
+
+讀取 resolver 回傳的 `path / source / representation`：
+
+- `source=missing` → 視為 `dev_branch` 未設定，走下方通用提示；不阻擋修復完成。
+- `representation=hierarchical` → 從 project 檔 frontmatter 讀 `dev_branch`。
+- `representation=legacy_monolith` → 沿用既有舊設定表格 parser，以 `{repo-id}` 找專案列並讀 `dev_branch`（若舊格式沒有此欄位則視為未設定）。
+- consumer **不得自行拼任何 Host-specific project config 路徑**。
+
+若取得 `dev_branch`，額外顯示：
 
 ```
 🔀 分支引導：
@@ -396,7 +414,7 @@ Bug 修復驗證完成！
 - **迴歸測試風格匹配**：產出的測試檔案要與專案現有測試使用相同的框架（JUnit 5 / TestNG）、assertion library（AssertJ / Hamcrest）、命名風格（`should_xxx_when_yyy` / `testXxxWhenYyy`）。先搜尋 `src/test` 目錄中的現有測試作為範本。
 - **--skip-test 的使用場景**：僅限以下情況：環境問題（如無法在本地跑測試）、設定類修復（如改 properties 檔）、純 SQL 修復（如改 DB 資料）。其他場景不應跳過。
 - **gstack browse 可用性**：不是所有環境都有安裝 gstack。先偵測 `$HOME/.claude/skills/gstack/browse/dist/browse` 是否存在且可執行，再決定是否進行 UI 驗證。
-- **dev_branch 取得路徑**：分支引導需要讀取 feature-workflow 的 `projects/{repo-id}.md`，但 bug-fix 是 bug-workflow 的 skill。需跨 plugin 讀取設定：先嘗試 `~/.claude-company/feature-workflow/projects/{repo-id}.md`，再嘗試 `~/.claude/feature-workflow/projects/{repo-id}.md`。讀取失敗時顯示通用提示。
+- **dev_branch 取得路徑**：bug-fix 是 bug-workflow skill，但跨 plugin project config 一律經 `crew-config.py resolve --key feature/project --mode read`；hierarchical 讀 frontmatter，`legacy_monolith` 走舊 parser。Resolver missing 或 `dev_branch` 空白時顯示通用提示。
 
 ---
 

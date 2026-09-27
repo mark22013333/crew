@@ -15,6 +15,8 @@ RESOLVER = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-config.py"
 BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
 EVIDENCE_COLLECTION = REPO / "plugins" / "bug-workflow" / "references" / "evidence-collection.md"
 LEARNINGS_SCHEMA = REPO / "plugins" / "bug-workflow" / "references" / "learnings-schema.md"
+BUG_FIX_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-fix" / "SKILL.md"
+MERGE_GUIDE = REPO / "plugins" / "bug-workflow" / "references" / "merge-guide.md"
 
 
 def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -170,6 +172,20 @@ def main() -> int:
         assert "[ -f \"$LEARN_FILE\" ]" in evidence_text
         assert "bug/learning --project-slug {project-slug}" in schema_text
         print("✅ bug learning reads resolve through portable contract")
+
+        bug_fix_text = BUG_FIX_SKILL.read_text(encoding="utf-8")
+        merge_guide_text = MERGE_GUIDE.read_text(encoding="utf-8")
+        for consumer_text in (bug_fix_text, merge_guide_text):
+            assert "crew-config.py" in consumer_text
+            assert "--key feature/project" in consumer_text
+            assert "--repo-id" in consumer_text
+            assert "--mode read" in consumer_text
+            assert "--format json" in consumer_text
+            assert "representation=hierarchical" in consumer_text
+            assert "representation=legacy_monolith" in consumer_text
+            assert ".claude-company/feature-workflow/projects" not in consumer_text
+            assert "~/.claude/feature-workflow/projects" not in consumer_text
+        print("✅ dev_branch consumers resolve feature project config portably")
 
         print("✅ portable config resolver smoke tests passed")
         return 0
