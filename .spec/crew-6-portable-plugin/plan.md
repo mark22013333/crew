@@ -87,6 +87,7 @@ drift_policy: off
 - D-40 [convergence] Portable config canonical root 採 `CREW_CONFIG_HOME` → `$XDG_CONFIG_HOME/crew` → `~/.config/crew`。`crew-config.py` 為純解析器：read 先 canonical 再 legacy fallback；write 永遠回 canonical portable path；不得在 resolve 時 mkdir/mv/write。
 - D-41 [convergence] Config logical keys 固定為 `feature/config`、`feature/project`、`feature/stack`、`bug/config`、`bug/learning`。舊 feature 單一 `feature-workflow-config.md` 若作為 project/stack fallback，resolver 必須標 `representation=legacy_monolith`，caller 仍走舊 parser，不假裝它是獨立檔。
 - D-42 [convergence] `crew-config.py` 與 `config-contract.md` 是兩 plugin 共用資產，納入 shared-ref/script sha256 防漂移；先建立 resolver contract，再逐支 consumer 接線，避免同批重寫 setup/admin。
+- D-43 [convergence] `~/.claude-company` 已退役，不再屬 config compatibility surface。Portable resolver 的 Claude fallback 只接受 `~/.claude`；`.claude-company` 即使檔案存在也必須忽略，不讀、不遷移、不寫入。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -263,3 +264,9 @@ drift_policy: off
 - [2026-09-28] [convergence-12] 新增 `scripts/lint-config-resolver.py` 與 CI `Config resolver` job；shared-ref/sync 清單與 CONTRIBUTING 同步登記 config contract/resolver。
 - [2026-09-28] [convergence-12] Commit `e28191a`；GitHub Actions run 36332689092（#118）共 15 個 job 全部 success。
 - [2026-09-28] [next] AC-30 consumer 遷移採小步。下一小批只處理 `/bug-close` 的 learnings 寫入：以 `bug/learning --mode write` 取得 portable path，移除兩個 `~/.claude-company/bug-workflow/learnings` hardcode；不要同批改 bug-setup/plan-setup/project-add。
+
+- [2026-09-28] [convergence-13] 依目前實際環境修正 config migration contract：`~/.claude-company` 已退役，從 `config-contract.md` 與 `crew-config.py` 的所有 fallback candidate 移除。
+- [2026-09-28] [convergence-13] 現役 Claude fallback 只保留 `~/.claude/feature-workflow/...`、`~/.claude/feature-workflow-config.md`、`~/.claude/bug-workflow-config.md`、`~/.claude/bug-workflow/learnings/...`。
+- [2026-09-28] [convergence-13] `lint-config-resolver.py` 會故意建立 `.claude-company` 假檔，確認 resolver 回 missing/canonical 而不是讀取退役路徑，防止歷史 fallback 被重新加入。
+- [2026-09-28] [convergence-13] Commit `e7871d1`；GitHub Actions run 36333297598（#120）共 15 個 job 全部 success。
+- [2026-09-28] [next] AC-30 下一小批回到原計畫：只遷移 `/bug-close` learnings 寫入，改用 `crew-config.py resolve --key bug/learning --mode write`；不要同批碰 bug-setup/plan-setup/project-add。
