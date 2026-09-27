@@ -88,6 +88,8 @@ drift_policy: off
 - D-41 [convergence] Config logical keys 固定為 `feature/config`、`feature/project`、`feature/stack`、`bug/config`、`bug/learning`。舊 feature 單一 `feature-workflow-config.md` 若作為 project/stack fallback，resolver 必須標 `representation=legacy_monolith`，caller 仍走舊 parser，不假裝它是獨立檔。
 - D-42 [convergence] `crew-config.py` 與 `config-contract.md` 是兩 plugin 共用資產，納入 shared-ref/script sha256 防漂移；先建立 resolver contract，再逐支 consumer 接線，避免同批重寫 setup/admin。
 - D-43 [convergence] `~/.claude-company` 已退役，不再屬 config compatibility surface。Portable resolver 的 Claude fallback 只接受 `~/.claude`；`.claude-company` 即使檔案存在也必須忽略，不讀、不遷移、不寫入。
+- D-44 [convergence] `/bug-close` 是第一個 portable config consumer：`bug/learning --mode write` 只取得 canonical path，consumer 自行建立 parent directory 並 append JSONL；Skill 不再知道任何 Host-specific learnings 實體路徑。
+- D-45 [convergence] `config-contract.md` 屬 portability/adapter contract，允許列出 legacy fallback，因此 Host portability lint 不把它的路徑列為 consumer advisory；真正 Skill/reference consumer 仍照常掃描。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -270,3 +272,10 @@ drift_policy: off
 - [2026-09-28] [convergence-13] `lint-config-resolver.py` 會故意建立 `.claude-company` 假檔，確認 resolver 回 missing/canonical 而不是讀取退役路徑，防止歷史 fallback 被重新加入。
 - [2026-09-28] [convergence-13] Commit `e7871d1`；GitHub Actions run 36333297598（#120）共 15 個 job 全部 success。
 - [2026-09-28] [next] AC-30 下一小批回到原計畫：只遷移 `/bug-close` learnings 寫入，改用 `crew-config.py resolve --key bug/learning --mode write`；不要同批碰 bug-setup/plan-setup/project-add。
+
+- [2026-09-28] [convergence-14] `/bug-close` learnings 寫入已改走 `crew-config.py resolve --key bug/learning --mode write --format path`；resolver 只回 canonical path，Skill 只負責 `mkdir -p dirname(path)` 與 append 單行 JSONL。
+- [2026-09-28] [convergence-14] `lint-config-resolver.py` 新增 consumer contract：bug-close 必須呼叫 bug/learning write resolver，且不得再硬編碼 `~/.claude` / `.claude-company` learnings path。
+- [2026-09-28] [convergence-14] Host portability 將 `config-contract.md` 視為 adapter/portability contract exemption，避免 intentional legacy fallback 汙染 consumer advisory；bug-close 禁止文案也不再重複實體 legacy path。
+- [2026-09-28] [convergence-14] Functional commit `2dab7bd`；lint scope fix `ac90f53`；GitHub Actions run 36333700860（#123）共 15 個 job 全部 success。
+- [2026-09-28] [convergence-14] Host portability 維持 hard=0，真正 consumer advisory 由 134 降至 132。
+- [2026-09-28] [next] AC-30 下一小批只遷移 Bug learning **read** contract：`references/evidence-collection.md` 的學習搜尋改用 `bug/learning --mode read`；`references/learnings-schema.md` 同步更新 storage/read 範例並移除退役 `.claude-company`。不要同批碰 bug-setup/crew-init/project-add。
