@@ -9,13 +9,13 @@
 ## 唯一寫者：`crew-state.py`
 
 流程狀態的唯一權威是 `.spec/{slug}/state.json`，唯一寫者是
-`${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py`。**不要手寫或手改這個 JSON。**
+透過 `host-capabilities.md` 的 `plugin_root` 解析後執行 `scripts/crew-state.py`。**不要手寫或手改這個 JSON。**
 
 理由有三，缺一不可：
 
 1. **手寫會寫錯** —— 欄位名拼錯、列舉值用了未定義的字串、時間格式不一致，
    這些錯誤不會當場報錯，會在幾天後 `/plan-next` 判位錯誤時才爆出來。
-2. **併發會寫壞** —— Agent Teams 有多個成員同時在跑。script 用 `flock` 加鎖、
+2. **併發會寫壞** —— `parallel_delegate` 可能有多個 worker 同時在跑。script 用 `flock` 加鎖、
    `os.replace()` 原子寫入；手寫沒有這層保護，兩個成員同時寫就是一個半毀的 JSON。
 3. **狀態要能被機器讀** —— `/plan-next`、`/plan-status` 與 SessionStart hook
    都直接讀這個檔做判斷。它是資料，不是給人看的文件。
@@ -42,7 +42,7 @@
 
 | skill | 一個工作單元 = |
 |-------|---------------|
-| plan-build | **一個檔案**。由 Agent Teams **leader 在 worker 回報後寫入**；worker 不碰 state.json（避免多成員同寫） |
+| plan-build | **一個檔案**。由協調者在 role/worker 回報後寫入；worker 不碰 state.json（避免多執行單元同寫） |
 | plan-review | **一位審查員的報告** |
 | plan-security | **一個掃描層**（Layer 1 靜態規則／Layer 2 上下文感知／Layer 3 對抗性思維） |
 | plan-verify | **一條驗收條件**（`plan.md` 的 `AC-n`） |
