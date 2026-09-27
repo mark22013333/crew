@@ -22,6 +22,14 @@ drift_policy: off
 - Out of Scope（Phase 1）：不嘗試讓 Codex 完整模擬 Claude Agent Teams。
 
 ## 驗收條件          <!-- crew:ac   owner=spec -->
+- [x] AC-11 Phase 2 建立共用 host-capabilities.md，核心 workflow 不直接依賴 Agent tool / Agent Teams / claude mcp list。
+- [x] AC-12 project_instructions 同時接受 AGENTS.md 與 CLAUDE.md，Codex 不需建立 Claude 專屬檔案。
+- [x] AC-13 新增 host-portability CI，active Skill/reference 重新引入 Host-specific orchestration 時阻擋 PR。
+- [x] AC-14 Phase 2 完成後既有 CI 全綠，未破壞 state writer / skill contract / manifest / drift 檢查。
+- [ ] AC-15 Phase 3A 建立 NONE/FAST/STANDARD/DEEP model profile 與 deterministic router。
+- [ ] AC-16 Phase 3A 純探索/蒐證工作可路由 FAST；架構/DB/security 保持 DEEP。
+- [ ] AC-17 Phase 3B state.json 具 approval gates，未核准需求不得進 build。
+- [ ] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -34,6 +42,10 @@ drift_policy: off
 - [x] AC-10 後續 Agent 只需讀本 plan.md 與 git diff/history 即可知道下一階段工作。
 
 ## 決策紀錄          <!-- crew:dec  append-only -->
+- D-11 [phase2] Workflow 只依賴 Host Capability Contract；Claude/Codex 工具名稱是 adapter 實作，不是流程契約。
+- D-12 [phase2] 無 subagent → inline、無 multi-agent → sequential、無 per-worker model → routing_degraded；不得假裝能力存在。
+- D-13 [phase2] AGENTS.md 與 CLAUDE.md 都是 project_instructions；有衝突必須留下歧義，不自行忽略其中一份。
+- D-14 [phase3] Model Profile 先抽象後調參；Phase 3A 只把機械型唯讀工作移到 FAST，高風險角色先維持既有 DEEP。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -72,3 +84,7 @@ drift_policy: off
 - [2026-09-27] [phase1] PR #17 已建立；GitHub Actions run 36297731183 的 10 個 lint job 全部 success。
 - [2026-09-27] [phase1] Portable manifests、Codex marketplace、版本同步、manifest lint、README/CONTRIBUTING 已完成；未修改既有 Skill/Agent 執行語意。
 - [2026-09-27] [next] 下一接續點：Phase 2 先盤點所有 SKILL.md 的 Host-specific 語句，分類為 core / claude-only / codex-adapter，再設計 Host Capability Contract；不要直接重寫全部 Skill。
+
+- [2026-09-27] [phase2] Host Capability Contract、project_instructions、tool_probe、portable delegation 與 host-portability CI 已完成。
+- [2026-09-27] [phase2] 最新 CI run 36298895563 success；Host portability / Agent model / Skill contract / state writer 等 11 個 job 全綠。
+- [2026-09-27] [next] Phase 3A：建立 model-routing.json + crew-model-route.py，先把 repository search / evidence collection / log summary 路由 FAST。
