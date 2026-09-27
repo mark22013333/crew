@@ -27,7 +27,7 @@ Bug 類型還需檢查 bug-workflow 設定檔（`~/.claude-company/bug-workflow-
 
 ## 流程
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定目錄 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
 ### 1. 解析使用者輸入
 
@@ -413,7 +413,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" init \
 後續可使用：
   • /plan                  — 完整規劃（spec → db → arch 三個 pass 寫進 plan.md）
   • /plan spec|db|arch     — 只跑其中一個 pass
-  • /plan-build            — Agent Teams 產生程式碼
+  • /plan-build            — 多角色協作產生程式碼
   • /plan-next             — 不確定下一步時問它
   • /plan-status           — 查看所有任務狀態
   • /plan-close            — 結案並同步 Notion
