@@ -39,7 +39,7 @@ drift_policy: off
 - [x] AC-25 Feature + Bug 都有合法 UAT 路徑後，再啟用 close→uat runtime hard block，並以 smoke test 驗證兩種 type 都能合法結案、未核准都會 BLOCK。
 - [x] AC-26 Phase 1～3B 收斂盤點完成：確認 Phase 4 Runtime/MCP 目前沒有必要，先處理 repo-native 的 state/model/host-management 技術債。
 - [x] AC-27 Bug state lifecycle contract 改為 type-aware：runtime 不再讓 `type=bug` 走 feature 的 spec/db/arch/build next 決策，並先以 deterministic smoke test 定義合法轉移。
-- [ ] AC-28 Bug skills 逐批接上 state lifecycle：`bug-start` init、`bug-investigate` 進度、`bug-fix` 修復/驗證、`bug-close` 結案；中斷後 `next/session-brief` 可正確續跑。
+- [x] AC-28 Bug skills 逐批接上 state lifecycle：`bug-start` init、`bug-investigate` 進度、`bug-fix` 修復/驗證、`bug-close` 結案；中斷後 `next/session-brief` 可正確續跑。
 - [ ] AC-29 剩餘 provider-specific model callsites（plan/plan-build/plan-review/bug-investigate/bug-fix）完成 profile routing 遷移，不再靠 legacy sonnet/opus 名稱。
 - [ ] AC-30 Host-management/setup portability 收斂：將設定路徑與 plugin CLI 類 advisory 分離成 portable config contract / host-specific 管理 adapter；核心 workflow 維持 hard=0。
 - [ ] AC-31 v1 legacy retirement 具明確移除條件與版本/日期，不在條件未滿足前刪相容層。
@@ -75,6 +75,7 @@ drift_policy: off
 - D-28 [convergence] schema v1 Bug state normalize 到 v2 時不搬運舊 Feature steps 當 Bug 進度；只保留同義的 start/close，新增 investigate/fix，並可由 `work_unit.skill` 修正 phase。
 - D-29 [convergence] `/bug-start` 是 Bug runtime 的最小入口：建立 Notion Bug + `.spec/{slug}/state.json`，但不建立 `plan.md` 或新 Git branch。slug 沿用 `/plan-start` 的英文 kebab-case + collision suffix 規則；Notion 暫時失敗也不得讓 Bug lifecycle 沒有 state。
 - D-30 [convergence] `/bug-investigate` 的 resumable work unit 定義為「一個可驗證根因假說」。進入調查即建立 0/1 work unit；每個假說落地後立即更新 done/total/evidence/remaining；只有根因正式確認、報告與必要釐清完成後才 clear unit + investigate=done。
+- D-31 [convergence] `/bug-fix` 的 resumable work unit 固定為 3 段：①根因確認/修復範圍鎖定、②程式碼修改（verify-only 時為既有 diff/commit 確認）、③迴歸測試與驗證。每段完成即寫 state；新一輪 fix 開始時 reset UAT=pending，避免 UAT rejected/approved 的舊決策污染新修復版本。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -94,7 +95,7 @@ drift_policy: off
 - marketplace authentication policy 目前先使用官方文件範例值；若之後 bundle MCP/auth，再依實際認證流程調整。
 - 不為了 Artifact-driven 再拆出大量 YAML；維持 plan.md + state.json + deploy.sql 的 compact artifact 哲學。
 - 本遷移 plan 尚在規劃/實作中且不以程式碼錨點追蹤，故暫設 drift_policy=off；完成 Host-neutral 遷移後再決定是否轉回 normal。
-- Bug workflow 的 state lifecycle 尚未像 feature workflow 一樣完整：`bug-investigate` / `bug-fix` 目前沒有正式寫入 `steps.verify/review`；因此 UAT prerequisite 不能直接共用 feature 的 `review=done` 規則。
+- Bug workflow 已完成 type-aware state lifecycle：`start → investigate → fix → close`；Bug 的測試/驗證屬 fix work units，不偽造 Feature 的 verify/review phase。
 
 ## 指路              <!-- crew:map  append-only -->
 - Claude marketplace：`.claude-plugin/marketplace.json`
@@ -197,3 +198,10 @@ drift_policy: off
 - [2026-09-27] [convergence-4] 只有根因正式確認、調查報告完成且必要釐清已解決後，才 `unit --clear` + `investigate=done`；exit gate 要求 next=`/bug-fix`。
 - [2026-09-27] [convergence-4] Commit `7bf0d33`；GitHub Actions run 36324177901（#103）共 14 個 job 全部 success。
 - [2026-09-27] [next] AC-28 下一小批只處理 `/bug-fix`：進入時 fix=in_progress + work_unit；正式修改/測試/驗證依工作單元即時寫 state；修復與迴歸驗證完成才 fix=done，next 應進 `/bug-close`。不要同批做 model-routing AC-29。
+
+- [2026-09-27] [convergence-5] `/bug-fix` 已接 runtime：定位既有 Bug state 後，正常開始會 reset uat=pending、寫 fix=in_progress，建立 3 個 resumable work units。
+- [2026-09-27] [convergence-5] fix work units 固定為：1/3 根因確認與範圍鎖定、2/3 程式碼修改（verify-only 可記既有 diff/commit 已確認）、3/3 迴歸測試與驗證；每段落地即寫 state。
+- [2026-09-27] [convergence-5] 只有 3/3 完成且驗證證據已寫 Notion 後，才 unit --clear + fix=done；exit gate 要求 UAT=pending、next=/bug-close。UAT rejected 後重新進 fix 也會先 reset pending，避免舊決策卡住新版本。
+- [2026-09-27] [convergence-5] Commit `ec0740c`；GitHub Actions run 36328195823（#105）共 14 個 job 全部 success。
+- [2026-09-27] [convergence] AC-27/AC-28 完成：Bug runtime 與 Skills 已從文件承諾變成真正可恢復的 `start → investigate → fix → close` lifecycle。
+- [2026-09-27] [next] 下一小批開始 AC-29，但仍採逐支收斂：先盤點 `bug-investigate` / `bug-fix` 尚存的直接 sonnet/opus callsite，將其中最安全的一支改為 profile routing；不要同批碰 plan/plan-review。
