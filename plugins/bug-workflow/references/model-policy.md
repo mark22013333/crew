@@ -188,15 +188,13 @@ Sonnet 探索完成後產出下列交接，Opus 只讀這份加上指定的設�
 
 ---
 
-## Claude Code Dynamic Workflow 相容性
+## Host-specific orchestration 是最佳化，不是流程前置
 
-CREW 的 `feature-workflow` 與 `bug-workflow` 是 plugin 業務流程，
-不等同於 Claude Code Dynamic Workflows。
+CREW 的 `feature-workflow` 與 `bug-workflow` 只依賴
+`host-capabilities.md` 定義的委派語意，不依賴任何單一產品的 Team/Dynamic Workflow。
 
-CREW 預設使用 Skills、Subagent 與 Agent Teams，
-不要求啟用 `/effort ultracode`。
-
-沒有啟用 Ultracode 時，CREW 的既有指令仍應正常運作。
+Claude Code 的 Dynamic Workflow、Subagent 或 Team 能力，以及 Codex 的 multi-agent，
+都只是 capability adapter。未啟用額外平行能力時，CREW 仍必須能以序列／inline 降級完成。
 
 Dynamic Workflow 僅適合額外用於：
 - 大量檔案遷移
@@ -213,17 +211,14 @@ Dynamic Workflow 僅適合額外用於：
 
 ## 環境變數
 
-- **不要**設定 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet` 或 `=opus`：它會覆寫本檔所有個別
-  Subagent／Agent Teams／Dynamic Workflow Agent 的模型選擇，讓混用政策完全失效。
-  需要混用就移除該變數（或設 `inherit`）。設定細節見 `docs/prerequisites.md`。
-- Claude Code 若選擇 Agent Teams 作為 `parallel_delegate` adapter，仍可能需要
-  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`；但這是 Claude adapter 的最佳化條件，
-  **不是 CREW workflow 的跨 Host 前置條件**。無 team 能力時依 `host-capabilities.md` 退化為 subagent 或序列執行。
+- Claude Code adapter：不要用全域環境變數覆寫所有 worker 的模型選擇；若啟用其平行 Team 能力，相關環境設定只屬該 adapter。
+- Codex adapter：surface 若無法精準指定 per-worker model，回報 `routing_degraded=true`，但仍遵守 role 與 write boundary。
+- 任何 Host 的加速／平行設定都**不是 CREW workflow 的跨 Host 前置條件**。
 
 ---
 
 ## 相關
 
 - `references/plan-common.md`「共用 Gotchas」（feature-workflow）— 模型參數 gotcha 的出處
-- `docs/prerequisites.md`「Agent Teams 環境變數」
+- `references/host-capabilities.md` — Host adapter 與降級規則
 - `scripts/lint-agent-model.py` — CI 強制檢查本檔規則（strict 模式）
