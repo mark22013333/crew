@@ -127,7 +127,7 @@ description: feature-workflow 首次設定引導 —— 自動偵測 Notion 資�
 
 ### 6. Chrome DevTools MCP 安裝（選用）
 
-先檢查本機是否已安裝對應 MCP（例如 `claude mcp list` 或既有設定可見 `chrome-devtools`）；若已偵測到則直接跳過本步驟，不重複詢問安裝。
+先依 `../../references/host-capabilities.md` 的 `tool_probe` 檢查目前 session 是否已有對應瀏覽器能力（如 `chrome-devtools`）；已可用就直接跳過，不依賴特定 Host CLI 清單。
 
 若尚未安裝，且使用者計畫使用 `/plan-verify` 驗收驗證，詢問是否安裝：
 
