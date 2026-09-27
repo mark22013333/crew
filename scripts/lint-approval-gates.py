@@ -104,9 +104,10 @@ def main() -> int:
             pending_uat = json.loads(
                 run(project, "next", "--slug", slug, "--format", "json").stdout
             )
-            assert pending_uat["command"] is None
-            assert "等待人類 UAT" in pending_uat["reason"]
-            print("✅ verify PASS + review done do not imply UAT approval")
+            assert pending_uat["command"] == "/plan-close", pending_uat
+            assert "Human UAT 決策" in pending_uat["reason"]
+            assert "硬擋 close=done" in pending_uat["reason"]
+            print("✅ verify PASS + review done route to Human UAT entry without implying approval")
 
             blocked_close = run(
                 project, "set", "--slug", slug, "--step", "close", "--status", "done", expect=1
