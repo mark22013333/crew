@@ -318,7 +318,7 @@ Bug Workflow 設定完成！
 
 - 想一鍵完成 bug + feature 全部設定 → 用 /crew-init
 - 只設定 feature 側 → 用 /plan-setup
-- 初始化程式專案 / git repo / CLAUDE.md → 用內建 /init 或 git
+- 初始化程式專案 / git repo / 專案指令 → Codex 建立 `AGENTS.md`；Claude Code 可用 `/init`；Git 初始化照常用 git
 - 註冊專案到 Notion 專案庫 → 用 /project-add
 
 ---
