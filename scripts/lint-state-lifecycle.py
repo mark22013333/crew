@@ -13,6 +13,7 @@ REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-state.py"
 BUG_START_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-start" / "SKILL.md"
 BUG_INVESTIGATE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-investigate" / "SKILL.md"
+BUG_FIX_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-fix" / "SKILL.md"
 FEATURE_STEPS = {"start", "spec", "db", "arch", "build", "security", "verify", "review", "close"}
 BUG_STEPS = {"start", "investigate", "fix", "close"}
 
@@ -99,7 +100,42 @@ def main() -> int:
             assert load(project, bug)["work_unit"]["skill"] is None
             print("✅ bug-investigate persists resumable hypothesis units and closes only after root cause confirmation")
 
+            run(project, "gate", "--slug", bug, "--name", "uat", "--status", "pending", "--by", "crew")
+            run(project, "set", "--slug", bug, "--step", "fix", "--status", "in_progress")
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-fix",
+                "--done", "0", "--total", "3", "--label", "步驟",
+                "--remaining", "1. 根因確認與修復範圍鎖定",
+                "--remaining", "2. 程式碼修改",
+                "--remaining", "3. 迴歸測試與驗證"
+            )
+            assert next_json(project, bug)["command"] == "/bug-fix --resume"
+
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-fix",
+                "--done", "1", "--total", "3", "--label", "步驟",
+                "--evidence", "根因已確認", "--remaining", "2. 程式碼修改",
+                "--remaining", "3. 迴歸測試與驗證"
+            )
+            assert next_json(project, bug)["command"] == "/bug-fix --resume"
+
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-fix",
+                "--done", "2", "--total", "3", "--label", "步驟",
+                "--evidence", "修復 diff 已確認", "--remaining", "3. 迴歸測試與驗證"
+            )
+            assert next_json(project, bug)["command"] == "/bug-fix --resume"
+
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-fix",
+                "--done", "3", "--total", "3", "--label", "步驟",
+                "--evidence", "編譯與迴歸驗證完成"
+            )
+            run(project, "unit", "--slug", bug, "--clear")
             run(project, "set", "--slug", bug, "--step", "fix", "--status", "done")
+            run(project, "validate", "--slug", bug, "--expect-phase", "fix")
+            assert load(project, bug)["work_unit"]["skill"] is None
+            assert load(project, bug)["gates"]["uat"]["status"] == "pending"
             pending_uat = next_json(project, bug)
             assert pending_uat["command"] == "/bug-close"
             assert "Human UAT" in pending_uat["reason"]
@@ -114,6 +150,15 @@ def main() -> int:
             )
             assert next_json(project, bug)["command"] == "/bug-fix"
             run(project, "gate", "--slug", bug, "--name", "uat", "--status", "pending", "--by", "crew")
+            run(project, "set", "--slug", bug, "--step", "fix", "--status", "in_progress")
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-fix",
+                "--done", "0", "--total", "3", "--label", "步驟",
+                "--remaining", "1. 根因確認與修復範圍鎖定"
+            )
+            assert next_json(project, bug)["command"] == "/bug-fix --resume"
+            run(project, "unit", "--slug", bug, "--clear")
+            run(project, "set", "--slug", bug, "--step", "fix", "--status", "done")
             run(
                 project, "gate", "--slug", bug, "--name", "uat",
                 "--status", "approved", "--by", "human", "--reason", "accepted"
@@ -155,6 +200,7 @@ def main() -> int:
 
         bug_start_text = BUG_START_SKILL.read_text(encoding="utf-8")
         bug_investigate_text = BUG_INVESTIGATE_SKILL.read_text(encoding="utf-8")
+        bug_fix_text = BUG_FIX_SKILL.read_text(encoding="utf-8")
         assert 'crew-state.py" init' in bug_start_text
         assert "--type bug" in bug_start_text
         assert "--expect-phase start" in bug_start_text
@@ -173,6 +219,20 @@ def main() -> int:
         assert "不得自行 `init --force`" in bug_investigate_text
         assert "state.notion.page_id" in bug_investigate_text
         print("✅ bug-investigate wires resumable runtime progress and done transition")
+
+        assert "/bug-fix --resume" in bug_fix_text
+        assert "--step fix --status in_progress" in bug_fix_text
+        assert "--skill bug-fix --done 0 --total 3" in bug_fix_text
+        assert "--done 1 --total 3" in bug_fix_text
+        assert "--done 2 --total 3" in bug_fix_text
+        assert "--done 3 --total 3" in bug_fix_text
+        assert "--name uat --status pending --by crew" in bug_fix_text
+        assert "--step fix --status done" in bug_fix_text
+        assert "--expect-phase fix" in bug_fix_text
+        assert 'next.command == "/bug-close"' in bug_fix_text
+        assert "state.notion.page_id" in bug_fix_text
+        assert "不得自行 `init --force`" in bug_fix_text
+        print("✅ bug-fix wires three resumable repair units and done transition")
 
         print("✅ type-aware state lifecycle smoke tests passed")
         return 0
