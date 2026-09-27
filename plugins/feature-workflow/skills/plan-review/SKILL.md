@@ -100,9 +100,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 📁 審查範圍：N 個檔案（git diff + git status）
 🔍 錨點 pre-check：{全部有效 / ⚠️ N 筆需注意 / 本次未檢查（原因）}
 📊 Reviewer 配置：
-  • Reviewer 1 — 邏輯正確性（model: sonnet）
-  • Reviewer 2 — 程式碼品質（model: sonnet）
-  • Reviewer 3 — 效能審查（model: opus）
+  • Reviewer 1 — 邏輯正確性（task: routine_review + profile: STANDARD）
+  • Reviewer 2 — 程式碼品質（task: routine_review + profile: STANDARD）
+  • Reviewer 3 — 效能審查（task: performance_review + profile: DEEP）
 
 確認開始？[Y/n]
 ```
@@ -111,19 +111,33 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 
 完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）。
 
-- 三位 Reviewer 都用 `delegate_readonly`／`parallel_delegate`；每個 role 的 capability request 各自帶結構化 `model`（`sonnet` / `sonnet` / `opus`），Host 做不到精準 worker model 時依 capability contract 回報降級。
-- 一般邏輯檢查、規格符合度、程式碼風格與品質 → `sonnet`；效能敏感（含交易、並行、大量資料）→ `opus`。
-- **小變更例外**：變更範圍小、且不涉及安全、交易、並行或效能敏感區域時，三位可全部用 `sonnet`，或直接建議使用者改跑 `/plan-review --quick`。採用例外時要在上面的確認畫面標明實際模型與理由。
-- 安全審查不在本 skill 範圍 → 由 `/plan-security`（`model: opus`）負責。
+先以 Router 取得兩種 Reviewer mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task routine_review --risk medium --complexity medium \
+  --host portable --format json
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task performance_review --risk high --complexity high \
+  --host portable --format json
+```
+
+- 三位 Reviewer 都用 `delegate_readonly`；Host 支援時可包進 `parallel_delegate`，但**每個 reviewer 子工作單元都要各自帶 routing**。
+- Reviewer 1 / 2：routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: medium`。
+- Reviewer 3：routing=`task: performance_review`、`profile: DEEP`、`risk: high`、`complexity: high`。
+- Host adapter 做不到 per-worker model/reasoning 時，保留 reviewer scope 與 profile 目標並回報 `routing_degraded=true`，不得假裝已套用。
+- **小變更例外**：變更範圍小、且不涉及安全、交易、並行或效能敏感區域時，可直接建議使用者跑 `/plan-review --quick`；quick 仍是單一 `routine_review + STANDARD` reviewer。
+- 安全審查不在本 skill 範圍 → 由 `/plan-security` 的 `security_review + DEEP` 路徑負責。
 
 ### 5. 啟動多角色審查
 
 #### 完整審查（parallel_delegate 優先）
 
-建立 3 個 `delegate_readonly` role；Host 支援時包成一次 `parallel_delegate`，否則依序執行（每個角色各自帶結構化 `model`）：
-- **Reviewer 1：邏輯正確性**（`model: sonnet`）— 讀取 plan.md（`AC-n` ＋ `D-n`）、R0 的錨點 pre-check 結果與變更檔案，檢查 API 參數驗證、業務邏輯、查詢條件、例外處理、邊界條件、回傳格式，並逐條對照 `AC-n` 是否真的有對應實作
-- **Reviewer 2：程式碼品質**（`model: sonnet`）— 比對專案既有檔案風格，檢查命名規範、package 結構、Lombok、註解、error handling、edge case
-- **Reviewer 3：效能審查**（`model: opus`）— 讀取 `deploy.sql`（索引、約束）與變更檔案，檢查 N+1、分頁、索引、迴圈內 DB 呼叫、快取、連線池
+建立 3 個 `delegate_readonly` role；Host 支援時包成一次 `parallel_delegate`，否則依序執行：
+- **Reviewer 1：邏輯正確性** — routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: medium`；讀取 plan.md（`AC-n` ＋ `D-n`）、R0 的錨點 pre-check 結果與變更檔案，檢查 API 參數驗證、業務邏輯、查詢條件、例外處理、邊界條件、回傳格式，並逐條對照 `AC-n` 是否真的有對應實作
+- **Reviewer 2：程式碼品質** — routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: medium`；比對專案既有檔案風格，檢查命名規範、package 結構、Lombok、註解、error handling、edge case
+- **Reviewer 3：效能審查** — routing=`task: performance_review`、`profile: DEEP`、`risk: high`、`complexity: high`；讀取 `deploy.sql`（索引、約束）與變更檔案，檢查 N+1、分頁、索引、迴圈內 DB 呼叫、快取、連線池
 
 三位 Reviewer 完成後互相分享發現、交叉審查，Lead 只負責協調（delegate mode，不自己寫 code）彙整產出 Review Report，全程繁體中文。
 
@@ -131,8 +145,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 
 #### 快速審查（--quick，Subagent）
 
-使用 `delegate_readonly`（role=`logic-reviewer`、`model: sonnet`），只做邏輯正確性審查
-（呼叫時必須實際傳入 `{"model": "sonnet"}`；`--quick` 針對小型變更，唯讀不改程式碼）：
+使用 `delegate_readonly`（role=`logic-reviewer`），只做邏輯正確性審查，
+routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: low`。
+`--quick` 針對小型變更，唯讀不改程式碼；Host adapter 依 Router mapping 套用實際模型／reasoning：
 
 ```
 你是資深程式碼審查員。
@@ -282,4 +297,4 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 - **Host 無 parallel capability**：自動序列執行 3 個 reviewer；若使用者明確要省成本才建議 `--quick`
 - **交叉審查發現嚴重問題**：提供選項：修正後重新審查 / 忽略繼續 / 終止
 - **Reviewer 失敗**：提供選項：重試 / 跳過該 Reviewer / 終止
-- **--quick 模式**：只執行一個 `delegate_readonly` reviewer（role=`logic-reviewer`、`model: sonnet`）
+- **--quick 模式**：只執行一個 `delegate_readonly` reviewer（role=`logic-reviewer`，`task: routine_review` + `profile: STANDARD`）
