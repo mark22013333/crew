@@ -161,7 +161,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）。
 
 - 每個實作角色都用 **`delegate_write`** 獨立工作單元（role 例如 `backend-engineer`），capability request 必須帶 `model: opus` 與 allowed scope。
-- 🔴 **不可**用「建立一個 Agent Team……使用 Opus 模型」這種自然語言指定模型 —— 那只是敘述，不保證生效。
+- 🔴 **不可**用「建立整個團隊並使用 Opus」這種自然語言指定模型 —— 那只是敘述，不保證生效。
 - 同一個 agent 的模型在 spawn 時就固定、中途不能換：角色的探索工作已在步驟 5 由 sonnet 探索官完成，實作者**只用交接內容**，🔴 不得重新全域掃描 repository。
 - Leader（本 skill）只協調、不寫正式程式碼（見 anti-rationalizations.md B2）。
 
