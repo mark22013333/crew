@@ -100,6 +100,45 @@ git diff HEAD~1..HEAD
 **修改說明**：根據 diff 內容，以分層架構摘要（如 Java 專案的 Controller / Service / DAO 層）
 **修改後程式碼**：擷取關鍵的程式碼變更片段（不超過 50 行）
 
+### 6.5 人類 UAT Acceptance（必須明確確認）
+
+C1-C4、編譯／測試、迴歸測試、Git diff 都只是**修復證據**，不等於使用者接受目前修復。
+
+在任何「已完成」Notion 狀態、知識庫同步與 `close=done` 之前，先把修復摘要與已知 WARN 顯示給使用者，然後明確詢問：
+
+```text
+目前修復摘要與驗證結果如上。
+
+你是否接受目前修復結果並允許此 Bug 進入結案？
+  • 「接受／OK／確認／可以」→ 記錄 Human UAT approved，繼續結案
+  • 告訴我要調整的地方 → 記錄 rejected，停止本次 bug-close，回到修復流程
+```
+
+只有使用者在**本輪**明確表示接受，才可以執行：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status approved --by human \
+  --reason "user explicitly accepted current bug fix"
+```
+
+若使用者不接受或提出修改：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status rejected --by human \
+  --reason "user requested additional bug-fix changes"
+```
+
+然後**立即停止本次結案**，不得更新 Notion 為「已完成」、不得建立結案知識庫條目、不得寫 `close=done`。
+
+> 🔴 **硬規則**：
+> - C1-C4 全綠 **不等於** UAT approved。
+> - 測試 PASS、迴歸測試存在、Notion 驗證 checkbox 已勾選，也**不等於** UAT approved。
+> - 「目標狀態=已完成」是使用者選擇的 Notion 呈現，不可反推為 UAT 核准。
+> - Agent 不得自行 approve，也不得引用前一輪「OK」當成目前修復版本的 acceptance。
+> - 若使用者明確要求 waive UAT，可用 `status=waived`，但必須留下具體 reason；Agent 不得主動建議 waiver。
+
 ### 7. 更新 Notion Bug 頁面
 
 使用 `notion-update-page` 更新條目：
@@ -202,6 +241,10 @@ mkdir -p ~/.claude-company/bug-workflow/learnings
 若目錄不存在，首次使用時自動建立。
 
 ### 10. 標記結案狀態
+
+前置條件：本輪 6.5 已取得使用者明確 acceptance，且 `state.json.gates.uat` 為 `approved` / `waived`。
+
+> Phase 3B-3B 此刻尚未把 `close` 加進 runtime hard gate，所以這個前置條件目前由 skill + Approval Gate CI 執行；下一階段才會升級為 runtime 強制。
 
 把 `.spec/{slug}/state.json` 的 close 步驟標為完成（見 `../../references/state-discipline.md`）：
 

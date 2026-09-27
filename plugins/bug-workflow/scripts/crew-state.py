@@ -51,7 +51,6 @@ GATE_PASSED = {"approved", "waived"}
 GATE_SOURCE_STEP = {
     "requirement": "spec",
     "architecture": "arch",
-    "uat": "review",
 }
 TRANSITION_GATES = {
     "db": ["requirement"],
@@ -392,6 +391,17 @@ def gate_passed(state: dict, gate: str) -> bool:
     return gate_status(state, gate) in GATE_PASSED
 
 
+def gate_source_step(state: dict, gate: str) -> str | None:
+    """Approval Gate 的 source step；UAT 依任務 type 決定。
+
+    feature: UAT 必須在 review 完成後才可決策。
+    bug: 沒有 feature 的 review lifecycle；由 /bug-close 的人類 acceptance 流程負責決策時機。
+    """
+    if gate == "uat":
+        return "review" if state.get("type") == "feature" else None
+    return GATE_SOURCE_STEP.get(gate)
+
+
 def transition_gate_failures(state: dict, step: str) -> list[str]:
     return [
         gate
@@ -704,7 +714,7 @@ def cmd_gate(args) -> int:
         state = normalize(read_state(project, slug), slug)
         gate = state["gates"][args.name]
 
-        source_step = GATE_SOURCE_STEP.get(args.name)
+        source_step = gate_source_step(state, args.name)
         if args.status != "pending" and source_step and step_status(state, source_step) not in DONE_LIKE:
             raise CrewError(
                 f"{args.name} gate 尚不能設定為 {args.status}：{source_step} 尚未完成",

@@ -16,6 +16,7 @@ PLAN_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan" / "SKILL.
 PLAN_BUILD_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-build" / "SKILL.md"
 PLAN_VERIFY_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-verify" / "SKILL.md"
 PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-close" / "SKILL.md"
+BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
 UAT_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "uat-gate.md"
 
 
@@ -124,6 +125,19 @@ def main() -> int:
             assert after_uat["command"] == "/plan-close", after_uat
             print("✅ human UAT approval unlocks plan-close recommendation")
 
+            # Bug 沒有 feature review lifecycle；UAT prerequisite 必須依 type 調整。
+            bug_slug = "bug-gate-demo"
+            run(project, "init", "--slug", bug_slug, "--type", "bug")
+            run(
+                project, "gate", "--slug", bug_slug, "--name", "uat",
+                "--status", "approved", "--by", "human",
+                "--reason", "user explicitly accepted current bug fix"
+            )
+            bug_state = load(project, bug_slug)
+            assert bug_state["gates"]["uat"]["status"] == "approved"
+            assert bug_state["steps"]["review"]["status"] == "pending"
+            print("✅ bug UAT can be approved without feature review step")
+
             legacy = load(project, slug)
             legacy.pop("gates", None)
             legacy["steps"]["build"]["status"] = "pending"
@@ -145,6 +159,7 @@ def main() -> int:
         build_text = PLAN_BUILD_SKILL.read_text(encoding="utf-8")
         verify_text = PLAN_VERIFY_SKILL.read_text(encoding="utf-8")
         close_text = PLAN_CLOSE_SKILL.read_text(encoding="utf-8")
+        bug_close_text = BUG_CLOSE_SKILL.read_text(encoding="utf-8")
         uat_contract = UAT_CONTRACT.read_text(encoding="utf-8")
 
         assert "--name requirement --status approved --by human" in plan_text
@@ -179,14 +194,19 @@ def main() -> int:
         plan_approvals = approved_gate_commands(plan_text)
         assert len(plan_approvals) == 2, plan_approvals
 
+        bug_close_approvals = approved_gate_commands(bug_close_text)
+        assert len(bug_close_approvals) == 1, bug_close_approvals
+        assert "--name uat --status approved --by human" in bug_close_approvals[0]
+
+        allowed_approvers = {PLAN_SKILL, BUG_CLOSE_SKILL}
         offenders = []
         for skill in sorted((REPO / "plugins").glob("*/skills/*/SKILL.md")):
-            if skill == PLAN_SKILL:
+            if skill in allowed_approvers:
                 continue
             text_value = skill.read_text(encoding="utf-8")
             if approved_gate_commands(text_value):
                 offenders.append(str(skill.relative_to(REPO)))
-        assert not offenders, f"non-plan skills may not approve gates: {offenders}"
+        assert not offenders, f"unauthorized skills may not approve gates: {offenders}"
 
         assert "只有使用者本輪明確核准" in plan_text
         assert "Agent 不得自行 approve" in plan_text
@@ -198,7 +218,11 @@ def main() -> int:
         assert "尚未" in close_text and "hard block" in close_text
         assert "verify=PASS" in uat_contract and "uat=approved" in uat_contract
         assert 'TRANSITION_GATES["close"] = ["uat"]' in uat_contract
-        print("✅ UAT contract keeps machine verify separate from human acceptance")
+        assert "type-aware" in uat_contract
+        assert "本輪" in bug_close_text
+        assert "C1-C4 全綠 **不等於** UAT approved" in bug_close_text
+        assert "--name uat --status rejected --by human" in bug_close_text
+        print("✅ UAT contract is type-aware and bug-close requires explicit human acceptance")
 
         print("✅ approval gate smoke tests passed")
         return 0

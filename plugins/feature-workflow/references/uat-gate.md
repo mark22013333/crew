@@ -53,9 +53,9 @@ Agent 不得自行把 UAT 設成 `approved` 或 `waived`。
 
 ---
 
-## 3. 決策時機
+## 3. 決策時機（type-aware）
 
-Phase 3B contract：
+### Feature
 
 ```text
 review=done
@@ -67,8 +67,27 @@ uat=approved|rejected|waived
 plan-close
 ```
 
-`crew-state.py gate --name uat ...` 只有在 `steps.review.status` 已是 done/skipped 時才接受非 pending 狀態。
-理由：避免在驗證／review 尚未完成前先蓋 UAT 章，之後程式又變更。
+Feature 的 `crew-state.py gate --name uat ...` 只有在 `steps.review.status` 已是 done/skipped 時才接受非 pending 狀態，避免 review 尚未完成就先蓋 UAT 章。
+
+### Bug
+
+Bug workflow 沒有 Feature 的 `review` lifecycle，因此 **不得硬套 `review=done` prerequisite**：
+
+```text
+bug-fix evidence / C1-C4
+   ↓
+/bug-close 顯示修復摘要
+   ↓
+human explicit acceptance
+   ↓
+uat=approved|rejected|waived
+   ↓
+bug-close
+```
+
+Runtime 對 `type=bug` 的 UAT 不要求 `review` source step；真正的決策時機由 `/bug-close` 的明確人類 acceptance 流程執行。
+
+這不是放寬人類核准，而是把 prerequisite 對齊兩種 workflow 的實際 lifecycle。
 
 ---
 
@@ -92,7 +111,7 @@ plan-close
 ### Phase 3B-3A（目前）
 
 - `crew-state.py next` 在 review 完成但 UAT pending/rejected 時，**不推薦 `/plan-close`**。
-- `uat` 只能在 review 完成後決策。
+- Feature 的 `uat` 只能在 review 完成後決策；Bug 由 `/bug-close` 的本輪人類 acceptance 決策。
 - **尚不把 `close` 加進 `TRANSITION_GATES`**。
 - `/plan-close` 必須明確區分 verify/review 與 UAT；legacy compatibility 下仍能直接 close，不代表 UAT 已完成。
 
