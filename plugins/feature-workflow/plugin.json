@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "feature-workflow",
+  "version": "5.0.2",
+  "description": "功能開發工作流 — 以 .spec/ 做本地規劃，涵蓋需求、DB、架構、實作、驗證、審查與結案。",
+  "author": {
+    "name": "Cheng"
+  },
+  "repository": "https://github.com/mark22013333/crew",
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "feature",
+    "workflow",
+    "planning",
+    "code-generation",
+    "code-review"
+  ]
+}
