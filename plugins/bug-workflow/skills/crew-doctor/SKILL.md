@@ -1,6 +1,6 @@
 ---
 name: crew-doctor
-description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配依賴（Node/Git/Notion MCP/Agent Teams/瀏覽器 MCP/config/專案註冊/CLAUDE.md），列出綠黃紅燈與修法。當使用者提到 /crew-doctor、「CREW 環境健診」、「CREW 為什麼不能用」時觸發此 Skill。
+description: CREW 環境健診 —— 一次性檢查必要與選配依賴（Node/Git/Notion/委派能力/瀏覽器工具/config/專案指令），列出綠黃紅燈與修法，並依目前 Host 顯示適用建議。
 ---
 
 # crew-doctor — CREW 環境健診
@@ -34,8 +34,8 @@ description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配
 |---|------|---------|-----------|
 | 1 | Node.js ≥ 18 | `node --version` | 對應 OS 安裝指令 |
 | 2 | Git | `git --version` | 對應 OS 安裝指令 |
-| 3 | Notion MCP | `claude mcp list` 含 notion 或 notion-local | `claude plugin install notion` |
-| 4 | Agent Teams 啟用 | `$CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | 加入 `~/.claude/settings.json` 的 env |
+| 3 | Notion 能力 | 依 `host-capabilities.md` 的 `tool_probe(tool_kind=notion)` | 提示目前 Host 的 Notion plugin/MCP 安裝方式 |
+| 4 | 委派能力 | 探測 `delegate_readonly` / `parallel_delegate` 可用層級 | 無平行能力可序列執行，不視為 BLOCK |
 | 5 | CLAUDE.md 在當前專案 | `ls CLAUDE.md` | `/init` |
 | 6 | bug-workflow 設定檔 | `~/.claude-company/bug-workflow-config.md` | `/bug-setup` |
 | 7 | feature-workflow 設定 | `~/.claude-company/feature-workflow/config.md` | `/plan-setup` |
@@ -45,7 +45,7 @@ description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配
 
 | # | 項目 | 檢查方式 | 缺失時影響 |
 |---|------|---------|-----------|
-| 9 | Playwright MCP | `claude mcp list` 含 playwright | plan-verify 降級或無法執行 |
+| 9 | Playwright 能力 | `tool_probe(tool_kind=browser, preferred_names=[playwright])` | plan-verify 依能力降級 |
 | 10 | Maven / Gradle | `which mvn` 或 `which gradle` | plan-build E4 編譯驗證跳過 |
 | 11 | CREW hooks 已載入 | 見下方「#11 CREW hooks 已載入」 | 開 session 時不會提醒未結案任務，中斷的任務容易被遺忘（`plan-close` 沒做到） |
 
@@ -53,8 +53,8 @@ description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配
 
 | # | 項目 | 檢查方式 | 缺失時影響 |
 |---|------|---------|-----------|
-| 12 | chrome-devtools MCP | `claude mcp list` 含 chrome-devtools | plan-verify `--deep` 不可用 |
-| 13 | DBHub MCP | `claude mcp list` 含 dbhub | DB 直連功能不可用，plan-build DB 工程師退場 |
+| 12 | chrome-devtools 能力 | `tool_probe(tool_kind=browser, preferred_names=[chrome-devtools])` | plan-verify `--deep` 不可用 |
+| 13 | DB 工具 | `tool_probe(tool_kind=database, preferred_names=[dbhub])` | DB 直連功能不可用，plan-build DB 工程師退場 |
 | 14 | .NET SDK ≥ 8 | `dotnet --version` | Word 報告降級為 python-docx 排版 |
 | 15 | python-docx | `python3 -c "import docx"` | 完全無 Word 報告能力（需先裝 .NET 或 docx） |
 | 16 | v1 舊結構任務 | 當前專案有 `.spec/*/` 含 `README.md` 但無 `plan.md` 的目錄 | 這些任務走相容模式；過渡期到期後不再支援 → 提示 `/plan-status --migrate {slug}`，並指向 `feature-workflow/references/legacy-v1.md`（**過渡期檢查項，到期連同該檔一併移除**） |
@@ -155,7 +155,7 @@ CREW 環境健診摘要
 | ~/.claude-company/feature-workflow/ 缺失 | `mkdir -p` |
 | ~/.claude-company/feature-workflow/projects/ 缺失 | `mkdir -p` |
 | ~/.claude-company/feature-workflow/stacks/ 缺失 | `mkdir -p` |
-| CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS 未設 | 寫入 `~/.claude/settings.json` 的 env（先備份原檔） |
+| 無 parallel delegation | 不需修復；CREW 自動序列執行。若使用者想啟用 Host 的平行能力，再提供該 Host 專屬指引 |
 
 **不會自動修復**（仍要使用者操作）：
 - MCP 安裝（要 `claude plugin/mcp` 指令）
@@ -230,7 +230,7 @@ CREW 環境健診摘要
 
 ## Gotchas
 
-- **`claude mcp list` 輸出格式**：不同版本可能變動，需用 grep / awk 適配
+- **工具探測不要綁 CLI 輸出格式**：一律依 `host-capabilities.md` 的 `tool_probe`，以 session 真正可呼叫能力為準
 - **跨平台路徑**：Windows 用 `%USERPROFILE%`、Unix 用 `$HOME`
 - **Notion API 速率限制**：#17-18 試查若被 throttle，標示為 ⚠️ 不算失敗
 - **`--fix` 改 settings.json 風險**：先 cp settings.json.bak，失敗能還原
