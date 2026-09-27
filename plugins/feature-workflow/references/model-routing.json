@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "NONE": {
+      "rank": 0,
+      "description": "Deterministic tooling; do not call an LLM."
+    },
+    "FAST": {
+      "rank": 1,
+      "description": "Cheap read-only mechanical work: search, extraction, classification, summarization."
+    },
+    "STANDARD": {
+      "rank": 2,
+      "description": "Normal engineering reasoning and routine implementation/review."
+    },
+    "DEEP": {
+      "rank": 3,
+      "description": "Complex or high-risk reasoning: architecture, schema, security, concurrency, difficult debugging."
+    }
+  },
+  "task_defaults": {
+    "deterministic": "NONE",
+    "state_transition": "NONE",
+    "schema_validation": "NONE",
+    "git_diff": "NONE",
+    "repository_search": "FAST",
+    "evidence_collection": "FAST",
+    "log_summary": "FAST",
+    "test_output_summary": "FAST",
+    "classification": "FAST",
+    "requirement_analysis": "STANDARD",
+    "routine_review": "STANDARD",
+    "routine_implementation": "STANDARD",
+    "unit_test_generation": "STANDARD",
+    "debugging": "STANDARD",
+    "architecture": "DEEP",
+    "schema_design": "DEEP",
+    "security_review": "DEEP",
+    "performance_review": "DEEP",
+    "deep_investigation": "DEEP",
+    "high_risk_implementation": "DEEP"
+  },
+  "minimum_profile": {
+    "risk": {
+      "low": "NONE",
+      "medium": "STANDARD",
+      "high": "DEEP"
+    },
+    "complexity": {
+      "low": "NONE",
+      "medium": "STANDARD",
+      "high": "DEEP"
+    }
+  },
+  "deep_sensitive_tags": [
+    "security",
+    "auth",
+    "payment",
+    "concurrency",
+    "transaction",
+    "distributed_state",
+    "schema_migration",
+    "public_api_breaking",
+    "cross_service"
+  ],
+  "failure_escalation": {
+    "after_failures": 2,
+    "levels": 1
+  },
+  "host_mappings": {
+    "claude": {
+      "NONE": {
+        "model": null,
+        "effort": null
+      },
+      "FAST": {
+        "model": "haiku",
+        "effort": "low"
+      },
+      "STANDARD": {
+        "model": "sonnet",
+        "effort": "medium"
+      },
+      "DEEP": {
+        "model": "opus",
+        "effort": "high"
+      }
+    },
+    "codex": {
+      "NONE": {
+        "model": null,
+        "reasoning_effort": null
+      },
+      "FAST": {
+        "model": "inherit",
+        "reasoning_effort": "low"
+      },
+      "STANDARD": {
+        "model": "inherit",
+        "reasoning_effort": "medium"
+      },
+      "DEEP": {
+        "model": "inherit",
+        "reasoning_effort": "high"
+      }
+    },
+    "portable": {
+      "NONE": {},
+      "FAST": {},
+      "STANDARD": {},
+      "DEEP": {}
+    }
+  }
+}
