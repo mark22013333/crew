@@ -22,16 +22,16 @@ drift_policy: off
 - Out of Scope（Phase 1）：不嘗試讓 Codex 完整模擬 Claude Agent Teams。
 
 ## 驗收條件          <!-- crew:ac   owner=spec -->
-- [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。
-- [ ] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
-- [ ] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
-- [ ] AC-4 portable manifest version 與 Claude manifest、Claude marketplace、plugin README 版本一致。
-- [ ] AC-5 lint-plugin-manifest.py 同時驗證 Claude manifest、portable manifest 與兩份 marketplace source。
-- [ ] AC-6 bump-version.sh 可同步 portable manifest，避免日後版本漂移。
-- [ ] AC-7 README 明確區分 Claude Code 與 Codex 安裝方式，既有 Claude 安裝方式維持有效。
-- [ ] AC-8 Phase 1 不改既有 Skill 行為與 Agent model 選擇。
-- [ ] AC-9 Phase 1 變更可由既有 GitHub Actions lint 工作流驗證，不新增外部服務依賴。
-- [ ] AC-10 後續 Agent 只需讀本 plan.md 與 git diff/history 即可知道下一階段工作。
+- [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
+- [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
+- [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
+- [x] AC-4 portable manifest version 與 Claude manifest、Claude marketplace、plugin README 版本一致。
+- [x] AC-5 lint-plugin-manifest.py 同時驗證 Claude manifest、portable manifest 與兩份 marketplace source。
+- [x] AC-6 bump-version.sh 可同步 portable manifest，避免日後版本漂移。
+- [x] AC-7 README 明確區分 Claude Code 與 Codex 安裝方式，既有 Claude 安裝方式維持有效。
+- [x] AC-8 Phase 1 不改既有 Skill 行為與 Agent model 選擇。
+- [x] AC-9 Phase 1 變更可由既有 GitHub Actions lint 工作流驗證，不新增外部服務依賴。
+- [x] AC-10 後續 Agent 只需讀本 plan.md 與 git diff/history 即可知道下一階段工作。
 
 ## 決策紀錄          <!-- crew:dec  append-only -->
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
@@ -68,3 +68,7 @@ drift_policy: off
 - [2026-09-27] [plan] 已確認 OpenAI portable plugin 使用 root plugin.json，skills/ 固定路徑自動發現；repo marketplace 使用 .agents/plugins/marketplace.json。
 - [2026-09-27] [plan] Codex CLI 支援 `codex plugin marketplace add owner/repo`；legacy .claude-plugin/marketplace.json 仍可相容，但本計畫仍建立正式 .agents marketplace。
 - [2026-09-27] [plan] Phase 1 執行順序：portable manifests → Codex marketplace → lint/version sync → README → CI/差異檢查。
+
+- [2026-09-27] [phase1] PR #17 已建立；GitHub Actions run 36297731183 的 10 個 lint job 全部 success。
+- [2026-09-27] [phase1] Portable manifests、Codex marketplace、版本同步、manifest lint、README/CONTRIBUTING 已完成；未修改既有 Skill/Agent 執行語意。
+- [2026-09-27] [next] 下一接續點：Phase 2 先盤點所有 SKILL.md 的 Host-specific 語句，分類為 core / claude-only / codex-adapter，再設計 Host Capability Contract；不要直接重寫全部 Skill。
