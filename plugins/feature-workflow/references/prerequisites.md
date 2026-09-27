@@ -107,17 +107,25 @@ uname -s 2>/dev/null || echo "Windows"
 
 > 此偵測不限於 setup — 任何需要 Notion 操作的 Skill 首次呼叫時都會觸發。
 
-### 1. CLAUDE.md 是否存在？
+### 1. 專案指令是否存在？
 
-檢查當前專案根目錄（`pwd` 或 Git root）是否有 `CLAUDE.md`。
+依 `references/host-capabilities.md` 的 `project_instructions` 解析專案指令。
 
-- **存在** → 繼續
-- **不存在** → 提示並中止：
-  ```
-  ⚠️ 當前專案尚未初始化。
-  請先執行 /init 建立 CLAUDE.md，讓 Claude Code 了解專案架構。
-  建立後建議 commit 並 push，讓團隊成員共用。
-  ```
+接受：
+- `AGENTS.md`
+- `CLAUDE.md`
+
+至少一份存在 → 繼續。兩份都存在 → 都可讀；有實質衝突時列為歧義點，不自行忽略其中一份。
+
+兩份都不存在 → 提示並中止：
+
+```
+⚠️ 當前專案尚未提供 CREW 可讀的專案指令。
+請建立 AGENTS.md 或 CLAUDE.md：
+  • Codex：建議 AGENTS.md
+  • Claude Code：可用 /init 建立 CLAUDE.md
+建立後建議 commit 並 push，讓團隊成員共用。
+```
 
 ### 2. Workflow 設定是否存在？
 
@@ -156,7 +164,7 @@ uname -s 2>/dev/null || echo "Windows"
 
 ## 適用範圍
 
-| Skill | 基礎環境(0) | Notion 偵測(0.5) | CLAUDE.md(1) | 設定檔(2) | 專案註冊(3) |
+| Skill | 基礎環境(0) | Notion 偵測(0.5) | 專案指令(1) | 設定檔(2) | 專案註冊(3) |
 |-------|:---:|:---:|:---:|:---:|:---:|
 | `bug-setup` | ✅ | ✅ | — | — | — |
 | `plan-setup` | ✅ | ✅ | — | — | — |
