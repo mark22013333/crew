@@ -15,7 +15,7 @@ description: 調查 Bug 過程中隨時將 log、SQL、判斷、截圖更新到�
 
 - 已使用 `/bug-start` 建立 Bug 條目
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
 ---
 
