@@ -1,0 +1,32 @@
+{
+  "name": "crew",
+  "interface": {
+    "displayName": "CREW"
+  },
+  "plugins": [
+    {
+      "name": "bug-workflow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/bug-workflow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "feature-workflow",
+      "source": {
+        "source": "local",
+        "path": "./plugins/feature-workflow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
