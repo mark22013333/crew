@@ -106,8 +106,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 即將啟動 CREW 多角色程式碼產生：
 
 📄 設計來源：.spec/{slug}/plan.md{ + deploy.sql}
-🔍 探索官：scout（profile: FAST）— 專案結構/相似功能/風格範本/交叉引用（唯讀；由 Router 對映 Host 模型）
-📊 Teammate 配置（全部 model: opus）：
+🔍 探索官：scout（task: repository_search + profile: FAST）— 專案結構/相似功能/風格範本/交叉引用（唯讀；由 Router 對映 Host 能力）
+📊 Teammate 配置（全部 task: high_risk_implementation + profile: DEEP）：
   {• db-engineer       — DB 遷移/索引/效能優化（需 DB MCP）}
   • backend-engineer  — 後端核心（POJO/Mapper/Service）
   • api-engineer      — API 層（Controller/DTO/驗證）
@@ -138,7 +138,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
 > - 5a–5d 的掃描與讀取工作依 `host-capabilities.md` 使用 **`delegate_readonly`**，role=`explorer`，routing=`task: repository_search`、`profile: FAST`、`risk: low`、`complexity: low`；執行前以 `crew-model-route.py` 驗證並套用 Host mapping（探索官 prompt 模板見 `references/build-prompts.md`「探索官模式」）。
 > - 探索官只用唯讀工具，🔴 不得修改任何程式碼；產出「實作交接」（模板見 `model-policy.md`）交給步驟 6 的實作者。
-> - 這一步的目的就是**讓 Opus 實作者不必再掃 repository**。探索範圍只有 1–2 個已知路徑的檔案時，Leader 可自行讀取，不必派探索官。
+> - 這一步的目的就是**讓 DEEP 實作者不必再掃 repository**。探索範圍只有 1–2 個已知路徑的檔案時，Leader 可自行讀取，不必派探索官。
 
 #### 5a. 擷取共用核心（Layer 0）
 從 `project_instructions` 擷取技術棧、命名慣例、禁止事項，格式化為 5 行以內。
@@ -155,7 +155,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 #### 5d. 預備交叉引用清單（Layer 3）
 從 `deploy.sql` 與 plan.md 的驗收條件提取跨角色約束（NOT NULL、UNIQUE、必填參數、外鍵、分頁限制）。約束的事實在 `deploy.sql`，不是在文件敘述裡。
 
-### 6. 啟動實作 Agent（逐一具名 spawn，model: opus）
+### 6. 啟動實作 Agent（逐一具名 delegate_write，profile: DEEP）
 
 讀取 plugin 根目錄 `references/build-prompts.md`（相對 SKILL.md 為 `../../references/`）取得 Teammate prompt 模板。
 
@@ -173,16 +173,25 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 
 完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）。
 
-- 每個實作角色都用 **`delegate_write`** 獨立工作單元（role 例如 `backend-engineer`），capability request 必須帶 `model: opus` 與 allowed scope。
-- 🔴 **不可**用「建立整個團隊並使用 Opus」這種自然語言指定模型 —— 那只是敘述，不保證生效。
+先取得正式實作者的 Router mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task high_risk_implementation --risk high --complexity high \
+  --host portable --format json
+```
+
+- 每個實作角色都用 **`delegate_write`** 獨立工作單元（role 例如 `backend-engineer`），每個 capability request 都必須各自帶 routing=`task: high_risk_implementation`、`profile: DEEP`、`risk: high`、`complexity: high` 與 allowed scope。
+- 🔴 **不可**只在 team／parallel_delegate 外層寫一次「使用某模型」或只用自然語言描述 routing；每個可寫子工作單元都必須有自己的結構化 routing。
+- Host adapter 必須確認 Router mapping 是否真的套用；無 per-worker model/reasoning 時保留 DEEP/write boundary 並回報 `routing_degraded=true`，不得假裝成功。
 - 探索與實作是兩個工作單元：角色的 repository 掃描已在步驟 5 由 FAST 探索官完成，DEEP 實作者**只用交接內容**，🔴 不得重新全域掃描 repository。
 - Leader（本 skill）只協調、不寫正式程式碼（見 anti-rationalizations.md B2）。
 
 #### 單角色 vs parallel_delegate 選擇
 
 根據『判斷團隊組成』一節的判斷結果（見 plugin 根目錄 `references/team-composition.md`，相對 SKILL.md 為 `../../references/`）：
-- 1 人 → 單一具名 subagent（`{"model": "opus"}`）
-- 2+ 人 → 優先 `parallel_delegate`；若 Host 無平行能力則序列 `delegate_write`。跨角色 API 契約由 Leader 彙整後再傳遞，不依賴特定 Team message 工具。
+- 1 人 → 單一具名 `delegate_write`，帶 `task: high_risk_implementation` + `profile: DEEP` + allowed scope。
+- 2+ 人 → 優先 `parallel_delegate`；其中**每個**子工作單元仍各自帶相同 routing contract 與自己的 allowed scope。若 Host 無平行能力則序列 `delegate_write`。跨角色 API 契約由 Leader 彙整後再傳遞，不依賴特定 Team message 工具。
 
 ### 7. 更新狀態與指路錨點
 
@@ -360,7 +369,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 > 完整的 DB MCP 提示詞模板見 plugin 根目錄 `references/build-prompts.md`（相對 SKILL.md 為 `../../references/`）的「DB MCP 提示詞模版」段落。
 
 『判斷團隊組成』一節依 `tool_probe(tool_kind=database)` 檢查 DB 工具可用性後，根據結果決定是否加入 DB 工程師：
-- **已安裝**：加入「成員 0：DB 工程師」（`{"model": "opus"}`）；Subagent 模式（同樣 `model: opus`）嵌入 `{db_mcp_instruction}`
+- **已安裝**：加入「成員 0：DB 工程師」；該 `delegate_write` 與其他實作者一樣帶 `task: high_risk_implementation` + `profile: DEEP` + allowed DB scope，並在 input 嵌入 `{db_mcp_instruction}`
 - **未安裝**：不加入 DB 工程師；`{db_mcp_instruction}` 替換為空字串
 
 ---
@@ -401,4 +410,4 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 - **Teammate 失敗**：提供選項：重試 / 跳過 / 終止
 - **API 契約不一致**：以 API 工程師為準，其他成員調整
 - **避免重疊寫入執行單元**：同一工作階段若已有未完成的可寫 role，先依 `state.json.work_unit` 續跑或收斂，再啟動新的實作單元
-- **僅後端模式**：依角色數使用 `delegate_write`（實作者 `model: opus`）或序列委派
+- **僅後端模式**：依角色數使用 `delegate_write` 或序列委派；每個實作者仍帶 `task: high_risk_implementation` + `profile: DEEP`

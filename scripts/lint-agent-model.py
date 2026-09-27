@@ -10,8 +10,8 @@
   1. STRUCTURED  — 委派 capability／舊式 Agent 呼叫附近必須有結構化 model 或 profile 標示
   2. AGENT_FM    — agents/*.md frontmatter 必須宣告 model，且已知 agent 的值需符合政策
                    （規格分析 agent 不得 opus；正式實作 agent 不得 sonnet）
-  3. ROLE_POLICY — 各 skill 的角色模型對照（bug-investigate / bug-fix 必須 provider-neutral profile routing、
-                   plan-review --quick 尚維持 legacy sonnet…）
+  3. ROLE_POLICY — 各 skill 的角色模型對照（bug-investigate / bug-fix / plan-build 必須 provider-neutral routing、
+                   plan / plan-review 尚維持 legacy provider model…）
   4. NL_MODEL    — 禁止用自然語言「使用 Opus 模型」指定模型（除了明確在講「這樣不行」的句子）
   5. VAGUE       — 禁止「視情況使用模型」這類沒有具體參數的含糊措辭
   6. 掃描範圍含 references/ 與 agents/，不只 SKILL.md（自然語言模板也會被實際送出去）
@@ -107,9 +107,10 @@ ROLE_POLICY = {
         "why": "spec pass 的唯讀規格分析目標 sonnet；db/arch 複雜設計目標 opus",
     },
     "plan-build": {
-        "require": ["opus"],
-        "require_profiles": ["FAST"],
-        "why": "唯讀探索官必須走 FAST profile；正式實作角色仍維持 opus（Phase 3A 保守值）",
+        "require_profiles": ["FAST", "DEEP"],
+        "require_tasks": ["repository_search", "high_risk_implementation"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "plan-build 已完成 provider-neutral routing：探索官 repository_search + FAST；所有正式寫入 high_risk_implementation + DEEP",
     },
     "plan-review": {
         "require": ["sonnet", "opus"],
