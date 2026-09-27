@@ -38,7 +38,7 @@ description: CREW 探索模式 —— 規劃前或規劃中的思考夥伴，自
 
 ### 1. 代碼庫上下文
 
-讀取 `pwd` 下最近的 CLAUDE.md，取得專案技術棧、架構模式、分層規則。
+依 `../../references/host-capabilities.md` 的 `project_instructions` 讀取 `AGENTS.md` / `CLAUDE.md`，取得專案技術棧、架構模式、分層規則。
 
 ### 2. 已有任務上下文
 
