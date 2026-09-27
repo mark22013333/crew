@@ -1,6 +1,6 @@
 ---
 name: crew-doctor
-description: CREW 環境健診 —— 一次性檢查必要與選配依賴（Node/Git/Notion/委派能力/瀏覽器工具/config/專案指令），列出綠黃紅燈與修法，並依目前 Host 顯示適用建議。
+description: CREW 環境健診 —— 一次性檢查必要與選配依賴（Node/Git/Notion/委派能力/瀏覽器工具/config/專案指令），列出綠黃紅燈與修法。當使用者提到 /crew-doctor、「CREW 環境健診」、「CREW 為什麼不能用」時觸發此 Skill。
 ---
 
 # crew-doctor — CREW 環境健診
