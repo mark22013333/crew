@@ -38,10 +38,16 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
-# 流程步驟（順序即流程順序）
-STEPS = ["start", "spec", "db", "arch", "build", "security", "verify", "review", "close"]
+# type-aware lifecycle：Feature 與 Bug 共用 state runtime，但不假裝兩者有相同階段。
+FEATURE_STEPS = ["start", "spec", "db", "arch", "build", "security", "verify", "review", "close"]
+BUG_STEPS = ["start", "investigate", "fix", "close"]
+STEPS = FEATURE_STEPS + [step for step in BUG_STEPS if step not in FEATURE_STEPS]
+TASK_STEPS = {
+    "feature": FEATURE_STEPS,
+    "bug": BUG_STEPS,
+}
 STATUSES = ["pending", "in_progress", "done", "skipped", "failed"]
 DONE_LIKE = {"done", "skipped"}  # skipped 取代舊版「DB_REQUIRED=false 就沒檔案」的猜測
 
@@ -80,6 +86,22 @@ STEP_COMMAND = {
     "review": "/plan-review",
     "close": "/plan-close",
 }
+
+BUG_STEP_COMMAND = {
+    "start": "/bug-start",
+    "investigate": "/bug-investigate",
+    "fix": "/bug-fix",
+    "close": "/bug-close",
+}
+
+
+def steps_for_type(task_type: str) -> list[str]:
+    return BUG_STEPS if task_type == "bug" else FEATURE_STEPS
+
+
+def step_command(state: dict, step: str) -> str:
+    mapping = BUG_STEP_COMMAND if state.get("type") == "bug" else STEP_COMMAND
+    return mapping[step]
 
 # 舊版（v1）檔案 → 步驟，供 rebuild 從檔案系統推測
 LEGACY_FILE_STEP = [
@@ -230,6 +252,7 @@ def write_state(project: Path, slug: str, state: dict) -> Path:
 
 
 def new_state(slug: str, name: str = "", task_type: str = "feature") -> dict:
+    task_type = task_type if task_type in TASK_STEPS else "feature"
     stamp = now_iso()
     return {
         "schema_version": SCHEMA_VERSION,
@@ -241,7 +264,7 @@ def new_state(slug: str, name: str = "", task_type: str = "feature") -> dict:
         "next": {"command": None, "reason": ""},
         "steps": {
             step: {"status": "pending", "at": None, "commit": None, "reason": None}
-            for step in STEPS
+            for step in steps_for_type(task_type)
         },
         "work_unit": {
             "skill": None,
@@ -280,7 +303,9 @@ def normalize(state: dict, slug: str = "") -> dict:
     已完成的 spec/arch 視為舊流程已通過對應人工確認，避免升級後卡住既有任務。
     """
     had_gates = isinstance(state.get("gates"), dict)
-    base = new_state(slug or state.get("slug") or "unknown")
+    task_type = state.get("type") if state.get("type") in TASK_STEPS else "feature"
+    state["type"] = task_type
+    base = new_state(slug or state.get("slug") or "unknown", task_type=task_type)
     for key, default in base.items():
         if key not in state:
             state[key] = default
@@ -294,7 +319,8 @@ def normalize(state: dict, slug: str = "") -> dict:
     steps = state.get("steps")
     if not isinstance(steps, dict):
         steps = {}
-    for step in STEPS:
+    active_steps = steps_for_type(task_type)
+    for step in active_steps:
         entry = steps.get(step)
         if not isinstance(entry, dict):
             entry = {}
@@ -304,7 +330,7 @@ def normalize(state: dict, slug: str = "") -> dict:
         for field in ("at", "commit", "reason"):
             entry.setdefault(field, None)
         steps[step] = entry
-    state["steps"] = {step: steps[step] for step in STEPS}
+    state["steps"] = {step: steps[step] for step in active_steps}
 
     work_unit = state.get("work_unit")
     if not isinstance(work_unit, dict):
@@ -363,8 +389,23 @@ def normalize(state: dict, slug: str = "") -> dict:
         if not isinstance(state["results"].get(kind), dict):
             state["results"][kind] = {}
 
-    if state.get("phase") not in STEPS:
-        state["phase"] = "start"
+    if state.get("phase") not in active_steps:
+        last_done = "start"
+        for step in active_steps:
+            if step_status(state, step) in DONE_LIKE:
+                last_done = step
+        skill_phase = {
+            "bug-investigate": "investigate",
+            "/bug-investigate": "investigate",
+            "bug-fix": "fix",
+            "/bug-fix": "fix",
+        }.get(str(work_unit.get("skill") or ""))
+        if task_type == "bug" and step_status(state, "close") in DONE_LIKE:
+            state["phase"] = "close"
+        elif task_type == "bug" and skill_phase in active_steps:
+            state["phase"] = skill_phase
+        else:
+            state["phase"] = last_done
     if not isinstance(state.get("history"), list):
         state["history"] = []
     if not isinstance(state.get("inferred"), bool):
@@ -466,6 +507,28 @@ def compute_next(state: dict) -> dict:
     return result
 
 
+def _compute_bug_lifecycle_rule(state: dict) -> dict:
+    if step_status(state, "investigate") not in DONE_LIKE:
+        return {"command": BUG_STEP_COMMAND["investigate"], "reason": "Bug 根因調查尚未完成"}
+
+    if step_status(state, "fix") not in DONE_LIKE:
+        return {"command": BUG_STEP_COMMAND["fix"], "reason": "根因已確認，修復／迴歸驗證尚未完成"}
+
+    if gate_status(state, "uat") == "rejected":
+        return {
+            "command": BUG_STEP_COMMAND["fix"],
+            "reason": "Human UAT 已拒絕目前修復；回到 /bug-fix 處理使用者要求的調整",
+        }
+
+    if not gate_passed(state, "uat"):
+        return {
+            "command": BUG_STEP_COMMAND["close"],
+            "reason": "修復與驗證已完成；進入 /bug-close 做本輪 Human UAT，runtime 會在核准前硬擋 close=done",
+        }
+
+    return {"command": BUG_STEP_COMMAND["close"], "reason": "Human UAT 已通過，可以結案"}
+
+
 def _compute_next_rule(state: dict, slug: str) -> dict:
     parked = state.get("parked")
     if parked:
@@ -478,10 +541,11 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
         }
 
     if step_status(state, "close") in DONE_LIKE:
-        return {"command": None, "reason": "任務已結案（close 完成），可用 /plan-start 開新任務"}
+        restart = step_command(state, "start")
+        return {"command": None, "reason": f"任務已結案（close 完成），可用 {restart} 開新任務"}
 
     if step_status(state, "start") not in DONE_LIKE:
-        return {"command": f"/plan-start {slug}", "reason": "任務尚未建立（start 未完成）"}
+        return {"command": f"{step_command(state, 'start')} {slug}", "reason": "任務尚未建立（start 未完成）"}
 
     # 斷點續跑優先（取代舊版 handoff.md 的「優先讀取」）
     work_unit = state.get("work_unit") or {}
@@ -495,6 +559,9 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
             "command": f"{command} --resume",
             "reason": f"{skill} 中斷於 {done}/{total}{label}，先續跑未完成的工作單元",
         }
+
+    if state.get("type") == "bug":
+        return _compute_bug_lifecycle_rule(state)
 
     if step_status(state, "spec") not in DONE_LIKE:
         return {"command": STEP_COMMAND["spec"], "reason": "規格（目標與驗收條件）尚未產出"}
@@ -570,9 +637,9 @@ def refresh_next(state: dict) -> dict:
 
 
 def current_phase(state: dict) -> str:
-    """最後一個已完成（或進行中）的步驟。"""
+    """最後一個已完成（或進行中）的 type-aware 步驟。"""
     phase = state.get("phase")
-    return phase if phase in STEPS else "start"
+    return phase if phase in steps_for_type(state.get("type")) else "start"
 
 
 # --------------------------------------------------------------------------
@@ -620,6 +687,7 @@ def _apply_set(state: dict, args) -> list:
         changes.append(f"name={args.name}")
     if args.type:
         state["type"] = args.type
+        normalize(state, state.get("slug") or "unknown")
         changes.append(f"type={args.type}")
 
     if args.step:
@@ -627,6 +695,12 @@ def _apply_set(state: dict, args) -> list:
             raise CrewError(
                 "--step 必須搭配 --status",
                 f"修法：加上 --status，可用值：{'/'.join(STATUSES)}",
+            )
+        active_steps = steps_for_type(state.get("type"))
+        if args.step not in active_steps:
+            raise CrewError(
+                f"{state.get('type')} 任務不支援 step={args.step}",
+                f"合法步驟：{'/'.join(active_steps)}",
             )
         assert_transition_allowed(state, args.step, args.status)
         entry = state["steps"][args.step]
@@ -642,6 +716,12 @@ def _apply_set(state: dict, args) -> list:
             state["phase"] = args.step
 
     if args.phase:
+        active_steps = steps_for_type(state.get("type"))
+        if args.phase not in active_steps:
+            raise CrewError(
+                f"{state.get('type')} 任務不支援 phase={args.phase}",
+                f"合法階段：{'/'.join(active_steps)}",
+            )
         assert_transition_allowed(state, args.phase, "in_progress")
         state["phase"] = args.phase
         changes.append(f"phase={args.phase}")
@@ -1030,6 +1110,8 @@ def rebuild_from_files(project: Path, slug: str, state: dict) -> list:
     directory = spec_dir(project, slug)
 
     def mark(step: str, why: str):
+        if step not in state["steps"]:
+            return
         if state["steps"][step]["status"] in DONE_LIKE:
             return
         state["steps"][step]["status"] = "done"
@@ -1089,6 +1171,18 @@ def rebuild_from_files(project: Path, slug: str, state: dict) -> list:
     return notes
 
 
+def infer_task_type_from_files(project: Path, slug: str) -> str:
+    plan = spec_dir(project, slug) / "plan.md"
+    if not plan.is_file():
+        return "feature"
+    try:
+        text = plan.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "feature"
+    match = re.search(r"^type:\s*(\w+)", text, re.MULTILINE)
+    return match.group(1) if match and match.group(1) in TASK_STEPS else "feature"
+
+
 def cmd_rebuild(args) -> int:
     project = project_root(args)
     slug = args.slug
@@ -1105,11 +1199,15 @@ def cmd_rebuild(args) -> int:
             existing.get("steps")
         )
         if existing:
-            state = normalize(dict(existing), slug)
+            source = dict(existing)
+            if args.type:
+                source["type"] = args.type
+            state = normalize(source, slug)
             notes = ["沿用現存 state.json 作為基底"]
         else:
-            state = new_state(slug)
-            notes = ["現存 state.json 缺失或損毀，改由 git 與檔案系統重建"]
+            task_type = args.type or infer_task_type_from_files(project, slug)
+            state = new_state(slug, task_type=task_type)
+            notes = [f"現存 state.json 缺失或損毀，改由 git 與檔案系統重建（type={task_type}）"]
 
         if not intact:
             notes += rebuild_from_git(project, slug, state)
@@ -1118,7 +1216,7 @@ def cmd_rebuild(args) -> int:
 
         # phase = 最後一個已完成的步驟
         last_done = "start"
-        for step in STEPS:
+        for step in steps_for_type(state.get("type")):
             if step_status(state, step) in DONE_LIKE:
                 last_done = step
         state["phase"] = last_done
@@ -1185,11 +1283,12 @@ def cmd_validate(args) -> int:
         if key not in state:
             problems.append((f"缺少必要欄位 {key}", f"跑 `crew-state.py rebuild --slug {slug}` 補齊"))
 
+    active_steps = steps_for_type(state.get("type"))
     steps = state.get("steps")
     if not isinstance(steps, dict):
         problems.append(("steps 不是物件", f"跑 `crew-state.py rebuild --slug {slug}`"))
     else:
-        for step in STEPS:
+        for step in active_steps:
             entry = steps.get(step)
             if not isinstance(entry, dict) or "status" not in entry:
                 problems.append((f"steps.{step} 缺失或缺 status", f"跑 `crew-state.py rebuild --slug {slug}` 補齊"))
@@ -1219,9 +1318,9 @@ def cmd_validate(args) -> int:
                     )
                 )
 
-    if state.get("phase") not in STEPS:
+    if state.get("phase") not in active_steps:
         problems.append(
-            (f"phase 值不合法：{state.get('phase')!r}", f"合法值：{'/'.join(STEPS)}"),
+            (f"phase 值不合法：{state.get('phase')!r}", f"此 type 合法值：{'/'.join(active_steps)}"),
         )
 
     for gate in args.require_gate or []:
@@ -1234,8 +1333,8 @@ def cmd_validate(args) -> int:
             )
 
     if args.expect_phase:
-        if args.expect_phase not in STEPS:
-            problems.append((f"--expect-phase 給了不存在的階段：{args.expect_phase}", f"合法值：{'/'.join(STEPS)}"))
+        if args.expect_phase not in active_steps:
+            problems.append((f"--expect-phase {args.expect_phase} 不適用於 type={state.get('type')}", f"合法值：{'/'.join(active_steps)}"))
         elif state.get("phase") != args.expect_phase:
             problems.append(
                 (
@@ -1550,6 +1649,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("rebuild", help="自我修復：從 git 與檔案系統重建狀態檔")
     add_target(p)
+    p.add_argument("--type", choices=["feature", "bug"], help="state 遺失時指定任務型別；未指定則由 plan.md 推測")
     p.set_defaults(func=cmd_rebuild)
 
     p = sub.add_parser("validate", help="驗證 schema、階段與 Approval Gate（skill exit-gate 用）")

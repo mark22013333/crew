@@ -143,7 +143,7 @@ def main() -> int:
             )
             bug_state = load(project, bug_slug)
             assert bug_state["gates"]["uat"]["status"] == "approved"
-            assert bug_state["steps"]["review"]["status"] == "pending"
+            assert set(bug_state["steps"]) == {"start", "investigate", "fix", "close"}
             run(project, "set", "--slug", bug_slug, "--step", "close", "--status", "done")
             assert load(project, bug_slug)["steps"]["close"]["status"] == "done"
             print("✅ bug close is hard-blocked before UAT and succeeds after explicit acceptance")

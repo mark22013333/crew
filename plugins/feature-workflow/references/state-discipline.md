@@ -25,6 +25,25 @@
 
 ---
 
+## Type-aware lifecycle（schema v2）
+
+`crew-state.py` 共用同一份 runtime，但 **Feature 與 Bug 不共用同一條 phase/steps 鏈**：
+
+```text
+feature: start → spec → db → arch → build → security → verify → review → close
+bug:     start → investigate → fix → close
+```
+
+- `state.json.steps` 只保留該 `type` 的有效步驟；Bug 不再出現假的 `spec/db/arch/security/review`。
+- `next` 必須先看 `type` 再決定下一個 Skill；`type=bug` 不得回 `/plan spec`、`/plan-build` 等 Feature 指令。
+- Bug 的編譯、測試、迴歸測試屬於 `fix` 階段的工作單元／證據，不為了套 Feature 模型而另外偽造 `verify/review` phase。
+- UAT 仍是獨立 Approval Gate：Bug `fix=done` 後進 `/bug-close` 做 Human UAT；若 UAT rejected，`next` 回 `/bug-fix`。
+- CLI 會拒絕跨 type 的 step/phase，例如 Bug 寫 `step=spec` 或 Feature 寫 `step=investigate`。
+
+舊 `schema_version=1` state 由 normalize 升到 v2：Feature 保留原 lifecycle；Bug 保留 `start/close`，新增 `investigate/fix`，並可依 `work_unit.skill=bug-investigate|bug-fix` 修正 phase。舊 Feature step 不會被冒充成 Bug 進度。
+
+---
+
 ## 觸發紀律：進度即寫
 
 - **skill 開始執行時**：`crew-state.py set --slug {slug} --step {階段} --status in_progress`
