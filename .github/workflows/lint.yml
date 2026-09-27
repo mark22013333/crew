@@ -69,6 +69,17 @@ jobs:
       - name: 檢查結構化 model 標示與 model-policy.md 角色分工（strict，違規阻擋）
         run: python3 scripts/lint-agent-model.py --strict
 
+  approval-gates:
+    name: Approval gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 gate schema、transition hard block 與舊 state 相容
+        run: python3 scripts/lint-approval-gates.py
+
   model-routing:
     name: Model routing
     runs-on: ubuntu-latest

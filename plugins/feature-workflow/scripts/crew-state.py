@@ -45,6 +45,19 @@ STEPS = ["start", "spec", "db", "arch", "build", "security", "verify", "review",
 STATUSES = ["pending", "in_progress", "done", "skipped", "failed"]
 DONE_LIKE = {"done", "skipped"}  # skipped 取代舊版「DB_REQUIRED=false 就沒檔案」的猜測
 
+APPROVAL_GATES = ["requirement", "architecture", "uat"]
+GATE_STATUSES = ["pending", "approved", "rejected", "waived"]
+GATE_PASSED = {"approved", "waived"}
+GATE_SOURCE_STEP = {
+    "requirement": "spec",
+    "architecture": "arch",
+}
+TRANSITION_GATES = {
+    "db": ["requirement"],
+    "arch": ["requirement"],
+    "build": ["requirement", "architecture"],
+}
+
 HISTORY_LIMIT = 50
 LOCK_RETRIES = 3
 LOCK_BACKOFF_SEC = 0.15
@@ -238,6 +251,15 @@ def new_state(slug: str, name: str = "", task_type: str = "feature") -> dict:
             "evidence": [],
             "ambiguities": [],
         },
+        "gates": {
+            gate: {
+                "status": "pending",
+                "at": None,
+                "by": None,
+                "reason": None,
+            }
+            for gate in APPROVAL_GATES
+        },
         "resume_hint": {"branch": None, "services": [], "read_first": []},
         "results": {"verify": {}, "review": {}, "security": {}},
         "git": {"branch": None, "base": None, "last_commit": None},
@@ -251,7 +273,12 @@ def new_state(slug: str, name: str = "", task_type: str = "feature") -> dict:
 
 
 def normalize(state: dict, slug: str = "") -> dict:
-    """補齊缺漏欄位，讓舊檔／半殘檔也能安全操作。不改變已有值。"""
+    """補齊缺漏欄位，讓舊檔／半殘檔也能安全操作。不改變已有值。
+
+    Approval Gate 是向後相容擴充：舊 state 沒有 gates 時，
+    已完成的 spec/arch 視為舊流程已通過對應人工確認，避免升級後卡住既有任務。
+    """
+    had_gates = isinstance(state.get("gates"), dict)
     base = new_state(slug or state.get("slug") or "unknown")
     for key, default in base.items():
         if key not in state:
@@ -285,6 +312,44 @@ def normalize(state: dict, slug: str = "") -> dict:
         work_unit.setdefault(field, default)
     state["work_unit"] = work_unit
 
+    gates = state.get("gates")
+    if not isinstance(gates, dict):
+        gates = {}
+    normalized_gates = {}
+    for gate in APPROVAL_GATES:
+        entry = gates.get(gate)
+        if not isinstance(entry, dict):
+            entry = {}
+        status = entry.get("status", "pending")
+        if status not in GATE_STATUSES:
+            status = "pending"
+        normalized_gates[gate] = {
+            "status": status,
+            "at": entry.get("at"),
+            "by": entry.get("by"),
+            "reason": entry.get("reason"),
+        }
+    state["gates"] = normalized_gates
+
+    # 舊任務相容：舊流程 spec 完成代表需求已確認；arch 完成代表架構已通過舊流程。
+    if not had_gates:
+        for gate, source_step in (("requirement", "spec"), ("architecture", "arch")):
+            if step_status(state, source_step) in DONE_LIKE:
+                source = state["steps"][source_step]
+                state["gates"][gate] = {
+                    "status": "approved",
+                    "at": source.get("at"),
+                    "by": "migration",
+                    "reason": f"legacy state：{source_step} 已完成於 approval gate 導入前",
+                }
+        if step_status(state, "close") in DONE_LIKE:
+            state["gates"]["uat"] = {
+                "status": "waived",
+                "at": state["steps"]["close"].get("at"),
+                "by": "migration",
+                "reason": "legacy state：任務已於 approval gate 導入前結案",
+            }
+
     for section in ("resume_hint", "git", "notion", "deploy", "results"):
         value = state.get(section)
         if not isinstance(value, dict):
@@ -316,6 +381,39 @@ def push_history(state: dict, event: str, detail: str = "") -> None:
 
 def step_status(state: dict, step: str) -> str:
     return (state.get("steps") or {}).get(step, {}).get("status", "pending")
+
+
+def gate_status(state: dict, gate: str) -> str:
+    return (state.get("gates") or {}).get(gate, {}).get("status", "pending")
+
+
+def gate_passed(state: dict, gate: str) -> bool:
+    return gate_status(state, gate) in GATE_PASSED
+
+
+def transition_gate_failures(state: dict, step: str) -> list[str]:
+    return [
+        gate
+        for gate in TRANSITION_GATES.get(step, [])
+        if not gate_passed(state, gate)
+    ]
+
+
+def assert_transition_allowed(state: dict, step: str, target_status: str) -> None:
+    """Runtime hard gate：進入／完成需要核准的 step 前先檢查 Approval Gate。"""
+    if target_status not in {"in_progress", "done", "skipped"}:
+        return
+    blocked = transition_gate_failures(state, step)
+    if not blocked:
+        return
+    detail = "、".join(f"{gate}={gate_status(state, gate)}" for gate in blocked)
+    first = blocked[0]
+    raise CrewError(
+        f"{step} transition 被 Approval Gate 阻擋：{detail}",
+        "修法：先取得人類明確核准，再執行 "
+        f"`crew-state.py gate --slug {state.get('slug')} --name {first} "
+        "--status approved --by human`；不得由執行 Agent 自行核准",
+    )
 
 
 def result_of(state: dict, kind: str) -> dict:
@@ -389,11 +487,25 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
     if step_status(state, "spec") not in DONE_LIKE:
         return {"command": STEP_COMMAND["spec"], "reason": "規格（目標與驗收條件）尚未產出"}
 
+    if not gate_passed(state, "requirement"):
+        return {
+            "command": None,
+            "reason": "等待人類核准需求（requirement gate="
+            f"{gate_status(state, 'requirement')}）；核准後才可進 DB／架構／實作",
+        }
+
     if step_status(state, "db") not in DONE_LIKE:
         return {"command": STEP_COMMAND["db"], "reason": "DB 設計缺；不需要 DB 時把 db 標成 skipped"}
 
     if step_status(state, "arch") not in DONE_LIKE:
         return {"command": STEP_COMMAND["arch"], "reason": "架構決策尚未記錄"}
+
+    if not gate_passed(state, "architecture"):
+        return {
+            "command": None,
+            "reason": "等待人類核准架構（architecture gate="
+            f"{gate_status(state, 'architecture')}）；核准後才可進實作",
+        }
 
     if step_status(state, "build") not in DONE_LIKE:
         return {"command": STEP_COMMAND["build"], "reason": "設計已齊備，可進入程式碼產生階段"}
@@ -498,6 +610,7 @@ def _apply_set(state: dict, args) -> list:
                 "--step 必須搭配 --status",
                 f"修法：加上 --status，可用值：{'/'.join(STATUSES)}",
             )
+        assert_transition_allowed(state, args.step, args.status)
         entry = state["steps"][args.step]
         entry["status"] = args.status
         entry["at"] = args.at or now_iso()
@@ -511,6 +624,7 @@ def _apply_set(state: dict, args) -> list:
             state["phase"] = args.step
 
     if args.phase:
+        assert_transition_allowed(state, args.phase, "in_progress")
         state["phase"] = args.phase
         changes.append(f"phase={args.phase}")
 
@@ -573,6 +687,41 @@ def cmd_set(args) -> int:
         write_state(project, slug, state)
     print(f"✅ {slug} 已更新：{'；'.join(changes)}")
     print(f"   phase={state['phase']}｜下一步：{state['next']['command']}")
+    return 0
+
+
+def cmd_gate(args) -> int:
+    project = project_root(args)
+    slug = args.slug
+    with state_lock(spec_dir(project, slug)):
+        state = normalize(read_state(project, slug), slug)
+        gate = state["gates"][args.name]
+
+        source_step = GATE_SOURCE_STEP.get(args.name)
+        if args.status != "pending" and source_step and step_status(state, source_step) not in DONE_LIKE:
+            raise CrewError(
+                f"{args.name} gate 尚不能設定為 {args.status}：{source_step} 尚未完成",
+                f"修法：先完成 {STEP_COMMAND[source_step]}，再由人類做核准決策",
+            )
+        if args.status == "waived" and not args.reason:
+            raise CrewError(
+                "waived 必須提供 --reason",
+                "修法：說明為何可以略過此人工核准，留下可稽核紀錄",
+            )
+
+        gate["status"] = args.status
+        gate["at"] = now_iso()
+        gate["by"] = args.by
+        gate["reason"] = args.reason or None
+        detail = f"{args.name}={args.status} by={args.by}"
+        if args.reason:
+            detail += f" reason={args.reason}"
+        push_history(state, "gate", detail[:400])
+        refresh_next(state)
+        write_state(project, slug, state)
+
+    print(f"✅ {slug} gate.{args.name}={args.status}（by={args.by}）")
+    print(f"   下一步：{state['next']['command']}｜{state['next']['reason']}")
     return 0
 
 
@@ -995,6 +1144,9 @@ def cmd_validate(args) -> int:
         print(f"   修法：跑 `crew-state.py rebuild --slug {slug}` 自我修復")
         return 1
 
+    # normalize 提供舊 state 的 approval-gate 相容遷移；validate 本身不直接寫檔。
+    state = normalize(state, slug)
+
     if state.get("schema_version") != SCHEMA_VERSION:
         problems.append(
             (
@@ -1011,7 +1163,7 @@ def cmd_validate(args) -> int:
             (f"type 應為 feature 或 bug，實際為 {state.get('type')!r}", f"跑 `crew-state.py set --slug {slug} --type feature`"),
         )
 
-    for key in ("phase", "steps", "work_unit", "results", "next"):
+    for key in ("phase", "steps", "work_unit", "results", "next", "gates"):
         if key not in state:
             problems.append((f"缺少必要欄位 {key}", f"跑 `crew-state.py rebuild --slug {slug}` 補齊"))
 
@@ -1031,10 +1183,37 @@ def cmd_validate(args) -> int:
                     )
                 )
 
+    gates = state.get("gates")
+    if not isinstance(gates, dict):
+        problems.append(("gates 不是物件", f"跑 `crew-state.py rebuild --slug {slug}`"))
+    else:
+        for gate in APPROVAL_GATES:
+            entry = gates.get(gate)
+            if not isinstance(entry, dict):
+                problems.append((f"gates.{gate} 缺失或不是物件", f"跑 `crew-state.py rebuild --slug {slug}` 補齊"))
+                continue
+            status = entry.get("status")
+            if status not in GATE_STATUSES:
+                problems.append(
+                    (
+                        f"gates.{gate}.status 值不合法：{status!r}",
+                        f"改用 {'/'.join(GATE_STATUSES)} 之一",
+                    )
+                )
+
     if state.get("phase") not in STEPS:
         problems.append(
             (f"phase 值不合法：{state.get('phase')!r}", f"合法值：{'/'.join(STEPS)}"),
         )
+
+    for gate in args.require_gate or []:
+        if not gate_passed(state, gate):
+            problems.append(
+                (
+                    f"Approval Gate {gate} 未通過：{gate_status(state, gate)}",
+                    f"取得人類核准後執行 `crew-state.py gate --slug {slug} --name {gate} --status approved --by human`",
+                )
+            )
 
     if args.expect_phase:
         if args.expect_phase not in STEPS:
@@ -1303,6 +1482,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--inferred", choices=["true", "false"], help="標記／解除「狀態為推測」")
     p.set_defaults(func=cmd_set)
 
+    p = sub.add_parser("gate", help="更新人類 Approval Gate 決策")
+    add_target(p)
+    p.add_argument("--name", choices=APPROVAL_GATES, required=True, help="gate 名稱")
+    p.add_argument("--status", choices=GATE_STATUSES, required=True, help="核准狀態")
+    p.add_argument("--by", required=True, help="決策者識別（例：human / 使用者名稱）")
+    p.add_argument("--reason", default="", help="核准／拒絕／waive 原因；waived 必填")
+    p.set_defaults(func=cmd_gate)
+
     p = sub.add_parser("unit", help="更新工作單元進度（斷點續跑用）")
     add_target(p)
     p.add_argument("--skill", default="", help="執行中的 skill 名（例：plan-build）")
@@ -1347,9 +1534,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_target(p)
     p.set_defaults(func=cmd_rebuild)
 
-    p = sub.add_parser("validate", help="驗證 schema 與階段（skill exit-gate 用）")
+    p = sub.add_parser("validate", help="驗證 schema、階段與 Approval Gate（skill exit-gate 用）")
     add_target(p)
     p.add_argument("--expect-phase", choices=STEPS, help="期望的當前階段")
+    p.add_argument(
+        "--require-gate",
+        action="append",
+        choices=APPROVAL_GATES,
+        help="要求指定 gate 已 approved/waived；可重複",
+    )
     p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("session-brief", help="SessionStart hook：列出未結案任務（無則零輸出）")
