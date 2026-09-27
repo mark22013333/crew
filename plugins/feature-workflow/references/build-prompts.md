@@ -123,7 +123,7 @@
 建立多個 `delegate_write` 工作單元：一個 role 一次 capability request，每次都實際帶
 `{"model": "opus"}`；teammate 之間用 SendMessage 通報進度與 API 契約。
 
-> 🔴 **不要**把下面整段當成一句自然語言丟出去要求「建立一個 Agent Team……使用 Opus 模型」——
+> 🔴 **不要**把下面整段當成一句自然語言丟出去要求「建立整隊並使用 Opus」——
 > 那樣模型只是敘述、不是參數，不保證生效（見 `model-policy.md`）。
 
 ```
