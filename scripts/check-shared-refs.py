@@ -28,6 +28,7 @@ SHARED_REFS = [
     "references/notion-backend.md",
     "references/state-discipline.md",
     "references/model-policy.md",
+    "references/host-capabilities.md",
 ]
 
 # 共用 script（權威 = bug-workflow，同步到 feature-workflow）。
