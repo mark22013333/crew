@@ -84,6 +84,9 @@ drift_policy: off
 - D-37 [convergence] Host portability advisory 不以「清到 0」為目標。CI #116 的 134 筆 advisory 分為三類：72 筆 CREW-owned config/project/stack/learnings 路徑，應抽成 portable config contract；30 筆 Claude plugin/marketplace/settings/rules 管理，應保留在 host-management adapter；32 筆 AGENTS.md/CLAUDE.md 專案指令別名/文件例子，由既有 `project_instructions` 契約涵蓋，不為消警告硬改。
 - D-38 [convergence] Portable config contract 只抽象「CREW 自己擁有的資料」：feature config、projects、stacks、bug config、learnings。Claude 的 `settings.json`、plugin marketplace/install cache、`~/.claude/rules/*` 與 plugin CLI 不是 CREW config，不得塞進同一 resolver。
 - D-39 [convergence] Host-management adapter 應負責 install/update/hook discovery/host-native rules 等產品管理行為；portable workflow 只要求語意能力（例如 config resolve、tool probe、project instructions），不得為了支援 Codex 把 Claude CLI 指令改寫成不存在的通用命令。
+- D-40 [convergence] Portable config canonical root 採 `CREW_CONFIG_HOME` → `$XDG_CONFIG_HOME/crew` → `~/.config/crew`。`crew-config.py` 為純解析器：read 先 canonical 再 legacy fallback；write 永遠回 canonical portable path；不得在 resolve 時 mkdir/mv/write。
+- D-41 [convergence] Config logical keys 固定為 `feature/config`、`feature/project`、`feature/stack`、`bug/config`、`bug/learning`。舊 feature 單一 `feature-workflow-config.md` 若作為 project/stack fallback，resolver 必須標 `representation=legacy_monolith`，caller 仍走舊 parser，不假裝它是獨立檔。
+- D-42 [convergence] `crew-config.py` 與 `config-contract.md` 是兩 plugin 共用資產，納入 shared-ref/script sha256 防漂移；先建立 resolver contract，再逐支 consumer 接線，避免同批重寫 setup/admin。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -253,3 +256,10 @@ drift_policy: off
 - [2026-09-28] [convergence-11] 30 筆 host-management 包含 `claude plugin ...`、marketplace/installed_plugins、`settings.json`、Claude native rules/plugin install path；這些保留 Host adapter，不納入 portable config resolver。
 - [2026-09-28] [convergence-11] 32 筆 CLAUDE.md advisory 多數已同時提 AGENTS.md 或明確經 `project_instructions`；保留為文件/adapter 例子，不以 advisory=0 為成功條件。
 - [2026-09-28] [next] AC-30 下一小批只設計並實作 **portable config contract + deterministic resolver smoke test**：先定 logical namespaces（feature config/projects/stacks、bug config/learnings）與 legacy fallback；不要同批重寫 crew-init/project-add/plan-setup 等 18+ 檔案。
+
+- [2026-09-28] [convergence-12] 新增共用 `references/config-contract.md` 與 `scripts/crew-config.py`：canonical root=`CREW_CONFIG_HOME`→`XDG_CONFIG_HOME/crew`→`~/.config/crew`，resolver 無副作用。
+- [2026-09-28] [convergence-12] Logical keys：feature/config、feature/project、feature/stack、bug/config、bug/learning；read 支援既有 `~/.claude*` fallback，write 永遠只回 portable canonical path。
+- [2026-09-28] [convergence-12] feature project/stack 可回退舊單一 `feature-workflow-config.md`，並以 `representation=legacy_monolith` 明示 caller 必須走舊 parser；stack/project-slug path traversal 會被拒絕。
+- [2026-09-28] [convergence-12] 新增 `scripts/lint-config-resolver.py` 與 CI `Config resolver` job；shared-ref/sync 清單與 CONTRIBUTING 同步登記 config contract/resolver。
+- [2026-09-28] [convergence-12] Commit `e28191a`；GitHub Actions run 36332689092（#118）共 15 個 job 全部 success。
+- [2026-09-28] [next] AC-30 consumer 遷移採小步。下一小批只處理 `/bug-close` 的 learnings 寫入：以 `bug/learning --mode write` 取得 portable path，移除兩個 `~/.claude-company/bug-workflow/learnings` hardcode；不要同批改 bug-setup/plan-setup/project-add。
