@@ -12,6 +12,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-state.py"
 BUG_START_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-start" / "SKILL.md"
+BUG_INVESTIGATE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-investigate" / "SKILL.md"
 FEATURE_STEPS = {"start", "spec", "db", "arch", "build", "security", "verify", "review", "close"}
 BUG_STEPS = {"start", "investigate", "fix", "close"}
 
@@ -69,12 +70,34 @@ def main() -> int:
             print("✅ bug init exposes only start/investigate/fix/close")
 
             run(project, "set", "--slug", bug, "--step", "investigate", "--status", "in_progress")
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-investigate",
+                "--done", "0", "--total", "1", "--label", "假說",
+                "--remaining", "建立並驗證第一個可驗證根因假說"
+            )
             assert load(project, bug)["phase"] == "investigate"
-            assert next_json(project, bug)["command"] == "/bug-investigate"
+            assert next_json(project, bug)["command"] == "/bug-investigate --resume"
+
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-investigate",
+                "--done", "1", "--total", "2", "--label", "假說",
+                "--evidence", "假說 #1 已否定", "--remaining", "假說 #2"
+            )
+            assert next_json(project, bug)["command"] == "/bug-investigate --resume"
+            assert load(project, bug)["work_unit"]["done"] == 1
+            assert load(project, bug)["work_unit"]["total"] == 2
+
+            run(
+                project, "unit", "--slug", bug, "--skill", "bug-investigate",
+                "--done", "2", "--total", "2", "--label", "假說",
+                "--evidence", "假說 #2 已確認根因"
+            )
+            run(project, "unit", "--slug", bug, "--clear")
             run(project, "set", "--slug", bug, "--step", "investigate", "--status", "done")
             assert next_json(project, bug)["command"] == "/bug-fix"
             run(project, "validate", "--slug", bug, "--expect-phase", "investigate")
-            print("✅ bug investigate transitions to bug-fix")
+            assert load(project, bug)["work_unit"]["skill"] is None
+            print("✅ bug-investigate persists resumable hypothesis units and closes only after root cause confirmation")
 
             run(project, "set", "--slug", bug, "--step", "fix", "--status", "done")
             pending_uat = next_json(project, bug)
@@ -131,6 +154,7 @@ def main() -> int:
             print("✅ schema v1 bug state normalizes to v2 without fake feature progress")
 
         bug_start_text = BUG_START_SKILL.read_text(encoding="utf-8")
+        bug_investigate_text = BUG_INVESTIGATE_SKILL.read_text(encoding="utf-8")
         assert 'crew-state.py" init' in bug_start_text
         assert "--type bug" in bug_start_text
         assert "--expect-phase start" in bug_start_text
@@ -139,6 +163,16 @@ def main() -> int:
         assert "不得使用 `--force`" in bug_start_text
         assert "Notion API 失敗不阻擋本地 state 建立" in bug_start_text
         print("✅ bug-start wires Notion intake to minimal bug runtime state")
+
+        assert "--step investigate --status in_progress" in bug_investigate_text
+        assert "--skill bug-investigate --done 0 --total 1" in bug_investigate_text
+        assert "/bug-investigate --resume" in bug_investigate_text
+        assert "--step investigate --status done" in bug_investigate_text
+        assert "--expect-phase investigate" in bug_investigate_text
+        assert 'next.command == "/bug-fix"' in bug_investigate_text
+        assert "不得自行 `init --force`" in bug_investigate_text
+        assert "state.notion.page_id" in bug_investigate_text
+        print("✅ bug-investigate wires resumable runtime progress and done transition")
 
         print("✅ type-aware state lifecycle smoke tests passed")
         return 0
