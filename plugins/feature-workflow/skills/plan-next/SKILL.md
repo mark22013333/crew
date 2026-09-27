@@ -43,7 +43,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" next --slug <slug> --forma
 |------|------|
 | `inferred` 為 `true`（狀態由 `rebuild` 推測而來） | ⚠️ 狀態為推測，請確認後再繼續 |
 | 當前 branch ≠ 任務分支（唯讀取 `.spec/<slug>/state.json` 的 `resume_hint.branch`，非 null 才比） | 提示 `git checkout <branch>` |
-| CLAUDE.md 不存在 | 提示 `/init` |
+| `AGENTS.md` / `CLAUDE.md` 都不存在 | 提示建立專案指令；Claude Code 可用 `/init` |
 | 專案未在 `projects/` 註冊 | 提示 `/project-add` |
 
 ### 4. 輸出格式
