@@ -92,6 +92,7 @@ drift_policy: off
 - D-45 [convergence] `config-contract.md` 屬 portability/adapter contract，允許列出 legacy fallback，因此 Host portability lint 不把它的路徑列為 consumer advisory；真正 Skill/reference consumer 仍照常掃描。
 - D-46 [convergence] Bug learning read 與 write 現在都只透過 `bug/learning` logical key：write 永遠 canonical portable path；read 先 portable canonical 再由 resolver 處理現役 Host fallback。`evidence-collection.md` / `learnings-schema.md` 不再知道任何 Host-specific learnings 實體路徑。
 - D-47 [convergence] 跨 plugin `dev_branch` 讀取一律透過 `feature/project --mode read`：hierarchical representation 讀 project frontmatter；`legacy_monolith` 沿用舊表格 parser；missing/空白則降級為通用 merge 提示。Bug consumer 不再自行拼 feature-workflow 實體路徑。
+- D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -295,3 +296,10 @@ drift_policy: off
 - [2026-09-28] [convergence-16] Commit `1b9c95a`；GitHub Actions run 36334276167（#127）共 15 個 job 全部 success。
 - [2026-09-28] [convergence-16] Host portability 維持 hard=0，consumer advisory 由 131 降至 129。
 - [2026-09-28] [next] AC-30 下一小批只遷移 `/plan-close` 的 Bug config 讀取：以 `bug/config --mode read` resolver 取代 `~/.claude-company/bug-workflow-config.md` / `~/.claude/bug-workflow-config.md` 二選一路徑。先不碰 `/plan-start`，也不碰 setup/admin。
+
+- [2026-09-28] [convergence-17] `/plan-close` Bug 類型額外設定已改走 `crew-config.py resolve --key bug/config --mode read --format path`；`[ -f "$BUG_CONFIG_FILE" ]` 才讀 Bug 知識庫等設定。
+- [2026-09-28] [convergence-17] Resolver missing 時沿用既有 `/bug-setup` 提示，不允許 Skill 自行 fallback 到 Host-specific `bug-workflow-config.md` 實體路徑。
+- [2026-09-28] [convergence-17] `lint-config-resolver.py` 新增 plan-close consumer contract，要求 bug/config read resolver 並禁止 `.claude-company/bug-workflow-config.md` / `~/.claude/bug-workflow-config.md` 回歸。
+- [2026-09-28] [convergence-17] Commit `0e92cdc`；GitHub Actions run 36334755517（#129）共 15 個 job 全部 success。
+- [2026-09-28] [convergence-17] Host portability 維持 hard=0，consumer advisory 由 129 降至 128。
+- [2026-09-28] [next] AC-30 下一小批只遷移 `/plan-start` 的 Bug config read：同樣改用 `bug/config --mode read` resolver，移除 `.claude-company` / `~/.claude` 二選一路徑；不要同批碰 setup/admin。
