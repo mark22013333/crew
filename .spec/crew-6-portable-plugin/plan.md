@@ -90,6 +90,7 @@ drift_policy: off
 - D-43 [convergence] `~/.claude-company` 已退役，不再屬 config compatibility surface。Portable resolver 的 Claude fallback 只接受 `~/.claude`；`.claude-company` 即使檔案存在也必須忽略，不讀、不遷移、不寫入。
 - D-44 [convergence] `/bug-close` 是第一個 portable config consumer：`bug/learning --mode write` 只取得 canonical path，consumer 自行建立 parent directory 並 append JSONL；Skill 不再知道任何 Host-specific learnings 實體路徑。
 - D-45 [convergence] `config-contract.md` 屬 portability/adapter contract，允許列出 legacy fallback，因此 Host portability lint 不把它的路徑列為 consumer advisory；真正 Skill/reference consumer 仍照常掃描。
+- D-46 [convergence] Bug learning read 與 write 現在都只透過 `bug/learning` logical key：write 永遠 canonical portable path；read 先 portable canonical 再由 resolver 處理現役 Host fallback。`evidence-collection.md` / `learnings-schema.md` 不再知道任何 Host-specific learnings 實體路徑。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -279,3 +280,10 @@ drift_policy: off
 - [2026-09-28] [convergence-14] Functional commit `2dab7bd`；lint scope fix `ac90f53`；GitHub Actions run 36333700860（#123）共 15 個 job 全部 success。
 - [2026-09-28] [convergence-14] Host portability 維持 hard=0，真正 consumer advisory 由 134 降至 132。
 - [2026-09-28] [next] AC-30 下一小批只遷移 Bug learning **read** contract：`references/evidence-collection.md` 的學習搜尋改用 `bug/learning --mode read`；`references/learnings-schema.md` 同步更新 storage/read 範例並移除退役 `.claude-company`。不要同批碰 bug-setup/crew-init/project-add。
+
+- [2026-09-28] [convergence-15] Bug learning read contract 已 portable 化：`evidence-collection.md` 改用 `crew-config.py resolve --key bug/learning --mode read --format path`；不存在時保留 `[ -f "$LEARN_FILE" ]` 靜默跳過語意。
+- [2026-09-28] [convergence-15] `learnings-schema.md` 的儲存位置改描述 logical key / portable config root，基本搜尋同樣走 `bug/learning --mode read`；已移除 `.claude-company` 與直接 `~/.claude/.../learnings` 實體路徑。
+- [2026-09-28] [convergence-15] `lint-config-resolver.py` 新增 learning-read consumer contract，要求兩份 reference 都使用 resolver，並禁止重新硬編碼 Host-specific learnings path。
+- [2026-09-28] [convergence-15] Commit `997b1c1`；GitHub Actions run 36333960262（#125）共 15 個 job 全部 success。
+- [2026-09-28] [convergence-15] Host portability 維持 hard=0，consumer advisory 再由 132 降至 131。
+- [2026-09-28] [next] AC-30 下一小批只處理跨 plugin dev_branch 讀取：`bug-fix` 與 `references/merge-guide.md` 改用 `feature/project --mode read` resolver 取得 project config；移除兩處 `.claude-company` / `~/.claude` 路徑判斷。不要同批碰 setup/admin。
