@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 檢查 plugin.json / marketplace.json / README.md 三處版本一致
+      - name: 檢查 Claude/portable plugin.json / marketplace.json / README.md 四處版本一致
         run: bash scripts/bump-version.sh --check
 
   plugin-manifest:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: 檢查 skills 陣列／hooks／marketplace source 與實際檔案相符
+      - name: 檢查 Claude/portable manifest、hooks、Claude/Codex marketplace 與實際檔案相符
         run: python3 scripts/lint-plugin-manifest.py
 
   skill-md-lint:
