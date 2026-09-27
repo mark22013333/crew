@@ -26,7 +26,7 @@ drift_policy: off
 - [x] AC-12 project_instructions 同時接受 AGENTS.md 與 CLAUDE.md，Codex 不需建立 Claude 專屬檔案。
 - [x] AC-13 新增 host-portability CI，active Skill/reference 重新引入 Host-specific orchestration 時阻擋 PR。
 - [x] AC-14 Phase 2 完成後既有 CI 全綠，未破壞 state writer / skill contract / manifest / drift 檢查。
-- [ ] AC-15 Phase 3A 建立 NONE/FAST/STANDARD/DEEP model profile 與 deterministic router。
+- [x] AC-15 Phase 3A 建立 NONE/FAST/STANDARD/DEEP model profile 與 deterministic router。
 - [ ] AC-16 Phase 3A 純探索/蒐證工作可路由 FAST；架構/DB/security 保持 DEEP。
 - [ ] AC-17 Phase 3B state.json 具 approval gates，未核准需求不得進 build。
 - [ ] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
@@ -88,3 +88,7 @@ drift_policy: off
 - [2026-09-27] [phase2] Host Capability Contract、project_instructions、tool_probe、portable delegation 與 host-portability CI 已完成。
 - [2026-09-27] [phase2] 最新 CI run 36298895563 success；Host portability / Agent model / Skill contract / state writer 等 11 個 job 全綠。
 - [2026-09-27] [next] Phase 3A：建立 model-routing.json + crew-model-route.py，先把 repository search / evidence collection / log summary 路由 FAST。
+
+- [2026-09-27] [phase3a-2a] `/plan-build` 探索官已改走 routing task=`repository_search` + `profile: FAST`；Claude adapter 由 Router 對映 haiku/low，Codex 對映 inherit/low reasoning。
+- [2026-09-27] [phase3a-2a] Commit `5f5a4c8`；GitHub Actions run 36300651665 共 12 個 job 全部 success。
+- [2026-09-27] [next] 下一小批只處理 `/bug-investigate` Phase 1 證據蒐集 → FAST；不要同批修改 `/bug-fix` 或 Approval Gate。
