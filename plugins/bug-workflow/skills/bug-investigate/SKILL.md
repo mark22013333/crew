@@ -27,7 +27,7 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 - 已使用 `/bug-start` 建立 Bug 條目（Notion 有「進行中」的 🐞 錯誤）
 - 或使用者直接描述 bug 症狀（此時先執行 /bug-start 再進入調查）
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
 ---
 
@@ -54,7 +54,7 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 AI 根據 bug 描述自動收集初始證據，不需使用者介入。
 
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
-> - 2.1–2.5 的證據收集用 **Agent tool 啟動唯讀 subagent**，呼叫時**必須實際傳入** `{"model": "sonnet"}`；只在 prompt 寫「請使用 Sonnet」不算。
+> - 2.1–2.5 的證據收集依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，capability request 必須帶 `model: sonnet`；Host 無 subagent 時可 inline 執行，但仍是唯讀。
 > - 互不依賴的收集項（log／Git 歷史／環境狀態／知識庫與學習搜尋）可在同一則訊息並行派出，回報只給結論與 `檔案:行號`，不貼大段原文。
 > - 🔴 `/bug-investigate` **全程不修改正式程式碼**；只寫 Notion 調查紀錄、`.spec/` 與 `state.json`。
 > - 🔴 沒有根因確認，不得進入修正（不自動觸發 `/bug-fix`）。
@@ -268,7 +268,7 @@ curl -s "http://localhost:8080/api/xxx" -H "Authorization: Bearer <token>"
 - ...
 ```
 
-派工規則：用 **Agent tool** 啟動 subagent 並實際傳入 `{"model": "opus"}`；Opus **只針對「尚未解答的問題」推理**，
+派工規則：依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，role=`deep-investigator`、`model: opus`；深度模型 **只針對「尚未解答的問題」推理**，
 🔴 不得重做全部證據收集，🔴 不得修改正式程式碼（本 skill 仍是唯讀調查）。
 
 ### 5. Phase 4：根因確認
