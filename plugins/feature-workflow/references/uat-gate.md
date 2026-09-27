@@ -106,28 +106,30 @@ Runtime 對 `type=bug` 的 UAT 不要求 `review` source step；真正的決策�
 
 ---
 
-## 5. `/plan-close` 漸進導入
+## 5. Close hard gate（已啟用）
 
-### Phase 3B-3A（目前）
-
-- `crew-state.py next` 在 review 完成但 UAT pending/rejected 時，**不推薦 `/plan-close`**。
-- Feature 的 `uat` 只能在 review 完成後決策；Bug 由 `/bug-close` 的本輪人類 acceptance 決策。
-- **尚不把 `close` 加進 `TRANSITION_GATES`**。
-- `/plan-close` 必須明確區分 verify/review 與 UAT；legacy compatibility 下仍能直接 close，不代表 UAT 已完成。
-
-這一階段先驗證資料模型與流程語意，不突然讓既有 close automation 全部失敗。
-
-### Phase 3B-3B（下一決策點）
-
-確認既有流程無相容性問題後，再評估：
+Feature 與 Bug 都已有合法 Human UAT 路徑後，runtime 正式啟用：
 
 ```python
 TRANSITION_GATES["close"] = ["uat"]
 ```
 
-若啟用，`crew-state.py set --step close --status done` 才會成為真正 UAT hard block。
+因此 `crew-state.py set --step close --status done` 只有在 `uat=approved|waived` 時才能成功。
 
----
+### Feature
+
+- review 完成後，`/plan-next` 指向 `/plan-close`，把它當成 Human UAT + 結案入口。
+- `/plan-close` 每次執行都先 reset `uat=pending`，避免沿用舊 acceptance，再取得本輪使用者明確決策。
+- 接受 → `uat=approved`；要求修改 → `uat=rejected` 並停止。
+
+### Bug
+
+- `/bug-close` 每次執行都先 reset `uat=pending`，顯示修復摘要與 C1-C4，再取得本輪使用者 acceptance。
+- 接受 → `uat=approved`；要求修改 → `uat=rejected` 並停止。
+
+### Legacy v1
+
+v1 Feature 相容模式不呼叫 `crew-state.py`，因此不經此 runtime transition gate；這是既有 legacy 隔離策略，不是 UAT waiver。
 
 ## 6. 人類決策寫入
 

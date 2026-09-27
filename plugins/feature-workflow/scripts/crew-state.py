@@ -56,6 +56,7 @@ TRANSITION_GATES = {
     "db": ["requirement"],
     "arch": ["requirement"],
     "build": ["requirement", "architecture"],
+    "close": ["uat"],
 }
 
 HISTORY_LIMIT = 50
@@ -554,9 +555,9 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
     if step_status(state, "review") in DONE_LIKE:
         if not gate_passed(state, "uat"):
             return {
-                "command": None,
-                "reason": "機器驗證與程式碼審查已完成，但仍等待人類 UAT 決策"
-                f"（uat gate={gate_status(state, 'uat')}）；verify=PASS 不等於 UAT 通過",
+                "command": STEP_COMMAND["close"],
+                "reason": "機器驗證與程式碼審查已完成；進入 /plan-close 做 Human UAT 決策。"
+                f"目前 uat gate={gate_status(state, 'uat')}，runtime 會在核准前硬擋 close=done",
             }
         return {"command": STEP_COMMAND["close"], "reason": "UAT 已通過，所有階段完成，可以結案"}
 

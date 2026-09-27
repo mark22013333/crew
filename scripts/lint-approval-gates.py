@@ -108,12 +108,12 @@ def main() -> int:
             assert "等待人類 UAT" in pending_uat["reason"]
             print("✅ verify PASS + review done do not imply UAT approval")
 
-            # Phase 3B-3A：close 尚未放進 TRANSITION_GATES，保留 legacy compatibility。
-            run(project, "set", "--slug", slug, "--step", "close", "--status", "done")
-            print("✅ close is not hard-blocked by UAT yet")
+            blocked_close = run(
+                project, "set", "--slug", slug, "--step", "close", "--status", "done", expect=1
+            )
+            assert "uat=pending" in blocked_close.stderr
+            print("✅ feature close is hard-blocked until Human UAT passes")
 
-            run(project, "set", "--slug", slug, "--step", "close", "--status", "pending")
-            run(project, "set", "--slug", slug, "--phase", "review")
             run(
                 project, "gate", "--slug", slug, "--name", "uat",
                 "--status", "approved", "--by", "human",
@@ -124,10 +124,17 @@ def main() -> int:
             )
             assert after_uat["command"] == "/plan-close", after_uat
             print("✅ human UAT approval unlocks plan-close recommendation")
+            run(project, "set", "--slug", slug, "--step", "close", "--status", "done")
+            assert load(project, slug)["steps"]["close"]["status"] == "done"
+            print("✅ feature close succeeds after Human UAT approval")
 
-            # Bug 沒有 feature review lifecycle；UAT prerequisite 必須依 type 調整。
+            # Bug 沒有 feature review lifecycle；UAT prerequisite 依 type 調整，但 close hard gate 相同。
             bug_slug = "bug-gate-demo"
             run(project, "init", "--slug", bug_slug, "--type", "bug")
+            bug_blocked_close = run(
+                project, "set", "--slug", bug_slug, "--step", "close", "--status", "done", expect=1
+            )
+            assert "uat=pending" in bug_blocked_close.stderr
             run(
                 project, "gate", "--slug", bug_slug, "--name", "uat",
                 "--status", "approved", "--by", "human",
@@ -136,11 +143,23 @@ def main() -> int:
             bug_state = load(project, bug_slug)
             assert bug_state["gates"]["uat"]["status"] == "approved"
             assert bug_state["steps"]["review"]["status"] == "pending"
-            print("✅ bug UAT can be approved without feature review step")
+            run(project, "set", "--slug", bug_slug, "--step", "close", "--status", "done")
+            assert load(project, bug_slug)["steps"]["close"]["status"] == "done"
+            print("✅ bug close is hard-blocked before UAT and succeeds after explicit acceptance")
+
+            waived_slug = "waived-bug-demo"
+            run(project, "init", "--slug", waived_slug, "--type", "bug")
+            run(
+                project, "gate", "--slug", waived_slug, "--name", "uat",
+                "--status", "waived", "--by", "human", "--reason", "emergency operational waiver"
+            )
+            run(project, "set", "--slug", waived_slug, "--step", "close", "--status", "done")
+            print("✅ explicit UAT waiver with reason also satisfies close hard gate")
 
             legacy = load(project, slug)
             legacy.pop("gates", None)
             legacy["steps"]["build"]["status"] = "pending"
+            legacy["steps"]["close"]["status"] = "pending"
             legacy["phase"] = "arch"
             (project / ".spec" / slug / "state.json").write_text(
                 json.dumps(legacy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -194,11 +213,15 @@ def main() -> int:
         plan_approvals = approved_gate_commands(plan_text)
         assert len(plan_approvals) == 2, plan_approvals
 
+        plan_close_approvals = approved_gate_commands(close_text)
+        assert len(plan_close_approvals) == 1, plan_close_approvals
+        assert "--name uat --status approved --by human" in plan_close_approvals[0]
+
         bug_close_approvals = approved_gate_commands(bug_close_text)
         assert len(bug_close_approvals) == 1, bug_close_approvals
         assert "--name uat --status approved --by human" in bug_close_approvals[0]
 
-        allowed_approvers = {PLAN_SKILL, BUG_CLOSE_SKILL}
+        allowed_approvers = {PLAN_SKILL, PLAN_CLOSE_SKILL, BUG_CLOSE_SKILL}
         offenders = []
         for skill in sorted((REPO / "plugins").glob("*/skills/*/SKILL.md")):
             if skill in allowed_approvers:
@@ -214,15 +237,19 @@ def main() -> int:
 
         assert "不是人類 UAT 決策" in verify_text
         assert "本 skill 不得寫 `gates.uat`" in verify_text
-        assert "Phase 3B advisory" in close_text
-        assert "尚未" in close_text and "hard block" in close_text
+        assert "Human UAT Gate（Runtime hard block）" in close_text
+        assert "--name uat --status pending --by crew" in close_text
+        assert "--name uat --status rejected --by human" in close_text
+        assert "--require-gate uat" in close_text
         assert "verify=PASS" in uat_contract and "uat=approved" in uat_contract
         assert 'TRANSITION_GATES["close"] = ["uat"]' in uat_contract
         assert "type-aware" in uat_contract
         assert "本輪" in bug_close_text
+        assert "--name uat --status pending --by crew" in bug_close_text
         assert "C1-C4 全綠 **不等於** UAT approved" in bug_close_text
         assert "--name uat --status rejected --by human" in bug_close_text
-        print("✅ UAT contract is type-aware and bug-close requires explicit human acceptance")
+        assert "--require-gate uat" in bug_close_text
+        print("✅ close hard gate is enforced for feature + bug with explicit Human UAT paths")
 
         print("✅ approval gate smoke tests passed")
         return 0

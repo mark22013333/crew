@@ -102,6 +102,14 @@ git diff HEAD~1..HEAD
 
 ### 6.5 人類 UAT Acceptance（必須明確確認）
 
+為避免沿用前一次結案嘗試的 stale approval，每次進入本節先重設本輪 UAT：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status pending --by crew \
+  --reason "bug-close requires fresh human acceptance for current fix"
+```
+
 C1-C4、編譯／測試、迴歸測試、Git diff 都只是**修復證據**，不等於使用者接受目前修復。
 
 在任何「已完成」Notion 狀態、知識庫同步與 `close=done` 之前，先把修復摘要與已知 WARN 顯示給使用者，然後明確詢問：
@@ -244,11 +252,12 @@ mkdir -p ~/.claude-company/bug-workflow/learnings
 
 前置條件：本輪 6.5 已取得使用者明確 acceptance，且 `state.json.gates.uat` 為 `approved` / `waived`。
 
-> Phase 3B-3B 此刻尚未把 `close` 加進 runtime hard gate，所以這個前置條件目前由 skill + Approval Gate CI 執行；下一階段才會升級為 runtime 強制。
+> `TRANSITION_GATES["close"] = ["uat"]` 已啟用。即使 Skill 流程被誤改，runtime 仍會在 `uat` 未 approved/waived 時拒絕 `close=done`。
 
 把 `.spec/{slug}/state.json` 的 close 步驟標為完成（見 `../../references/state-discipline.md`）：
 
 ```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set \
   --slug {slug} --step close --status done
 ```

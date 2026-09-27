@@ -94,22 +94,60 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 - 含「測試」、「QA」→ `測試中`
 - 無法判斷 → 詢問，預設 `測試中`
 
-### 4.5 UAT Gate 語意檢查（Phase 3B advisory，尚非 close hard block）
+### 4.5 Human UAT Gate（Runtime hard block）
 
-先讀 `state.json.gates.uat`。完整契約見 `../../references/uat-gate.md`：
+本節只適用 v2 `state.json` 任務；v1 任務依 `../../references/legacy-v1.md` 相容模式執行，不呼叫 `crew-state.py`。
 
-- `approved` / `waived` → 可繼續後續結案流程。
-- `pending` / `rejected` → 明確警告「人類 UAT 尚未通過」。
-- 🔴 **不得**因 `results.verify.status=PASS`、`steps.review=done` 或使用者曾執行 `/plan-verify --manual`，自行改成 UAT approved。
-- 🔴 本階段為相容性觀察期，`crew-state.py` **尚未**對 `close` transition 強制 UAT hard block；因此「close 可以寫入」不代表「UAT 已通過」。
+完整契約見 `../../references/uat-gate.md`。為了避免沿用前一次結案嘗試的 stale approval，**每次進入本節先重設本輪 UAT**：
 
-若 UAT 尚未通過，預設建議中止結案並回到使用者做 UAT 決策。只有明確的 legacy compatibility 情境才可繼續，且最終回報必須寫「UAT 未完成／未作為本次結案依據」。
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status pending --by crew \
+  --reason "plan-close requires fresh human acceptance for current delivery"
+```
 
-> 下一階段若 smoke test 與既有流程確認無相容性問題，才考慮把 `TRANSITION_GATES["close"] = ["uat"]` 升級成真正 hard block。
+接著顯示 `results.verify`、`results.review`、主要交付結果與已知風險，向使用者明確詢問：
+
+```text
+機器驗證與程式碼審查已完成，現在進入 Human UAT。
+
+你是否接受目前交付結果並允許此 Feature 結案？
+  • 「接受／OK／確認／可以」→ 記錄 uat=approved，繼續結案
+  • 告訴我要調整的地方 → 記錄 uat=rejected，停止本次 plan-close
+```
+
+只有使用者在**本輪**明確表示接受，才可以執行：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status approved --by human \
+  --reason "user explicitly accepted current feature delivery"
+```
+
+若使用者不接受或提出修改：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status rejected --by human \
+  --reason "user requested additional feature changes"
+```
+
+然後**立即停止本次結案**，不得執行漂移蓋章、Notion 結案同步或 `close=done`。
+
+若使用者明確要求 waive UAT，可寫 `status=waived`，但必須提供具體 reason；Agent 不得主動建議 waiver。
+
+> 🔴 `results.verify.status=PASS`、`steps.review=done`、`/plan-verify --manual` 都只是證據，不是 Human UAT。
+> 🔴 `TRANSITION_GATES["close"] = ["uat"]` 已啟用；即使 Skill 流程被誤改，runtime 仍會在 UAT 未通過時拒絕 `close=done`。
+
+UAT 通過後先做 exit check：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
+```
 
 ### 5. 漂移硬關卡（文件硬關卡，🔴 不可跳過）
 
-**必須在 `git add -f` 與任何 Notion 呼叫之前執行。** 這是目前已正式強制的文件硬關卡；UAT gate 此批仍處於 advisory compatibility 階段。
+**必須在 `git add -f` 與任何 Notion 呼叫之前執行。** Human UAT 與文件漂移現在都是正式硬關卡：UAT 管「人是否接受」，漂移管「文件是否可信」。
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
@@ -360,7 +398,7 @@ Bug 頁面用的是 `/plan-start` 的 Bug 模板（🔴 問題描述 / 🔍 調�
 
 ### 9. 結案狀態（唯一權威 state.json）
 
-Notion 同步完成後寫回狀態，**不手寫任何欄位**：
+Notion 同步完成後寫回狀態，**不手寫任何欄位**。`close=done` 受 runtime UAT hard gate 保護，若 gate 不是 `approved` / `waived`，這一步必須失敗：
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
