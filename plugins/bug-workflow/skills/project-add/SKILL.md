@@ -330,27 +330,18 @@ uat_branch: {UAT 分支名稱，可空}
 - 新格式：更新 `projects/{sanitized-repo-id}.md` 的 frontmatter
 - 舊格式：更新設定檔中該專案的對應列
 
-### 8. 檢查 CLAUDE.md 是否已推送
+### 8. 檢查專案指令是否已納入 Git
 
 ```bash
-git ls-files --error-unmatch CLAUDE.md 2>/dev/null
+for f in AGENTS.md CLAUDE.md; do
+  [ -f "$f" ] && git ls-files --error-unmatch "$f" >/dev/null 2>&1 && echo "$f"
+done
 ```
 
-- **CLAUDE.md 未被 Git 追蹤** → 提示：
-  ```
-  建議將 CLAUDE.md commit 並 push，讓團隊成員進入專案時不需重新執行 /init：
-    git add CLAUDE.md && git commit -m "docs: 新增 CLAUDE.md 專案說明" && git push
-
-  是否現在執行？[Y/n]
-  ```
-  若使用者確認 → 執行 commit + push。
-
-- **已追蹤但有未提交的變更** → 提示：
-  ```
-  CLAUDE.md 有未提交的變更，建議 commit 並 push 讓團隊同步。
-  ```
-
-- **已追蹤且無變更** → 跳過。
+- **兩份都不存在** → 提示建立專案指令（Codex 建議 `AGENTS.md`；Claude Code 可用 `/init` 建立 `CLAUDE.md`），但不阻擋專案註冊。
+- **存在但未被 Git 追蹤** → 建議把實際存在的指令檔 commit 並 push，讓團隊共用。
+- **已追蹤但有未提交變更** → 提示同步變更。
+- **至少一份已追蹤且乾淨** → ✅。
 
 ### 9. 回傳結果
 
@@ -370,7 +361,7 @@ git ls-files --error-unmatch CLAUDE.md 2>/dev/null
   ✅ ~/.claude-company/bug-workflow-config.md
   ✅ ~/.claude-company/feature-workflow/projects/{sanitized-repo-id}.md
 
-CLAUDE.md：{✅ 已推送 / ⚠️ 建議推送}
+專案指令：{✅ 已推送 / ⚠️ 建議推送 / ⚠️ 尚未建立}
 
 現在可以在此目錄使用：
   /bug-start <問題簡述>     — 建立 Bug 條目（自動關聯此專案）
@@ -384,7 +375,7 @@ CLAUDE.md：{✅ 已推送 / ⚠️ 建議推送}
 - 首次整體設定（尚未執行過 `/bug-setup` 或 `/plan-setup`）→ `/crew-init`（或分別執行 `/bug-setup` + `/plan-setup`）
 - 要建立任務條目（非專案）→ `/plan-start` 或 `/bug-start`
 - 要把含多個 sub-repo 的目錄轉成 virtual monorepo / 跨 repo workspace → `repo-atlas:atlas`
-- 只是要初始化 `CLAUDE.md` → 內建 `/init`
+- 只是要初始化專案指令 → Codex 建立 `AGENTS.md`；Claude Code 可用 `/init`
 
 ---
 
@@ -407,4 +398,4 @@ CLAUDE.md：{✅ 已推送 / ⚠️ 建議推送}
 - **技術棧無法自動偵測**（非 Java 專案等）：技術棧欄位留空或使用者自訂
 - **DB MCP 安裝失敗**：顯示錯誤訊息，不影響其他步驟（Notion 頁面已建立）
 - **DBHub npx 不可用**：提示使用者先安裝 Node.js，或手動安裝 `npm install -g @bytebase/dbhub`
-- **CLAUDE.md 不存在**：提示使用者先執行 `/init`（但不中止流程，專案註冊仍可完成）
+- **`AGENTS.md` / `CLAUDE.md` 都不存在**：提示建立至少一份專案指令（但不中止流程，專案註冊仍可完成）
