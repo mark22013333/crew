@@ -1,6 +1,6 @@
 # CREW Portable Config Contract
 
-> CREW 自己擁有的設定資料以 logical key 存取；Skill 不應把 `~/.claude*` 當成核心資料模型。
+> CREW 自己擁有的設定資料以 logical key 存取；Skill 不應把 `~/.claude` 當成核心資料模型。
 > Host 安裝狀態、plugin marketplace、`settings.json`、host-native rules **不屬於本 contract**。
 
 ---
@@ -60,42 +60,35 @@ Resolver **不會自動搬檔、不會自動建立目錄、不會修改 legacy �
 
 ## 4. Legacy fallback
 
+目前 Claude 現役 fallback **只接受 `~/.claude`**。
+`~/.claude-company` 已退役，不讀取、不遷移、不當 compatibility path。
+
 ### feature/config
 
 依序：
 
 1. `~/.claude/feature-workflow/config.md`
-2. `~/.claude-company/feature-workflow/config.md`
-3. `~/.claude-company/feature-workflow-config.md`
-4. `~/.claude/feature-workflow-config.md`
+2. `~/.claude/feature-workflow-config.md`
 
 ### feature/project / feature/stack
 
 先找階層式 legacy 目錄：
 
 - `~/.claude/feature-workflow/projects|stacks/...`
-- `~/.claude-company/feature-workflow/projects|stacks/...`
 
 若不存在，再回退到舊單一檔案：
 
-- `~/.claude-company/feature-workflow-config.md`
 - `~/.claude/feature-workflow-config.md`
 
 此時 resolver 回 `representation=legacy_monolith`；caller 必須使用舊 parser 擷取 project/stack 區塊，不能把 monolith 當成獨立 project/stack 檔。
 
 ### bug/config
 
-依序：
-
-1. `~/.claude-company/bug-workflow-config.md`
-2. `~/.claude/bug-workflow-config.md`
+- `~/.claude/bug-workflow-config.md`
 
 ### bug/learning
 
-依序：
-
-1. `~/.claude-company/bug-workflow/learnings/{project-slug}.jsonl`
-2. `~/.claude/bug-workflow/learnings/{project-slug}.jsonl`
+- `~/.claude/bug-workflow/learnings/{project-slug}.jsonl`
 
 ---
 
@@ -136,6 +129,7 @@ JSON 至少包含：
 - marketplace cache / installed plugin registry
 - `~/.claude/settings.json`
 - `~/.claude/rules/*`
+- 已退役的 `~/.claude-company/*`
 - Host 的 hook discovery
 - Host-native project instruction 檔名
 

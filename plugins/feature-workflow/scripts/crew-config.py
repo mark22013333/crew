@@ -76,8 +76,6 @@ def logical_paths(args: argparse.Namespace) -> tuple[Path, list[tuple[Path, str]
         canonical = root / "feature" / "config.md"
         legacy = [
             (home / ".claude" / "feature-workflow" / "config.md", "hierarchical"),
-            (home / ".claude-company" / "feature-workflow" / "config.md", "hierarchical"),
-            (home / ".claude-company" / "feature-workflow-config.md", "legacy_monolith"),
             (home / ".claude" / "feature-workflow-config.md", "legacy_monolith"),
         ]
         return canonical, legacy
@@ -89,8 +87,6 @@ def logical_paths(args: argparse.Namespace) -> tuple[Path, list[tuple[Path, str]
         canonical = root / "feature" / "projects" / name
         legacy = [
             (home / ".claude" / "feature-workflow" / "projects" / name, "hierarchical"),
-            (home / ".claude-company" / "feature-workflow" / "projects" / name, "hierarchical"),
-            (home / ".claude-company" / "feature-workflow-config.md", "legacy_monolith"),
             (home / ".claude" / "feature-workflow-config.md", "legacy_monolith"),
         ]
         return canonical, legacy
@@ -102,8 +98,6 @@ def logical_paths(args: argparse.Namespace) -> tuple[Path, list[tuple[Path, str]
         canonical = root / "feature" / "stacks" / f"{stack_id}.md"
         legacy = [
             (home / ".claude" / "feature-workflow" / "stacks" / f"{stack_id}.md", "hierarchical"),
-            (home / ".claude-company" / "feature-workflow" / "stacks" / f"{stack_id}.md", "hierarchical"),
-            (home / ".claude-company" / "feature-workflow-config.md", "legacy_monolith"),
             (home / ".claude" / "feature-workflow-config.md", "legacy_monolith"),
         ]
         return canonical, legacy
@@ -111,7 +105,6 @@ def logical_paths(args: argparse.Namespace) -> tuple[Path, list[tuple[Path, str]
     if args.key == "bug/config":
         canonical = root / "bug" / "config.md"
         legacy = [
-            (home / ".claude-company" / "bug-workflow-config.md", "hierarchical"),
             (home / ".claude" / "bug-workflow-config.md", "hierarchical"),
         ]
         return canonical, legacy
@@ -122,7 +115,6 @@ def logical_paths(args: argparse.Namespace) -> tuple[Path, list[tuple[Path, str]
         slug = safe_leaf(args.project_slug, "--project-slug")
         canonical = root / "bug" / "learnings" / f"{slug}.jsonl"
         legacy = [
-            (home / ".claude-company" / "bug-workflow" / "learnings" / f"{slug}.jsonl", "hierarchical"),
             (home / ".claude" / "bug-workflow" / "learnings" / f"{slug}.jsonl", "hierarchical"),
         ]
         return canonical, legacy

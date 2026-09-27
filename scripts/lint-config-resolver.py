@@ -85,7 +85,9 @@ def main() -> int:
             assert Path(project["path"]).name == "github.com--org--repo.md"
             assert Path(project["path"]).parent == xdg / "crew" / "feature" / "projects"
 
-            monolith = home / ".claude-company" / "feature-workflow-config.md"
+            retired_monolith = home / ".claude-company" / "feature-workflow-config.md"
+            touch(retired_monolith)
+            monolith = home / ".claude" / "feature-workflow-config.md"
             touch(monolith)
             project_read = data(
                 env,
@@ -97,11 +99,25 @@ def main() -> int:
             assert project_read["representation"] == "legacy_monolith"
             print("✅ feature project supports hierarchical and monolith legacy representations")
 
-            bug_legacy = home / ".claude-company" / "bug-workflow-config.md"
+            retired_bug_config = home / ".claude-company" / "bug-workflow-config.md"
+            touch(retired_bug_config)
+            bug_legacy = home / ".claude" / "bug-workflow-config.md"
             touch(bug_legacy)
             bug_config = data(env, "--key", "bug/config", "--mode", "read")
             assert Path(bug_config["path"]) == bug_legacy
             assert bug_config["legacy"] is True
+
+            retired_learning = home / ".claude-company" / "bug-workflow" / "learnings" / "retired-only.jsonl"
+            touch(retired_learning)
+            ignored = data(
+                env,
+                "--key", "bug/learning",
+                "--project-slug", "retired-only",
+                "--mode", "read",
+            )
+            assert ignored["source"] == "missing"
+            assert ".claude-company" not in ignored["path"]
+            print("✅ retired ~/.claude-company paths are ignored")
 
             learning = data(
                 env,
