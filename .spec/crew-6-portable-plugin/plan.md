@@ -81,6 +81,9 @@ drift_policy: off
 - D-34 [convergence] `/plan-build` 已完全移除 provider-specific model callsite：Explorer=`FAST/repository_search`；DB/backend/API/frontend/test 等每個可寫角色各自帶 `DEEP/high_risk_implementation` + allowed scope。`parallel_delegate` 只負責排程，不可取代子工作單元各自的 routing contract。
 - D-35 [convergence] `/plan-review` 已完全移除 provider-specific model callsite：邏輯/品質 reviewer 與 `--quick`=`STANDARD/routine_review`；效能 reviewer=`DEEP/performance_review`。`parallel_delegate` 只負責排程，每個 reviewer 仍各自帶 routing contract。
 - D-36 [convergence] `/plan` 已完全移除 provider-specific model callsite：spec=`STANDARD/requirement_analysis`；DB=`DEEP/schema_design`（schema_migration + transaction sensitive）；arch=`DEEP/architecture`。Active Skill 不指定 sonnet/opus/haiku，Host-specific `agents/*.md` frontmatter 僅視為 adapter mapping。
+- D-37 [convergence] Host portability advisory 不以「清到 0」為目標。CI #116 的 134 筆 advisory 分為三類：72 筆 CREW-owned config/project/stack/learnings 路徑，應抽成 portable config contract；30 筆 Claude plugin/marketplace/settings/rules 管理，應保留在 host-management adapter；32 筆 AGENTS.md/CLAUDE.md 專案指令別名/文件例子，由既有 `project_instructions` 契約涵蓋，不為消警告硬改。
+- D-38 [convergence] Portable config contract 只抽象「CREW 自己擁有的資料」：feature config、projects、stacks、bug config、learnings。Claude 的 `settings.json`、plugin marketplace/install cache、`~/.claude/rules/*` 與 plugin CLI 不是 CREW config，不得塞進同一 resolver。
+- D-39 [convergence] Host-management adapter 應負責 install/update/hook discovery/host-native rules 等產品管理行為；portable workflow 只要求語意能力（例如 config resolve、tool probe、project instructions），不得為了支援 Codex 把 Claude CLI 指令改寫成不存在的通用命令。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -101,6 +104,7 @@ drift_policy: off
 - 不為了 Artifact-driven 再拆出大量 YAML；維持 plan.md + state.json + deploy.sql 的 compact artifact 哲學。
 - 本遷移 plan 尚在規劃/實作中且不以程式碼錨點追蹤，故暫設 drift_policy=off；完成 Host-neutral 遷移後再決定是否轉回 normal。
 - Bug workflow 已完成 type-aware state lifecycle：`start → investigate → fix → close`；Bug 的測試/驗證屬 fix work units，不偽造 Feature 的 verify/review phase。
+- Host portability advisory 數量不是 KPI：真正 host-native 的安裝/更新/規則路徑應明確標成 adapter，而不是為了數字歸零把產品差異藏起來。
 
 ## 指路              <!-- crew:map  append-only -->
 - Claude marketplace：`.claude-plugin/marketplace.json`
@@ -242,3 +246,10 @@ drift_policy: off
 - [2026-09-28] [convergence-10] Commit `bd6ab42`；GitHub Actions run 36332180495（#115）共 14 個 job 全部 success。
 - [2026-09-28] [convergence] AC-29 完成：plan / plan-build / plan-review / bug-investigate / bug-fix 五支核心 Skill 均已 provider-neutral；實際模型選擇只由 model-routing.json + Host adapter mapping 決定。
 - [2026-09-28] [next] 下一小批進 AC-30 前先做 host-management advisory 分群：只盤點 CLAUDE_CONFIG_PATH / CLAUDE_PLUGIN_CLI / CLAUDE_MD 的 134 筆 advisory，分成「portable config contract 可消除」與「真正 host-specific 管理 adapter 應保留」；先不大改 setup/admin Skill。
+
+- [2026-09-28] [convergence-11] AC-30 advisory 分群完成：Host portability CI #116 仍為 hard=0、advisory=134 / 31 files。
+- [2026-09-28] [convergence-11] 134 筆分為：72 筆 portable config contract 候選、30 筆真正 host-management adapter、32 筆 project-instructions alias / 文件相容說明。
+- [2026-09-28] [convergence-11] 72 筆候選集中在 CREW-owned feature config/projects/stacks、bug config、learnings；這些應由單一 deterministic resolver 提供 logical key/path，不應讓各 Skill 自己拼 `~/.claude*` 路徑。
+- [2026-09-28] [convergence-11] 30 筆 host-management 包含 `claude plugin ...`、marketplace/installed_plugins、`settings.json`、Claude native rules/plugin install path；這些保留 Host adapter，不納入 portable config resolver。
+- [2026-09-28] [convergence-11] 32 筆 CLAUDE.md advisory 多數已同時提 AGENTS.md 或明確經 `project_instructions`；保留為文件/adapter 例子，不以 advisory=0 為成功條件。
+- [2026-09-28] [next] AC-30 下一小批只設計並實作 **portable config contract + deterministic resolver smoke test**：先定 logical namespaces（feature config/projects/stacks、bug config/learnings）與 legacy fallback；不要同批重寫 crew-init/project-add/plan-setup 等 18+ 檔案。
