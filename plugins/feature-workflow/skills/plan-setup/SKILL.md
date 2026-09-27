@@ -189,7 +189,7 @@ Workflow 設定完成！
 
 - 一鍵完成 bug + feature 全部設定 → 建議改用 `/crew-init`
 - 只設定 bug 側 → 建議改用 `/bug-setup`
-- 初始化程式專案 / CLAUDE.md → 建議改用內建 `/init`
+- 初始化程式專案 / 專案指令 → Codex 建立 `AGENTS.md`；Claude Code 可用內建 `/init`
 - 註冊專案 → 建議改用 `/project-add`
 - 自訂技術棧 → 建議改用 `/plan-stack`
 
