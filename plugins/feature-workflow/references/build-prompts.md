@@ -25,16 +25,16 @@
 
 | 角色 | model | 可改正式程式碼 |
 |------|-------|----------------|
-| 探索官（scout） | `sonnet` | ✗ |
+| 探索官（scout） | `FAST`（Router；Claude→haiku / Codex→low reasoning） | ✗ |
 | DB／後端／API／前端／測試工程師 | `opus` | ✓ |
 
 同一個 agent 的模型 spawn 後不能更換 —— 探索與實作**必須是兩個 agent**。
 
 ---
 
-## 探索官模式（唯讀，model: sonnet）
+## 探索官模式（唯讀，profile: FAST）
 
-步驟 5 由 Leader 使用 `delegate_readonly`，role=`explorer`、`model: sonnet`：
+步驟 5 由 Leader 使用 `delegate_readonly`，role=`explorer`，routing=`task: repository_search`、`profile: FAST`、`risk: low`、`complexity: low`。先由 `crew-model-route.py` 取得 Host mapping，再啟動 worker：
 
 ```
 你是唯讀探索官，負責為後續的實作者準備精簡脈絡。你不寫任何程式碼。

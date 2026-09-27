@@ -7,7 +7,7 @@
    Capability request 必須帶結構化 `model: opus`；Host adapter 不得假裝已套用。」
 
 七項檢查（對應 model-policy.md）：
-  1. STRUCTURED  — 委派 capability／舊式 Agent 呼叫附近必須有結構化 model 標示
+  1. STRUCTURED  — 委派 capability／舊式 Agent 呼叫附近必須有結構化 model 或 profile 標示
   2. AGENT_FM    — agents/*.md frontmatter 必須宣告 model，且已知 agent 的值需符合政策
                    （規格分析 agent 不得 opus；正式實作 agent 不得 sonnet）
   3. ROLE_POLICY — 各 skill 的角色模型對照（plan-spec 只准 sonnet、bug-investigate 預設
@@ -18,7 +18,7 @@
   7. 優先檢查結構化宣告：`model: "opus"` / `{"model": "sonnet"}` / `model=opus` 才算數
 
 無法靜態確認 Host runtime 是否真的套用了模型目標，
-因此本 lint 的契約是：**指令文字必須以 capability request 明確帶結構化 model 目標**。
+因此本 lint 的契約是：**指令文字必須以 capability request 明確帶結構化 model 或 profile 目標**。
 Claude adapter 可精準轉成 Agent/subagent model 參數；其他 Host 若無此能力，應依
 host-capabilities.md 回報 routing degraded，而不是假裝成功。
 
@@ -66,6 +66,11 @@ STRUCTURED_RE = re.compile(
     re.IGNORECASE,
 )
 
+PROFILE_RE = re.compile(
+    r"profile[\"']?\s*[:=]\s*[\"'`]?(NONE|FAST|STANDARD|DEEP)",
+    re.IGNORECASE,
+)
+
 # --- 4. 自然語言指定模型（不算結構化）--------------------------------------
 NL_MODEL_RE = re.compile(r"(?:可)?使用\s*(Opus|Sonnet|Haiku)\s*模型", re.IGNORECASE)
 # 這些字出現在同一行 → 該行是在說明「這樣不行」（政策文件本身要引用反例），不算違規
@@ -97,8 +102,9 @@ ROLE_POLICY = {
         "why": "spec pass 的唯讀規格分析目標 sonnet；db/arch 複雜設計目標 opus",
     },
     "plan-build": {
-        "require": ["sonnet", "opus"],
-        "why": "唯讀探索官 sonnet + 正式實作角色 opus，兩者都必須明確標示",
+        "require": ["opus"],
+        "require_profiles": ["FAST"],
+        "why": "唯讀探索官必須走 FAST profile；正式實作角色仍維持 opus（Phase 3A 保守值）",
     },
     "plan-review": {
         "require": ["sonnet", "opus"],
@@ -197,7 +203,7 @@ def check_structured_near_calls(text: str, path: Path) -> list[str]:
     for m in AGENT_CALL_RE.finditer(text):
         start = max(0, m.start() - WINDOW)
         end = min(len(text), m.end() + WINDOW)
-        if STRUCTURED_RE.search(text[start:end]):
+        if STRUCTURED_RE.search(text[start:end]) or PROFILE_RE.search(text[start:end]):
             continue
         line_start = text.rfind("\n", 0, m.start()) + 1
         line_end = text.find("\n", m.end())
@@ -206,7 +212,7 @@ def check_structured_near_calls(text: str, path: Path) -> list[str]:
             continue
         findings.append(
             f"{rel(path)}:{line_of(text, m.start())} [STRUCTURED] 「{m.group(0)}」附近 "
-            f"{WINDOW} 字元內未找到 `model: opus/sonnet/haiku` 結構化標示"
+            f"{WINDOW} 字元內未找到 `model: ...` 或 `profile: ...` 結構化標示"
         )
     return findings
 
@@ -275,6 +281,14 @@ def check_role_policy(path: Path, text: str) -> list[str]:
         if need not in found:
             findings.append(
                 f"{rel(path)}:1 [ROLE_POLICY] 缺少 `model: {need}` 的結構化標示"
+                f"（{policy['why']}）"
+            )
+
+    found_profiles = {m.group(1).upper() for m in PROFILE_RE.finditer(text)}
+    for need in policy.get("require_profiles", []):
+        if need.upper() not in found_profiles:
+            findings.append(
+                f"{rel(path)}:1 [ROLE_POLICY] 缺少 `profile: {need}` 的結構化標示"
                 f"（{policy['why']}）"
             )
 

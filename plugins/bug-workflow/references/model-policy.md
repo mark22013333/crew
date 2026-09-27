@@ -13,19 +13,25 @@
 
 | 規則 | 說明 |
 |------|------|
-| 只認結構化目標，不認敘述 | prompt 裡寫「使用 Opus 模型」只是自然語言指示，**不保證生效**。Capability request 必須帶 `model: opus|sonnet|haiku` |
-| 每個委派各自帶 | 多角色時每個 `delegate_readonly` / `delegate_write` 都各自帶自己的 `model` 目標；不可用自然語言假裝整個 team 已切模型 |
+| 只認結構化目標，不認敘述 | 新流程 capability request 必須帶 `routing.task + profile`；尚未遷移的 call site 才直接帶 `model: opus|sonnet|haiku`。prompt 文字裡只寫模型名稱**不算** |
+| 每個委派各自帶 | 多角色時每個 `delegate_readonly` / `delegate_write` 都各自帶自己的 `routing` 或 legacy `model` 目標；不可用自然語言假裝整個 team 已切模型 |
 | 角色切換要拆工作單元 | 「先 Sonnet 探索、再 Opus 實作」必須是兩個 capability invocation；不可在同一個模糊工作單元裡說「中途換模型」 |
 | Host 做不到就明說 | Host 若無 per-worker model selection，保留角色與權限邊界並回報 `routing_degraded=true`；**不得宣稱已套用指定模型** |
 | 不許含糊 | 禁止寫「視情況選用模型」「依需求決定 model」這類沒有具體參數的措辭。條件式配置要寫清楚「什麼條件 → 哪個值」 |
 
-正確寫法（Capability request）：
+正確寫法（新式 Capability request）：
 
 ```yaml
 capability: delegate_readonly
 role: explorer
-model: sonnet
+routing:
+  task: repository_search
+  profile: FAST
+  risk: low
+  complexity: low
 ```
+
+尚未遷移的高風險實作者可暫時維持：
 
 ```yaml
 capability: delegate_write
@@ -33,7 +39,7 @@ role: implementer
 model: opus
 ```
 
-Claude Code adapter 會把上述 `model` 目標轉成實際 Agent/subagent 結構化參數；其他 Host 依 `host-capabilities.md` 對映。
+Host adapter 依 `host-capabilities.md` 執行 router；Claude 目前 FAST → haiku/low，Codex FAST → inherit/low reasoning。
 
 ---
 

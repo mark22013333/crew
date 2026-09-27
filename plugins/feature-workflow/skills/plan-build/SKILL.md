@@ -93,7 +93,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 即將啟動 CREW 多角色程式碼產生：
 
 📄 設計來源：.spec/{slug}/plan.md{ + deploy.sql}
-🔍 探索官：scout（model: sonnet）— 專案結構/相似功能/風格範本/交叉引用（唯讀）
+🔍 探索官：scout（profile: FAST）— 專案結構/相似功能/風格範本/交叉引用（唯讀；由 Router 對映 Host 模型）
 📊 Teammate 配置（全部 model: opus）：
   {• db-engineer       — DB 遷移/索引/效能優化（需 DB MCP）}
   • backend-engineer  — 後端核心（POJO/Mapper/Service）
@@ -118,12 +118,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 - 使用者選「否」或直接 Enter（預設）時，不含 test-engineer
 - test-engineer 的加入/移除在 plugin 根目錄 `references/team-composition.md`（相對 SKILL.md 為 `../../references/`）判斷**之後**操作，不修改判斷表本身
 
-### 5. 準備分層脈絡（派唯讀探索官，model: sonnet）
+### 5. 準備分層脈絡（派唯讀探索官，profile: FAST）
 
 依據 plugin 根目錄 `references/build-context-layers.md`（相對 SKILL.md 為 `../../references/`）的四層策略，為每個 Teammate 準備定制化的脈絡。
 
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
-> - 5a–5d 的掃描與讀取工作依 `host-capabilities.md` 使用 **`delegate_readonly`**，role=`explorer`、`model: sonnet`（探索官 prompt 模板見 `references/build-prompts.md`「探索官模式」）。
+> - 5a–5d 的掃描與讀取工作依 `host-capabilities.md` 使用 **`delegate_readonly`**，role=`explorer`，routing=`task: repository_search`、`profile: FAST`、`risk: low`、`complexity: low`；執行前以 `crew-model-route.py` 驗證並套用 Host mapping（探索官 prompt 模板見 `references/build-prompts.md`「探索官模式」）。
 > - 探索官只用唯讀工具，🔴 不得修改任何程式碼；產出「實作交接」（模板見 `model-policy.md`）交給步驟 6 的實作者。
 > - 這一步的目的就是**讓 Opus 實作者不必再掃 repository**。探索範圍只有 1–2 個已知路徑的檔案時，Leader 可自行讀取，不必派探索官。
 
@@ -154,7 +154,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 
 每個 Teammate 的最終 prompt = Layer 0 共用核心 + Layer 1 角色脈絡 + Layer 2 範本片段 + Layer 3 交叉引用 + build-prompts.md 的角色模板
 
-> Layer 2／Layer 3 來自『準備分層脈絡』一節探索官（`model: sonnet`）產出的「實作交接」，四層都要嵌入，不可省略 Layer 3（跨角色約束：NOT NULL／UNIQUE／必填參數／外鍵／分頁限制）。
+> Layer 2／Layer 3 來自『準備分層脈絡』一節 FAST 探索官產出的「實作交接」，四層都要嵌入，不可省略 Layer 3（跨角色約束：NOT NULL／UNIQUE／必填參數／外鍵／分頁限制）。
 
 #### 模型與 spawn 規則（硬性）
 
@@ -162,7 +162,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 
 - 每個實作角色都用 **`delegate_write`** 獨立工作單元（role 例如 `backend-engineer`），capability request 必須帶 `model: opus` 與 allowed scope。
 - 🔴 **不可**用「建立整個團隊並使用 Opus」這種自然語言指定模型 —— 那只是敘述，不保證生效。
-- 同一個 agent 的模型在 spawn 時就固定、中途不能換：角色的探索工作已在步驟 5 由 sonnet 探索官完成，實作者**只用交接內容**，🔴 不得重新全域掃描 repository。
+- 探索與實作是兩個工作單元：角色的 repository 掃描已在步驟 5 由 FAST 探索官完成，DEEP 實作者**只用交接內容**，🔴 不得重新全域掃描 repository。
 - Leader（本 skill）只協調、不寫正式程式碼（見 anti-rationalizations.md B2）。
 
 #### 單角色 vs parallel_delegate 選擇

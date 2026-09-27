@@ -82,27 +82,37 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
 ### 呼叫契約
 
+新流程優先傳 **routing intent**，由 `crew-model-route.py` 決定 Profile 與 Host mapping：
+
 ```yaml
 capability: delegate_readonly
 role: <角色>
-model: sonnet
+routing:
+  task: repository_search
+  profile: FAST
+  risk: low
+  complexity: low
 scope:
   write_product_code: false
 input: <必要上下文>
 output_contract: <結構化交付格式>
 ```
 
+`profile` 是該 call site 預期的 provider-neutral 基準；執行前用 router 驗證。尚未遷移的 Skill 可暫時保留直接 `model: sonnet|opus|haiku`，但新修改不要再新增 provider-specific routing。
+
 ### Claude Code adapter
 
 - 使用獨立 subagent / Agent tool。
-- 若政策指定 `model: sonnet|opus|haiku`，必須用結構化 model 參數實際傳入。
+- 有 `routing` 時先執行 `crew-model-route.py route --host claude`，再把 `host_mapping.model` / `effort` 套到實際 worker。
+- 若是尚未遷移的直接 `model`，仍必須用結構化 model 參數實際傳入。
 - 不得只在 prompt 文字裡寫模型名稱。
 
 ### Codex adapter
 
 - 若目前 harness 提供 multi-agent/subagent 能力，建立獨立唯讀 worker。
+- 有 `routing` 時先執行 `crew-model-route.py route --host codex`，使用其 `reasoning_effort`；不要把 Claude model 名稱帶進 Codex。
 - 若目前 surface 沒有可用的 subagent 能力，**由主 Agent inline 執行同一工作**，但仍遵守唯讀邊界與 output contract。
-- 若 surface 無法精準指定子 Agent model，不得宣稱已切換模型；回報 `routing_degraded=true`，保留語意正確性優先。
+- 若 surface 無法精準套用 router mapping，不得宣稱已切換；回報 `routing_degraded=true`，保留語意正確性優先。
 
 ---
 
