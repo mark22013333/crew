@@ -58,13 +58,23 @@ argument-hint: "[spec|db|arch]"
 
 #### 1-1. 派工
 
-依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-spec-analyst`、`model: sonnet`）。
+先取得 requirement analysis 的 Router mapping：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task requirement_analysis --risk medium --complexity medium \
+  --host portable --format json
+```
+
+再依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-spec-analyst`），
+routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`complexity: medium`。
 
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
-> - Capability request 必須實際帶 `model: sonnet`；只在 prompt 裡描述模型名稱不算。Host 若無法精準指定 worker model，依 `host-capabilities.md` 降級並回報。
+> - Capability request 必須實際帶上述結構化 routing；Host 若無法精準指定 worker model/reasoning，依 `host-capabilities.md` 回報 `routing_degraded=true`，不得假裝已套用。
 > - 本 pass 只做需求分析、程式碼探索與規格判斷；🔴 禁止修改正式程式碼。
 > - 🔴 禁止自動啟動 `/plan-build`（或任何實作階段 skill）、禁止啟動實作委派、禁止要求 Host-specific Dynamic Workflow。
-> - 🔴 不得因需求文件多或內容長就自行升級 Opus；範圍過大就分節產出。
+> - 🔴 不得只因需求文件多或內容長就自行升級 DEEP；範圍過大就分節產出。只有 risk/complexity/sensitive policy 真正升級時才依 Router 結果調整。
 > - 規格確認迴圈（1-3）照原樣執行，不可略過。
 
 **輸入**：`.spec/{slug}/plan.md` 現有內容 ＋ 步驟 0 載入的專案上下文 ＋ 使用者在指令中補充的需求。
@@ -155,7 +165,19 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --step d
 
 #### 2-2. 派工
 
-依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-db-designer`、`model: opus`）。表結構、索引、約束與交易一致性屬複雜架構決策，🔴 不得因為「只產一個 SQL 檔」而主動降級模型目標。
+先取得 schema design 的 Router mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task schema_design --risk high --complexity high \
+  --sensitive schema_migration,transaction \
+  --host portable --format json
+```
+
+再依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-db-designer`），
+routing=`task: schema_design`、`profile: DEEP`、`risk: high`、`complexity: high`、
+sensitive=`schema_migration,transaction`。表結構、索引、約束與交易一致性屬高風險設計，
+🔴 不得因為「只產一個 SQL 檔」而主動降級 profile；Host adapter 必須回報 mapping 是否實際套用。
 
 **輸入**：plan.md 現有內容（目標／驗收條件／決策紀錄）＋ `project_instructions` 取得的 DB 類型 ＋ Host 可用的 DB 規則（Claude adapter 可額外讀取 `~/.claude/rules/database.md`）＋ 既有 Entity／Mapper 的命名慣例。
 
@@ -189,7 +211,18 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 #### 3-1. 派工
 
-依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-backend-designer`、`model: opus`）。分層決策與設計模式選擇屬複雜架構決策，🔴 不得主動降低模型目標。
+先取得 architecture 的 Router mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task architecture --risk high --complexity high \
+  --host portable --format json
+```
+
+再依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-backend-designer`），
+routing=`task: architecture`、`profile: DEEP`、`risk: high`、`complexity: high`。
+分層決策、介面切割、依賴方向與設計模式選擇屬複雜架構決策，🔴 不得主動降低 profile；
+Host adapter 必須回報 Router mapping 是否實際套用。
 
 **輸入**：plan.md 現有內容 ＋ `deploy.sql`（若有）＋ 專案 package 結構與 1-2 條既有呼叫鏈。
 
@@ -315,5 +348,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 - **錨點註解不可美化**：`<!-- crew:dec  append-only -->` 的空白數量都是插入點比對的一部分，不要重新對齊或翻譯。
 - **單跑不等於可以跳過確認**：`/plan spec` 必須完成 requirement confirmation；`/plan arch` 必須完成 architecture confirmation；`/plan db` 寫入後仍要摘要結果，但沒有獨立人類 approval gate。
 - **DB_REQUIRED=false 要留痕**：跳過 db pass 時務必寫 `--status skipped --reason`，否則下游只會看到「沒有 deploy.sql」而必須用猜的。
-- **委派的 model 目標**：prompt 中只寫模型名稱不算；capability request 必須帶結構化 `model`，Host 對映與降級規則見 `references/host-capabilities.md`，角色政策見 `references/model-policy.md`。
+- **委派的 routing 目標**：prompt 中只寫「用強模型」不算；capability request 必須帶結構化 `task/profile/risk/complexity`，實際模型／reasoning 由 Router + Host adapter 對映，降級必須明示 `routing_degraded=true`。
 - **plan.md 不是需求垃圾桶**：使用者貼的長需求原文不要整段收進來 —— 萃取成目標／驗收條件／決策，原文留在 Notion 頁面。
