@@ -37,7 +37,7 @@ description: 部署 SQL 執行回報 —— 實際跑完 deploy.sql 後勾選每
 - Notion 條目已存在且含「🚀 部署狀態」可寫入區塊（plan-close 會自動建立）
 - 設定檔含「任務追蹤工具」資料庫 ID（依 `../../references/config-resolver.md` 的階層式設定目錄解析取得，見 `~/.claude/feature-workflow/config.md` 的 Notion IDs）
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定目錄 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
 ---
 
