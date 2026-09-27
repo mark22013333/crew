@@ -1,4 +1,4 @@
-# Agent Team Review Prompt 模板
+# 多角色 Review Prompt 模板
 
 > 此檔案由 plan-review 步驟 5「完整多角色審查」按需載入。
 > 模板中的 `{slug}` 需替換為實際值。
