@@ -102,7 +102,7 @@ python3.11 scripts/lint-plugin-manifest.py # Claude/portable manifest、hooks、
 python3.11 scripts/lint-skills.py         # SKILL.md frontmatter 與行數
 python3.11 scripts/check-shared-refs.py   # 共用 reference sha256 防漂移
 python3.11 scripts/lint-changelog.py      # CHANGELOG 版本／日期排序
-python3.11 scripts/lint-agent-model.py --strict   # 模型分工政策（違規阻擋）\npython3.11 scripts/lint-model-routing.py     # NONE/FAST/STANDARD/DEEP routing smoke test\npython3.11 scripts/lint-host-portability.py --strict # Host-specific orchestration 防回歸
+python3.11 scripts/lint-agent-model.py --strict   # 模型分工政策（違規阻擋）\npython3.11 scripts/lint-model-routing.py     # NONE/FAST/STANDARD/DEEP routing smoke test\npython3.11 scripts/lint-config-resolver.py    # portable config logical key / legacy fallback smoke test\npython3.11 scripts/lint-host-portability.py --strict # Host-specific orchestration 防回歸
 python3.11 scripts/lint-skill-contract.py # 觸發詞與內部連結
 python3.11 scripts/lint-readme-sync.py    # README 指令表同步
 python3.11 scripts/lint-state-writers.py --strict  # 狀態單一寫者防回歸（違規阻擋）
@@ -200,6 +200,7 @@ git add -f .spec/{slug}/
 - `model-policy.md`
 - `host-capabilities.md`
 - `model-routing.json`
+- `config-contract.md`
 
 **單一權威來源（C9）**：`plugins/bug-workflow/references/` 那份是唯一權威，
 **只改這份**；`feature-workflow` 那份一律視為同步產物，不要直接編輯。
@@ -211,7 +212,7 @@ git add -f .spec/{slug}/
 ./scripts/sync-shared-refs.sh --check  # push 前檢查是否一致（不修改）
 ```
 
-除 reference 外，**共用 script**（`scripts/crew-state.py`，權威同樣在 bug-workflow）
+除 reference 外，**共用 script**（`scripts/crew-state.py`、`scripts/crew-model-route.py`、`scripts/crew-config.py`，權威同樣在 bug-workflow）
 也走這支腳本同步；目標目錄不存在會自動建立。
 
 > **兩者嚴格度不同**：`sync-shared-refs.sh --check` 在「權威份存在但同步副本缺失」時
