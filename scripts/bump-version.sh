@@ -26,7 +26,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
   cat <<'EOF'
 用法：
-  bump-version.sh <plugin> <new_version>     # 同步版本到三處
+  bump-version.sh <plugin> <new_version>     # 同步版本到四處
   bump-version.sh --check                    # 僅檢查四處一致性（CI 用）
   bump-version.sh -h | --help
 
