@@ -107,9 +107,27 @@ def main() -> int:
         assert "--name requirement --status pending --by crew" in plan_text
         assert "--require-gate requirement" in plan_text
 
+        assert "--name architecture --status approved --by human" in plan_text
+        assert "--name architecture --status pending --by crew" in plan_text
+        assert "--require-gate architecture" in plan_text
+
         assert "--require-gate requirement --require-gate architecture" in build_text
         assert "--name architecture --status approved" not in build_text
-        print("✅ feature skills wire requirement approval and build gate checks safely")
+
+        # 只有 /plan 可以把 feature Approval Gate 設為 approved。
+        # 其他 active Skill 即使知道 gate 存在，也只能驗證／阻擋，不可替人核准。
+        offenders = []
+        for skill in sorted((REPO / "plugins").glob("*/skills/*/SKILL.md")):
+            if skill == PLAN_SKILL:
+                continue
+            text_value = skill.read_text(encoding="utf-8")
+            if "--status approved" in text_value:
+                offenders.append(str(skill.relative_to(REPO)))
+        assert not offenders, f"non-plan skills may not approve gates: {offenders}"
+
+        assert "只有使用者本輪明確核准" in plan_text
+        assert "Agent 不得自行 approve" in plan_text
+        print("✅ feature skills wire requirement + architecture approvals to explicit human confirmation")
 
         print("✅ approval gate smoke tests passed")
         return 0

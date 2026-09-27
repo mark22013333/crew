@@ -204,13 +204,65 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 🔴 回傳中不得出現 Mermaid 圖、完整類別清單、介面方法簽章 —— 那些在 `/plan-build` 產碼後就是程式碼事實，用 `[map]` 錨點指過去。
 
-#### 3-2. 寫入與收尾
+#### 3-2. 寫入
 
-Leader 逐條 Edit 插入後：
+在對 plan.md 做任何**實質架構修訂之前**，先讓既有 architecture approval 失效：
 
 ```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name architecture --status pending --by crew \
+  --reason "architecture revised; human re-approval required"
+```
+
+然後 Leader 逐條 Edit 插入 `crew:dec` / `crew:risk` / `crew:map`。
+
+> 若本次只是重跑但沒有任何實質架構變更，不需要為了形式重設 gate；只要 plan.md 的架構內容有改，就必須 reset pending。
+
+#### 3-3. 架構確認迴圈（必須執行）
+
+摘要本次架構決策給使用者，至少包含：
+
+- 分層／模組落點
+- 主要依賴方向與介面切割
+- 與既有慣例不同的地方及理由
+- 已知取捨與風險
+
+然後詢問：
+
+```text
+架構決策已寫入 .spec/{slug}/plan.md。
+
+請確認是否需要調整？
+  • 直接告訴我要修改的部分，我會只 Edit 對應條目
+  • 若確認沒問題，我會核准 architecture gate，之後才能進 /plan-build
+```
+
+使用者提出修改 → 保持 `architecture=pending` → 只 Edit 受影響條目 → 摘要修改 → 再問一次。
+
+使用者在**本輪**明確回「沒問題／OK／確認／可以了」才算通過。
+
+> 🔴 **Architecture Approval Gate 硬規則**：
+> - 只有使用者本輪明確核准，才可以把 architecture gate 設為 approved。
+> - 沉默、Enter、沒有再提出修改、requirement 已核准，都**不等於架構核准**。
+> - Agent 不得自行 approve，也不得用「符合既有架構」取代人的決策。
+> - 架構任何實質修訂都必須回到 `pending` 並重新取得核准。
+
+#### 3-4. 收尾
+
+只有 3-3 已取得使用者明確核准後，依序執行：
+
+```bash
+# 先完成 arch；runtime 規定 source step 完成後才能批准 architecture gate
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --step arch --status done --phase arch
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase arch
+
+# 這一行代表「人類剛剛明確核准」，Agent 不得自行觸發
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name architecture --status approved --by human \
+  --reason "user explicitly approved current architecture"
+
+# exit gate：architecture 未 approved/waived 就不能安全進 build
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
+  --expect-phase arch --require-gate architecture
 ```
 
 ---
@@ -219,7 +271,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 | # | 檢查項目 | 驗證方式 | 失敗處理 |
 |---|---------|---------|---------|
-| E0 | 狀態已更新 | spec pass：`validate --expect-phase spec --require-gate requirement`；db/arch pass：`validate --expect-phase {db\|arch}` | 依訊息修正後重跑；仍失敗 → `crew-state.py rebuild --slug {slug}` |
+| E0 | 狀態已更新 | spec：`validate --expect-phase spec --require-gate requirement`；db：`validate --expect-phase db`；arch：`validate --expect-phase arch --require-gate architecture` | 依訊息修正後重跑；仍失敗 → `crew-state.py rebuild --slug {slug}` |
 | E1 | 六個錨點註解仍各只出現一次 | `grep -c 'crew:goal\|crew:ac\|crew:dec\|crew:risk\|crew:map\|crew:rep' .spec/{slug}/plan.md` 為 6 | 表示有人整段取代了骨架 → 用 `git diff` 找回被吃掉的條目再補 |
 | E2 | plan.md 未超篇幅 | `wc -l .spec/{slug}/plan.md` ≤ 100 | 壓縮既有條目或 supersede，🔴 不得另開檔案 |
 | E3 | 沒有抄寫程式碼事實 | plan.md 內無 `CREATE TABLE`／方法簽章／API 端點表 | 刪掉抄寫段，改成 `@code:` / `@sql:` 錨點 |
@@ -261,7 +313,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 - **「取代整段」是這份文件最大的風險**：三個 pass 共用決策紀錄／風險／指路三節。任何一個 pass 用整節取代，都會靜默吃掉別的 pass 寫的條目，而 lint 與測試都抓不到。收工前用 `git diff -U0 .spec/{slug}/plan.md | grep '^-'` 確認刪除行數為 0（修訂 goal／ac 除外）。
 - **錨點註解不可美化**：`<!-- crew:dec  append-only -->` 的空白數量都是插入點比對的一部分，不要重新對齊或翻譯。
-- **單跑不等於可以跳過確認**：`/plan spec` 一樣要跑完規格確認迴圈；`/plan db`、`/plan arch` 一樣要在寫入後摘要給使用者看。
+- **單跑不等於可以跳過確認**：`/plan spec` 必須完成 requirement confirmation；`/plan arch` 必須完成 architecture confirmation；`/plan db` 寫入後仍要摘要結果，但沒有獨立人類 approval gate。
 - **DB_REQUIRED=false 要留痕**：跳過 db pass 時務必寫 `--status skipped --reason`，否則下游只會看到「沒有 deploy.sql」而必須用猜的。
 - **委派的 model 目標**：prompt 中只寫模型名稱不算；capability request 必須帶結構化 `model`，Host 對映與降級規則見 `references/host-capabilities.md`，角色政策見 `references/model-policy.md`。
 - **plan.md 不是需求垃圾桶**：使用者貼的長需求原文不要整段收進來 —— 萃取成目標／驗收條件／決策，原文留在 Notion 頁面。
