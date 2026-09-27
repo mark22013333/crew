@@ -31,6 +31,7 @@ drift_policy: off
 - [x] AC-17 Phase 3B state.json 具 approval gates，未核准需求不得進 build。
 - [x] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
 - [ ] AC-19 Phase 3B Skills 只在使用者明確核准後呼叫 crew-state.py gate，不得由 Agent 自行 approve。
+- [ ] AC-20 `/plan` arch pass 提供明確人工確認迴圈，只有本輪確認後才寫 architecture=approved；架構修訂會讓舊 approval 失效。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -108,3 +109,8 @@ drift_policy: off
 - [2026-09-27] [phase3b-1] crew-state.py 新增 `gate` 子命令；`set` 對 DB/arch/build 做 transition hard block；`next` 會停在人類核准點；`validate --require-gate` 可作 exit gate。
 - [2026-09-27] [phase3b-1] Commit `42f70cb`；GitHub Actions run 36301348637 共 13 個 job 全部 success，含新的 Approval gates smoke test。
 - [2026-09-27] [next] 下一小批只整合 `/plan` spec confirmation → requirement gate，以及 `/plan-build` 前置檢查 → requirement+architecture gate；不碰 UAT gate、不改 bug workflow。
+
+- [2026-09-27] [phase3b-2a] `/plan` spec confirmation 已接 requirement gate：spec 修訂先 reset requirement=pending；只有使用者在本輪明確回覆 OK/確認後，才先寫 spec=done 再 gate requirement=approved，並以 validate --require-gate requirement 收尾。
+- [2026-09-27] [phase3b-2a] `/plan-build` 前置條件新增 runtime validate requirement + architecture；任一 gate 未通過立即 BLOCK，且明文禁止 plan-build 自行 approve architecture。
+- [2026-09-27] [phase3b-2a] Commit `8098ba9`；GitHub Actions run 36301550205 共 13 個 job 全部 success。
+- [2026-09-27] [next] 下一小批只整合 `/plan` arch pass 的人工確認迴圈 → architecture gate；架構被修改時先 reset pending。完成後再評估 AC-19 是否可勾選；不碰 UAT、不碰 bug workflow。
