@@ -13,6 +13,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 RESOLVER = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-config.py"
 BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
+EVIDENCE_COLLECTION = REPO / "plugins" / "bug-workflow" / "references" / "evidence-collection.md"
+LEARNINGS_SCHEMA = REPO / "plugins" / "bug-workflow" / "references" / "learnings-schema.md"
 
 
 def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -155,6 +157,19 @@ def main() -> int:
         assert "~/.claude/bug-workflow/learnings" not in bug_close_text
         assert "~/.claude-company/bug-workflow/learnings" not in bug_close_text
         print("✅ bug-close writes learnings through portable config resolver")
+
+        evidence_text = EVIDENCE_COLLECTION.read_text(encoding="utf-8")
+        schema_text = LEARNINGS_SCHEMA.read_text(encoding="utf-8")
+        for ref_text in (evidence_text, schema_text):
+            assert "crew-config.py" in ref_text
+            assert "--key bug/learning" in ref_text
+            assert "--mode read" in ref_text
+            assert "--format path" in ref_text
+            assert ".claude-company" not in ref_text
+            assert "~/.claude/bug-workflow/learnings" not in ref_text
+        assert "[ -f \"$LEARN_FILE\" ]" in evidence_text
+        assert "bug/learning --project-slug {project-slug}" in schema_text
+        print("✅ bug learning reads resolve through portable contract")
 
         print("✅ portable config resolver smoke tests passed")
         return 0
