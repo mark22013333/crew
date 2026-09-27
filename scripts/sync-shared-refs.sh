@@ -30,6 +30,7 @@ SHARED_FILES=(
   state-discipline.md
   model-policy.md
   host-capabilities.md
+  model-routing.json
 )
 SRC_DIR="$REPO_ROOT/plugins/bug-workflow/references"
 DST_DIR="$REPO_ROOT/plugins/feature-workflow/references"
@@ -40,6 +41,7 @@ DST_DIR="$REPO_ROOT/plugins/feature-workflow/references"
 # 目標目錄不存在則自動 mkdir -p。
 SHARED_SCRIPTS=(
   scripts/crew-state.py
+  scripts/crew-model-route.py
 )
 SRC_PLUGIN="$REPO_ROOT/plugins/bug-workflow"
 DST_PLUGIN="$REPO_ROOT/plugins/feature-workflow"
@@ -53,8 +55,8 @@ usage() {
 
 權威來源：plugins/bug-workflow/（只改這份，改完跑本腳本同步）
 同步目標：plugins/feature-workflow/
-共用 reference：prerequisites.md、db-templates.md、discipline-preamble.md、notion-backend.md、state-discipline.md、model-policy.md、host-capabilities.md
-共用 script：scripts/crew-state.py（來源尚未建立時跳過；目標目錄自動 mkdir -p）
+共用 reference：prerequisites.md、db-templates.md、discipline-preamble.md、notion-backend.md、state-discipline.md、model-policy.md、host-capabilities.md、model-routing.json
+共用 script：scripts/crew-state.py、scripts/crew-model-route.py（來源尚未建立時跳過；目標目錄自動 mkdir -p）
 EOF
 }
 
