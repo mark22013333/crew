@@ -24,7 +24,7 @@ argument-hint: "[--with-test|--no-test] [--backend-only] [--dry-run] [--resume]"
 - 有 `parallel_delegate` → 互不衝突的角色可平行。
 - 只有單一 delegate / subagent → 依序委派。
 - 沒有 subagent → 主 Agent inline 依角色契約執行。
-- Claude Code 若選擇 Agent Teams 作為 adapter，可依該 Host 自行啟用；CREW workflow 不再直接依賴其環境變數。
+- Host-specific 的平行執行設定由 adapter 處理；CREW workflow 不直接依賴任何特定產品的 Team 環境變數。
 
 ### 規劃內容
 
