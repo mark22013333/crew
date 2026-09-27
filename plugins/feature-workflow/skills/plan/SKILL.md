@@ -105,14 +105,38 @@ argument-hint: "[spec|db|arch]"
   • 若確認沒問題，我會繼續下一個 pass
 ```
 
-使用者提出修改 → 只 Edit 受影響的那幾行（不重寫整節）→ 摘要本次修改 → 再問一次。
+使用者提出修改 → **先讓既有 requirement approval 失效**（若原本已 approved/waived），再只 Edit 受影響的那幾行（不重寫整節）→ 摘要本次修改 → 再問一次：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name requirement --status pending --by crew \
+  --reason "spec revised; human re-approval required"
+```
+
 使用者回「沒問題／OK／確認／可以了」才算通過。
+
+> 🔴 **Approval Gate 硬規則**：
+> - 只有使用者在**本次確認迴圈中明確表示核准**，才可以把 requirement gate 設為 approved。
+> - 沉默、Enter、沒有提出修改、前一輪曾經核准，都**不等於本次核准**。
+> - Agent 不得自行 approve，不得因為「規格看起來合理」代替使用者決策。
+> - spec 任何實質修訂都要重新核准；不得沿用舊 approval。
 
 #### 1-4. 收尾
 
+只有在 1-3 已取得使用者明確核准後，依序執行：
+
 ```bash
+# 先完成 spec；runtime 規定 source step 完成後才能批准 requirement gate
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --step spec --status done --phase spec
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase spec
+
+# 這一行代表「人類剛剛明確核准」，Agent 不得自行觸發
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name requirement --status approved --by human \
+  --reason "user explicitly approved current spec"
+
+# exit gate：requirement 未 approved/waived 就視為 spec pass 尚未安全收尾
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
+  --expect-phase spec --require-gate requirement
 ```
 
 ---
@@ -195,7 +219,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 | # | 檢查項目 | 驗證方式 | 失敗處理 |
 |---|---------|---------|---------|
-| E0 | 狀態已更新 | 該 pass 的 `crew-state.py validate --expect-phase {spec\|db\|arch}` exit 0 | 依訊息修正後重跑；仍失敗 → `crew-state.py rebuild --slug {slug}` |
+| E0 | 狀態已更新 | spec pass：`validate --expect-phase spec --require-gate requirement`；db/arch pass：`validate --expect-phase {db\|arch}` | 依訊息修正後重跑；仍失敗 → `crew-state.py rebuild --slug {slug}` |
 | E1 | 六個錨點註解仍各只出現一次 | `grep -c 'crew:goal\|crew:ac\|crew:dec\|crew:risk\|crew:map\|crew:rep' .spec/{slug}/plan.md` 為 6 | 表示有人整段取代了骨架 → 用 `git diff` 找回被吃掉的條目再補 |
 | E2 | plan.md 未超篇幅 | `wc -l .spec/{slug}/plan.md` ≤ 100 | 壓縮既有條目或 supersede，🔴 不得另開檔案 |
 | E3 | 沒有抄寫程式碼事實 | plan.md 內無 `CREATE TABLE`／方法簽章／API 端點表 | 刪掉抄寫段，改成 `@code:` / `@sql:` 錨點 |

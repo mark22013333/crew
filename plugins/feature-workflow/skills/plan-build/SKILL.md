@@ -37,6 +37,19 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 `steps.arch.status` 不是 `done`／`skipped` → **禁止繼續**，告知使用者先執行 `/plan arch`。
 `.spec/{slug}/plan.md` 的「決策紀錄」查無 `D-1 [spec] 範圍判斷` → 同樣禁止繼續，先執行 `/plan spec`。
 
+接著由 runtime 驗證兩個人類 Approval Gate：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
+  --require-gate requirement --require-gate architecture
+```
+
+驗證非 0 → **立即 BLOCK，不建立探索官、不建立實作者、不修改正式程式碼**。
+
+- `requirement` 未通過 → 回到 `/plan spec` 的確認迴圈取得使用者明確核准。
+- `architecture` 未通過 → 告知使用者目前架構尚待人工核准；本 skill **不得自行執行 `gate ... --status approved`**。
+- 🔴 使用者以前說過「可以」不代表目前版本仍核准；只相信 `state.json.gates`。
+
 > **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查專案指令是否存在。
 
 ---

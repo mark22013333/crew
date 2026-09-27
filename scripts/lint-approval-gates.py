@@ -11,6 +11,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-state.py"
+PLAN_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan" / "SKILL.md"
+PLAN_BUILD_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-build" / "SKILL.md"
 
 
 def run(project: Path, *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -97,6 +99,17 @@ def main() -> int:
                 "--require-gate", "requirement", "--require-gate", "architecture"
             )
             print("✅ legacy state migrates completed spec/arch to approved gates")
+
+        plan_text = PLAN_SKILL.read_text(encoding="utf-8")
+        build_text = PLAN_BUILD_SKILL.read_text(encoding="utf-8")
+
+        assert "--name requirement --status approved --by human" in plan_text
+        assert "--name requirement --status pending --by crew" in plan_text
+        assert "--require-gate requirement" in plan_text
+
+        assert "--require-gate requirement --require-gate architecture" in build_text
+        assert "--name architecture --status approved" not in build_text
+        print("✅ feature skills wire requirement approval and build gate checks safely")
 
         print("✅ approval gate smoke tests passed")
         return 0
