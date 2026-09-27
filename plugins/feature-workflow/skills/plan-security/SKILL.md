@@ -15,7 +15,7 @@ argument-hint: "[--quick] [--fix]"
 
 ## 前置條件
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查 CLAUDE.md 是否存在。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查專案指令是否存在。
 
 - 建議已執行 `/plan-build` 產生程式碼
 - 若無 plan-build 產出，可對任何已有程式碼執行
@@ -59,7 +59,7 @@ git status --porcelain                                            # 尚未 commi
 
 - `.spec/{slug}/plan.md` — 目標與範圍、驗收條件 `AC-n`、決策紀錄 `D-n`（權限模型、遮罩策略等安全相關決策與**被否決的方案**）、已知取捨與風險（已列為接受的風險不要再報成漏洞）、指路錨點
 - `.spec/{slug}/deploy.sql` — 表結構與欄位（敏感欄位的唯一事實來源；欄位名、型別、約束都在這裡）
-- 專案 CLAUDE.md — 安全框架（ESAPI? Spring Security? 自訂 Filter?）
+- `project_instructions` — 安全框架（ESAPI? Spring Security? 自訂 Filter?）
 
 ### 4. 確認執行計畫
 
@@ -93,7 +93,7 @@ git status --porcelain                                            # 尚未 commi
 
 ### 6. Layer 2：上下文感知掃描（AI 判斷，需讀設計文件）
 
-使用 **Agent tool** 啟動 subagent（model: opus）：
+依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**（role=`security-reviewer`、`model: opus`）：
 
 ```
 你是安全工程師，負責上下文感知的安全掃描。
@@ -105,7 +105,7 @@ git status --porcelain                                            # 尚未 commi
 {deploy.sql 全文（表、欄位、索引、約束）}
 
 ## 專案安全框架
-{CLAUDE.md 中的安全相關段落}
+{project_instructions 中的安全相關段落}
 
 ## 程式碼
 {Layer 1 掃描過的檔案內容}
@@ -138,7 +138,7 @@ git status --porcelain                                            # 尚未 commi
 
 ### 7. Layer 3：對抗性思維（AI 扮演攻擊者）
 
-使用 **Agent tool** 啟動 subagent（model: opus）：
+依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**（role=`security-reviewer`、`model: opus`）：
 
 ```
 你是滲透測試工程師，對以下程式碼進行三角色對抗分析。
@@ -274,7 +274,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 🎉 無嚴重安全漏洞！
 
 後續可使用：
-  • /plan-review  — Agent Teams 程式碼審查
+  • /plan-review  — 多角色程式碼審查
   • /plan-verify  — 驗收驗證
   • /plan-close   — 結案並同步 Notion
 ```
