@@ -28,8 +28,9 @@ drift_policy: off
 - [x] AC-14 Phase 2 完成後既有 CI 全綠，未破壞 state writer / skill contract / manifest / drift 檢查。
 - [x] AC-15 Phase 3A 建立 NONE/FAST/STANDARD/DEEP model profile 與 deterministic router。
 - [x] AC-16 Phase 3A 純探索/蒐證工作可路由 FAST；架構/DB/security 保持 DEEP。
-- [ ] AC-17 Phase 3B state.json 具 approval gates，未核准需求不得進 build。
-- [ ] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
+- [x] AC-17 Phase 3B state.json 具 approval gates，未核准需求不得進 build。
+- [x] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
+- [ ] AC-19 Phase 3B Skills 只在使用者明確核准後呼叫 crew-state.py gate，不得由 Agent 自行 approve。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -46,6 +47,7 @@ drift_policy: off
 - D-12 [phase2] 無 subagent → inline、無 multi-agent → sequential、無 per-worker model → routing_degraded；不得假裝能力存在。
 - D-13 [phase2] AGENTS.md 與 CLAUDE.md 都是 project_instructions；有衝突必須留下歧義，不自行忽略其中一份。
 - D-14 [phase3] Model Profile 先抽象後調參；Phase 3A 只把機械型唯讀工作移到 FAST，高風險角色先維持既有 DEEP。
+- D-15 [phase3b] Approval Gate 是 runtime hard rule：requirement 核准前禁止 DB/arch/build；architecture 核准前禁止 build。UAT 先進 schema 但本批不強制 close，待 UAT workflow 整合後再啟用。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -101,3 +103,8 @@ drift_policy: off
 - [2026-09-27] [phase3a-2c] Commit `f329d11`；GitHub Actions run 36300907510 共 12 個 job 全部 success。
 - [2026-09-27] [phase3a] AC-15/AC-16 完成。FAST 已接到 plan-build explorer、bug-investigate evidence collection、bug-fix read-only locating/verification summary；DB/architecture/security 與正式 write role 保持 DEEP。
 - [2026-09-27] [next] 下一階段 Phase 3B：只先設計 state.json approval gate schema 與 crew-state.py transition contract；第一小批不要直接改所有 Skill。
+
+- [2026-09-27] [phase3b-1] state.json 新增 requirement / architecture / uat gates；新任務預設 pending，舊任務若 spec/arch 已完成則 migration-approved，避免升級後卡死既有工作。
+- [2026-09-27] [phase3b-1] crew-state.py 新增 `gate` 子命令；`set` 對 DB/arch/build 做 transition hard block；`next` 會停在人類核准點；`validate --require-gate` 可作 exit gate。
+- [2026-09-27] [phase3b-1] Commit `42f70cb`；GitHub Actions run 36301348637 共 13 個 job 全部 success，含新的 Approval gates smoke test。
+- [2026-09-27] [next] 下一小批只整合 `/plan` spec confirmation → requirement gate，以及 `/plan-build` 前置檢查 → requirement+architecture gate；不碰 UAT gate、不改 bug workflow。
