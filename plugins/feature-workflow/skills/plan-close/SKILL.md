@@ -38,7 +38,7 @@ Bug 類型還需 bug-workflow 設定檔（`~/.claude-company/bug-workflow-config
 - 已完成規劃和開發（`.spec/{slug}/plan.md` 各節有內容）
 - 程式碼已 commit
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定目錄 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
 ---
 
@@ -85,7 +85,7 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 
 > 若 `prod_branch` 未設定（舊專案），回退邏輯：先取 `origin/HEAD` 指向的分支，若無則依序嘗試 `production` → `master` → `main`。
 
-根據 CLAUDE.md 的架構描述，產出分層變更摘要。
+根據 `project_instructions` 的架構描述，產出分層變更摘要。
 
 ### 4. 智慧判斷目標狀態
 
@@ -385,7 +385,7 @@ Notion API 呼叫統計：{N} 次（fetch: 1, update: 2, create: 1{, 關聯更�
 
 後續事項：
   📋 測試驗證：在 Notion 頁面勾選驗證項目
-  🔀 Git 合併：{根據 CLAUDE.md Git Flow 產出合併建議}
+  🔀 Git 合併：{根據 project_instructions 的 Git Flow 產出合併建議}
 ```
 
 ---
@@ -426,4 +426,4 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 - **知識庫 ID 為空**：跳過知識庫同步
 - **來源 feature 的 Notion 頁面不存在**：跳過關聯更新，提示使用者
 - **Notion API 失敗**：顯示已完成和失敗的步驟，建議用 `/plan-sync` 重試（此時 git commit 與蓋章已完成，不需重跑漂移檢查）
-- **CLAUDE.md 無 Git Flow 描述**：使用通用提示
+- **project_instructions 無 Git Flow 描述**：使用通用提示
