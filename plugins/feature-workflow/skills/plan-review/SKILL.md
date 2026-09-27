@@ -15,25 +15,15 @@ argument-hint: "[--quick]"
 
 ## 前置條件
 
-### 環境變數
+### Host capability
 
-必須啟用 Agent Teams 實驗功能（同 plan-build，擇一設定）：
+載入 `../../references/host-capabilities.md`。完整審查優先使用 `parallel_delegate`，但平行能力只是最佳化：
 
-**方式 A**：加入 shell profile（`~/.zshrc` 或 `~/.bashrc`）
-```bash
-export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
-```
+- 有 `parallel_delegate` → 3 個 reviewer 可平行。
+- 只有一般 delegate → 3 個 reviewer 依序執行。
+- 無 subagent → 主 Agent inline 執行 3 個唯讀 role。
 
-**方式 B**：加入 settings.json 的 `env` 區塊
-```json
-{
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  }
-}
-```
-
-> ⚠️ 未設定時，建立 Agent Team 的指令會**靜默失敗**（不報錯但不產出 Reviewer 結果），難以 debug，務必在此先確認已設定。
+不得因某家 Host 的 Team 功能或環境變數未啟用而阻擋審查。
 
 ### 程式碼
 
