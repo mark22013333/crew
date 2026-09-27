@@ -40,10 +40,10 @@ description: 純本地產出範例 .spec/ 任務，不依賴 Notion / 多角色�
 - ❌ Notion 授權
 - ❌ 平行委派能力（本 demo 不需要）
 - ❌ DB MCP 安裝
-- ❌ CLAUDE.md 或 /project-add 註冊
+- ❌ `AGENTS.md` / `CLAUDE.md` 或 /project-add 註冊
 - ❌ `/bug-setup` 或 `/plan-setup`
 
-若 CLAUDE.md 存在，demo 會用其中的技術棧資訊讓範例更貼合；若無，使用 `spring-boot-jpa` 預設範例。
+若 `project_instructions` 可取得專案技術棧，demo 會用它讓範例更貼合；若無，使用 `spring-boot-jpa` 預設範例。
 
 ---
 
@@ -56,7 +56,7 @@ description: 純本地產出範例 .spec/ 任務，不依賴 Notion / 多角色�
 ```
 題目：使用者管理 API
 描述：提供使用者新增、查詢、更新、刪除（CRUD），含分頁與基本驗證
-技術棧：Spring Boot + JPA（若 CLAUDE.md 偵測到其他棧則替換）
+技術棧：Spring Boot + JPA（若 `project_instructions` 偵測到其他棧則替換）
 ```
 
 使用者指定 → 用該描述。
@@ -269,7 +269,7 @@ demo 任務會與真實任務混在同一份清單顯示，不會標示「[DEMO]
 
 - **demo 任務會混進真實任務清單**：`crew-state.py list` 掃的是 `.spec/*/state.json`，demo 也有一份，因此 `/plan-status`、`/plan-next --all`、SessionStart 開場提醒都會看到它。目前不會標示「[DEMO]」也不會分組，用完建議 `--cleanup` 清除
 - **骨架一個字都不能改**：demo 的 plan.md 六行錨點註解（含空白數量）必須與 `/plan-start` 建的完全相同。改掉一個字，評估者拿 demo 去跑 `/plan` 時 Edit 會找不到插入點
-- **CLAUDE.md 技術棧偵測不到** → 用 `spring-boot-jpa` 預設範本；不阻擋
+- **project_instructions 無法取得技術棧** → 用 `spring-boot-jpa` 預設範本；不阻擋
 - **重複跑 /plan-demo** → 若 `.spec/demo-{slug}/` 已存在，提示「是否覆寫？」；確認覆寫才對 `crew-state.py init` 加 `--force`（不問就 `--force` 會蓋掉別人的狀態檔）
 - **demo 不會建立 Git branch**：避免污染分支樹。真實 plan-start 會建分支
 
