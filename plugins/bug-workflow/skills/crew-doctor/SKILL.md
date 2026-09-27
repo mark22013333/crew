@@ -190,7 +190,7 @@ CREW 環境健診摘要
    ❌ Notion MCP 未安裝
       → 修法：claude plugin install notion
       → 安裝後重啟 Claude Code
-   ✅ Agent Teams 啟用（settings.json）
+   ✅ 委派能力：parallel_delegate 可用
    ✅ CLAUDE.md 存在於 /Users/cheng/IdeaProjects/MyProject
    ✅ bug-workflow-config.md 存在
    ✅ feature-workflow/config.md 存在
