@@ -73,6 +73,7 @@ drift_policy: off
 - D-26 [convergence] state schema 升到 v2 並採 type-aware steps：feature=`start/spec/db/arch/build/security/verify/review/close`；bug=`start/investigate/fix/close`。Bug 的編譯/測試/迴歸證據屬 fix work units，不為了對齊 Feature 而偽造 verify/review phase。
 - D-27 [convergence] `crew-state.py next` 對 type=bug 獨立決策：investigate 未完成→`/bug-investigate`；fix 未完成→`/bug-fix`；fix 完成且 UAT pending→`/bug-close`；UAT rejected→回 `/bug-fix`；close 完成→結案。
 - D-28 [convergence] schema v1 Bug state normalize 到 v2 時不搬運舊 Feature steps 當 Bug 進度；只保留同義的 start/close，新增 investigate/fix，並可由 `work_unit.skill` 修正 phase。
+- D-29 [convergence] `/bug-start` 是 Bug runtime 的最小入口：建立 Notion Bug + `.spec/{slug}/state.json`，但不建立 `plan.md` 或新 Git branch。slug 沿用 `/plan-start` 的英文 kebab-case + collision suffix 規則；Notion 暫時失敗也不得讓 Bug lifecycle 沒有 state。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -182,3 +183,9 @@ drift_policy: off
 - [2026-09-27] [convergence-2] 新增 `scripts/lint-state-lifecycle.py` 與 CI `State lifecycle` job，驗證 Feature/Bug 隔離、Bug transition、UAT close gate、schema v1→v2 normalization。
 - [2026-09-27] [convergence-2] Commit `922d873`；GitHub Actions run 36320796124（#99）共 14 個 job 全部 success。
 - [2026-09-27] [next] AC-28 採逐支接線。下一小批只處理 `/bug-start`：建立/定位 slug 後呼叫 `crew-state.py init --type bug`，補最小 Skill contract/CI；不要同批修改 bug-investigate 或 bug-fix。
+
+- [2026-09-27] [convergence-3] `/bug-start` 已接 `crew-state.py init --type bug`：建立最小 `.spec/{slug}/state.json`，不建立 plan.md、不建立新 branch；branch/commit/page-id 有資料才寫入。
+- [2026-09-27] [convergence-3] slug 規則與 `/plan-start` 對齊：問題簡述→英文 kebab-case，同名 `.spec` 加數字後綴；state collision 禁止使用 `init --force`。
+- [2026-09-27] [convergence-3] Notion API 暫時失敗時仍建立本地 Bug state（page id 留空），避免 intake 成功但 runtime 無斷點。
+- [2026-09-27] [convergence-3] Commit `fb26755`；GitHub Actions run 36323564244（#101）共 14 個 job 全部 success。
+- [2026-09-27] [next] AC-28 繼續逐支接線。下一小批只處理 `/bug-investigate`：進入時寫 investigate=in_progress／work_unit，根因調查正式完成時寫 investigate=done；中斷時 next 應回 `/bug-investigate --resume`。不要同批修改 `/bug-fix`。
