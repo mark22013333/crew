@@ -36,7 +36,7 @@ description: CREW 環境健診 —— 一次性檢查必要與選配依賴（Nod
 | 2 | Git | `git --version` | 對應 OS 安裝指令 |
 | 3 | Notion 能力 | 依 `host-capabilities.md` 的 `tool_probe(tool_kind=notion)` | 提示目前 Host 的 Notion plugin/MCP 安裝方式 |
 | 4 | 委派能力 | 探測 `delegate_readonly` / `parallel_delegate` 可用層級 | 無平行能力可序列執行，不視為 BLOCK |
-| 5 | CLAUDE.md 在當前專案 | `ls CLAUDE.md` | `/init` |
+| 5 | 專案指令 | `test -f AGENTS.md || test -f CLAUDE.md` | Codex 建立 `AGENTS.md`；Claude Code 可用 `/init` |
 | 6 | bug-workflow 設定檔 | `~/.claude-company/bug-workflow-config.md` | `/bug-setup` |
 | 7 | feature-workflow 設定 | `~/.claude-company/feature-workflow/config.md` | `/plan-setup` |
 | 8 | 專案註冊 | `~/.claude-company/feature-workflow/projects/{repo-id}.md` | `/project-add` |
@@ -160,7 +160,7 @@ CREW 環境健診摘要
 **不會自動修復**（仍要使用者操作）：
 - MCP 安裝（要 `claude plugin/mcp` 指令）
 - Notion 授權（互動式 OAuth）
-- CLAUDE.md 建立（要 `/init`）
+- 專案指令建立（Codex：`AGENTS.md`；Claude Code：可用 `/init` 建立 `CLAUDE.md`）
 - Notion 資料庫建立（要 `/bug-setup` 互動建立）
 
 `--fix` 修了什麼會明確列出，並建議再跑一次 `/crew-doctor` 確認。
@@ -191,7 +191,7 @@ CREW 環境健診摘要
       → 修法：claude plugin install notion
       → 安裝後重啟 Claude Code
    ✅ 委派能力：parallel_delegate 可用
-   ✅ CLAUDE.md 存在於 /Users/cheng/IdeaProjects/MyProject
+   ✅ 專案指令存在：AGENTS.md
    ✅ bug-workflow-config.md 存在
    ✅ feature-workflow/config.md 存在
    ❌ 專案未註冊（找不到 projects/{repo-id}.md）
