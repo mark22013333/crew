@@ -37,6 +37,12 @@ drift_policy: off
 - [x] AC-23 Bug workflow 建立合法的人類 UAT 寫入點：`/bug-close` 只能在使用者明確接受修復後寫 `uat=approved`；Agent 不得把 C1-C4 或測試結果自動等同 UAT。
 - [x] AC-24 UAT gate prerequisite 改為 type-aware：feature 仍要求 review 完成；bug 不得被 feature 的 review prerequisite 卡死。
 - [x] AC-25 Feature + Bug 都有合法 UAT 路徑後，再啟用 close→uat runtime hard block，並以 smoke test 驗證兩種 type 都能合法結案、未核准都會 BLOCK。
+- [x] AC-26 Phase 1～3B 收斂盤點完成：確認 Phase 4 Runtime/MCP 目前沒有必要，先處理 repo-native 的 state/model/host-management 技術債。
+- [ ] AC-27 Bug state lifecycle contract 改為 type-aware：runtime 不再讓 `type=bug` 走 feature 的 spec/db/arch/build next 決策，並先以 deterministic smoke test 定義合法轉移。
+- [ ] AC-28 Bug skills 逐批接上 state lifecycle：`bug-start` init、`bug-investigate` 進度、`bug-fix` 修復/驗證、`bug-close` 結案；中斷後 `next/session-brief` 可正確續跑。
+- [ ] AC-29 剩餘 provider-specific model callsites（plan/plan-build/plan-review/bug-investigate/bug-fix）完成 profile routing 遷移，不再靠 legacy sonnet/opus 名稱。
+- [ ] AC-30 Host-management/setup portability 收斂：將設定路徑與 plugin CLI 類 advisory 分離成 portable config contract / host-specific 管理 adapter；核心 workflow 維持 hard=0。
+- [ ] AC-31 v1 legacy retirement 具明確移除條件與版本/日期，不在條件未滿足前刪相容層。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -59,6 +65,11 @@ drift_policy: off
 - D-18 [phase3b] close hard gate 的正確導入順序：先讓 UAT prerequisite type-aware → `/bug-close` 加人類 acceptance gate → 再把 `close` 加入 runtime transition gate。v1 feature 不受此變更影響，因 legacy-v1 相容模式本來就不呼叫 `crew-state.py`。
 - D-19 [phase3b] UAT source prerequisite 採 type-aware：feature 必須 `review=done/skipped`；bug 不要求 feature review step，由 `/bug-close` 的本輪 explicit human acceptance 決定 UAT。這不是降低核准標準，而是對齊兩種 workflow lifecycle。
 - D-20 [phase3b] `TRANSITION_GATES["close"] = ["uat"]` 正式啟用。`/plan-close` 與 `/bug-close` 每次執行都先 reset `uat=pending`，強制本輪重新取得 Human UAT，避免 stale approval；Feature 的 `/plan-next` 在 review 完成後指向 `/plan-close` 作為 UAT + 結案入口。
+- D-21 [convergence] 暫不進 Phase 4 Runtime/MCP。現有 `crew-state.py` + model router + Approval Gate + Host Capability Contract 已能處理目前已知的 deterministic orchestration；尚無需要常駐服務、跨 session server 或 MCP runtime 才能解的實證痛點。
+- D-22 [convergence] 最高優先技術債是 Bug state model：`crew-state.py` 的 `STEPS` / `compute_next` 仍是 feature lifecycle，`type=bug` 沒有獨立 next 規則；同時 `bug-start` / `bug-investigate` / `bug-fix` 幾乎沒有實際 state transition，與 `state-discipline.md` 的承諾不一致。
+- D-23 [convergence] Host portability 核心已收斂：CI run #97 的 Host portability 為 hard=0；仍有 134 個 advisory / 31 個檔案，其中 82 個是 Claude config path、20 個是 Claude plugin CLI、32 個是 CLAUDE.md。這些主要集中 setup/admin/config，不應拿來當建立 Phase 4 server 的理由。
+- D-24 [convergence] Model routing 尚有刻意保留的 legacy callsites：plan、plan-build、plan-review、bug-investigate、bug-fix 仍由 lint 允許 sonnet/opus 結構化名稱；下一階段應繼續 profile 化，而不是用新的 runtime 包住舊模型名稱。
+- D-25 [convergence] v1 相容層先保留。`legacy-v1.md` 已宣告「一個 minor 或 90 天」但沒有機器可判定的明確 retirement marker；先補明確移除條件，再刪 plan/status/next/build/close 等相容分支。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -155,3 +166,10 @@ drift_policy: off
 - [2026-09-27] [phase3b-3d] Feature commit `6186c67`；smoke-test 對齊 commit `00d2565`；GitHub Actions run 36317931121（#96）共 13 個 job 全部 success。
 - [2026-09-27] [phase3b] AC-17～AC-25 全部完成：requirement / architecture / UAT 三道人類決策 Gate 已由 runtime hard rule 強制。
 - [2026-09-27] [next] Phase 3B 已完成。下一小批不要直接做 Phase 4 Runtime/MCP；先做一次「Phase 1～3B 收斂盤點」：找出仍殘留的 Host-specific / legacy / state lifecycle 缺口，判斷哪些值得進 Phase 4，哪些應留給後續版本。AC-1 的 Codex CLI 實機 smoke 仍保持未勾選，沒有實際 CLI 就不得宣稱完成。
+
+- [2026-09-27] [convergence-1] Phase 1～3B 收斂盤點完成。Host portability CI #97：hard=0、advisory=134（31 files）；advisory 分布為 CLAUDE_CONFIG_PATH=82、CLAUDE_PLUGIN_CLI=20、CLAUDE_MD=32，主要集中 setup/admin/config 面。
+- [2026-09-27] [convergence-1] 發現最高優先 correctness gap：`crew-state.py compute_next` 沒有依 type 分流，`type=bug` 仍會依 spec→db→arch→build 的 Feature 流程判位；而 bug-start/investigate/fix 並未真正寫入對應 state lifecycle。
+- [2026-09-27] [convergence-1] Provider-neutral routing 尚未完全收尾：model lint 仍刻意允許 plan / plan-build / plan-review / bug-investigate / bug-fix 的 legacy sonnet/opus callsites。
+- [2026-09-27] [convergence-1] 決策：Phase 4 Runtime/MCP 延後。現階段缺口可由 repo-native deterministic runtime + Skill contract 修正，新增 server 只會把未收斂的 lifecycle 再包一層。
+- [2026-09-27] [next] 下一小批只設計並實作 **Bug type-aware state lifecycle contract + smoke test**：先讓 runtime 的 `next/phase/steps` 對 bug 有正確語意；不要同批修改所有 bug skills。完成後再逐支把 bug-start/investigate/fix 接上。
+- [2026-09-27] [note] AC-1 仍未完成：尚未在有 Codex CLI 的環境實際執行 marketplace add/install smoke test，不得以結構驗證或 CI 取代。
