@@ -92,3 +92,7 @@ drift_policy: off
 - [2026-09-27] [phase3a-2a] `/plan-build` 探索官已改走 routing task=`repository_search` + `profile: FAST`；Claude adapter 由 Router 對映 haiku/low，Codex 對映 inherit/low reasoning。
 - [2026-09-27] [phase3a-2a] Commit `5f5a4c8`；GitHub Actions run 36300651665 共 12 個 job 全部 success。
 - [2026-09-27] [next] 下一小批只處理 `/bug-investigate` Phase 1 證據蒐集 → FAST；不要同批修改 `/bug-fix` 或 Approval Gate。
+
+- [2026-09-27] [phase3a-2b] `/bug-investigate` Phase 1 證據蒐集已改走 routing task=`evidence_collection` + `profile: FAST`；Phase 2 一般模式比對仍維持 STANDARD，深度根因推理仍只在升級條件成立時進 DEEP。
+- [2026-09-27] [phase3a-2b] Commit `415f7c0`；GitHub Actions run 36300764423 共 12 個 job 全部 success。
+- [2026-09-27] [next] 下一小批只處理 `/bug-fix` 的唯讀定位／驗證整理 → FAST；正式修復實作者仍維持 DEEP，不碰 Approval Gate。
