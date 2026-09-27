@@ -27,7 +27,7 @@ drift_policy: off
 - [x] AC-13 新增 host-portability CI，active Skill/reference 重新引入 Host-specific orchestration 時阻擋 PR。
 - [x] AC-14 Phase 2 完成後既有 CI 全綠，未破壞 state writer / skill contract / manifest / drift 檢查。
 - [x] AC-15 Phase 3A 建立 NONE/FAST/STANDARD/DEEP model profile 與 deterministic router。
-- [ ] AC-16 Phase 3A 純探索/蒐證工作可路由 FAST；架構/DB/security 保持 DEEP。
+- [x] AC-16 Phase 3A 純探索/蒐證工作可路由 FAST；架構/DB/security 保持 DEEP。
 - [ ] AC-17 Phase 3B state.json 具 approval gates，未核准需求不得進 build。
 - [ ] AC-18 Phase 3B crew-state.py next/validate 能以 gate 決定是否 BLOCK，不靠 Skill 自律。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
@@ -96,3 +96,8 @@ drift_policy: off
 - [2026-09-27] [phase3a-2b] `/bug-investigate` Phase 1 證據蒐集已改走 routing task=`evidence_collection` + `profile: FAST`；Phase 2 一般模式比對仍維持 STANDARD，深度根因推理仍只在升級條件成立時進 DEEP。
 - [2026-09-27] [phase3a-2b] Commit `415f7c0`；GitHub Actions run 36300764423 共 12 個 job 全部 success。
 - [2026-09-27] [next] 下一小批只處理 `/bug-fix` 的唯讀定位／驗證整理 → FAST；正式修復實作者仍維持 DEEP，不碰 Approval Gate。
+
+- [2026-09-27] [phase3a-2c] `/bug-fix` 4a 唯讀定位改走 `task: repository_search` + `profile: FAST`；編譯/測試執行視為 NONE，輸出整理用 `task: test_output_summary` + FAST；任何實際寫產品碼或迴歸測試碼仍維持 DEEP。
+- [2026-09-27] [phase3a-2c] Commit `f329d11`；GitHub Actions run 36300907510 共 12 個 job 全部 success。
+- [2026-09-27] [phase3a] AC-15/AC-16 完成。FAST 已接到 plan-build explorer、bug-investigate evidence collection、bug-fix read-only locating/verification summary；DB/architecture/security 與正式 write role 保持 DEEP。
+- [2026-09-27] [next] 下一階段 Phase 3B：只先設計 state.json approval gate schema 與 crew-state.py transition contract；第一小批不要直接改所有 Skill。
