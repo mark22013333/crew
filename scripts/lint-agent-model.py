@@ -10,8 +10,8 @@
   1. STRUCTURED  — 委派 capability／舊式 Agent 呼叫附近必須有結構化 model 或 profile 標示
   2. AGENT_FM    — agents/*.md frontmatter 必須宣告 model，且已知 agent 的值需符合政策
                    （規格分析 agent 不得 opus；正式實作 agent 不得 sonnet）
-  3. ROLE_POLICY — 各 skill 的角色模型對照（bug-investigate 必須 FAST/STANDARD/DEEP 且禁 provider 名稱、
-                   bug-fix 需有 opus 實作者、plan-review --quick 需 sonnet…）
+  3. ROLE_POLICY — 各 skill 的角色模型對照（bug-investigate / bug-fix 必須 provider-neutral profile routing、
+                   plan-review --quick 尚維持 legacy sonnet…）
   4. NL_MODEL    — 禁止用自然語言「使用 Opus 模型」指定模型（除了明確在講「這樣不行」的句子）
   5. VAGUE       — 禁止「視情況使用模型」這類沒有具體參數的含糊措辭
   6. 掃描範圍含 references/ 與 agents/，不只 SKILL.md（自然語言模板也會被實際送出去）
@@ -71,6 +71,11 @@ PROFILE_RE = re.compile(
     re.IGNORECASE,
 )
 
+TASK_RE = re.compile(
+    r"task[\"']?\s*[:=]\s*[\"'`]?(deterministic|state_transition|schema_validation|git_diff|repository_search|evidence_collection|log_summary|test_output_summary|classification|requirement_analysis|routine_review|routine_implementation|unit_test_generation|debugging|architecture|schema_design|security_review|performance_review|deep_investigation|high_risk_implementation)",
+    re.IGNORECASE,
+)
+
 # --- 4. 自然語言指定模型（不算結構化）--------------------------------------
 NL_MODEL_RE = re.compile(r"(?:可)?使用\s*(Opus|Sonnet|Haiku)\s*模型", re.IGNORECASE)
 # 這些字出現在同一行 → 該行是在說明「這樣不行」（政策文件本身要引用反例），不算違規
@@ -119,9 +124,10 @@ ROLE_POLICY = {
         "why": "bug-investigate 已完成 provider-neutral routing：證據 FAST、一般 debugging STANDARD、條件式深度調查 DEEP",
     },
     "bug-fix": {
-        "require": ["opus"],
-        "require_profiles": ["FAST"],
-        "why": "唯讀定位／驗證整理必須走 FAST profile；正式修改實作者仍維持 opus（Phase 3A 保守值）",
+        "require_profiles": ["FAST", "NONE", "DEEP"],
+        "require_tasks": ["repository_search", "test_output_summary", "high_risk_implementation"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "bug-fix 已完成 provider-neutral routing：唯讀定位/整理 FAST、deterministic 驗證 NONE、正式寫入 high_risk_implementation + DEEP",
     },
 }
 
@@ -290,6 +296,14 @@ def check_role_policy(path: Path, text: str) -> list[str]:
         if need.upper() not in found_profiles:
             findings.append(
                 f"{rel(path)}:1 [ROLE_POLICY] 缺少 `profile: {need}` 的結構化標示"
+                f"（{policy['why']}）"
+            )
+
+    found_tasks = {m.group(1).lower() for m in TASK_RE.finditer(text)}
+    for need in policy.get("require_tasks", []):
+        if need.lower() not in found_tasks:
+            findings.append(
+                f"{rel(path)}:1 [ROLE_POLICY] 缺少 `task: {need}` 的結構化標示"
                 f"（{policy['why']}）"
             )
 
