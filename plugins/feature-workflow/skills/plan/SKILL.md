@@ -58,10 +58,10 @@ argument-hint: "[spec|db|arch]"
 
 #### 1-1. 派工
 
-使用 **Agent tool** 啟動 subagent（`{"model": "sonnet"}`，agent：`feature-spec-analyst`）。
+依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-spec-analyst`、`model: sonnet`）。
 
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
-> - 呼叫 Agent tool 時**必須實際傳入** `{"model": "sonnet"}`；只在 prompt 裡描述模型名稱不算，不保證生效。
+> - Capability request 必須實際帶 `model: sonnet`；只在 prompt 裡描述模型名稱不算。Host 若無法精準指定 worker model，依 `host-capabilities.md` 降級並回報。
 > - 本 pass 只做需求分析、程式碼探索與規格判斷；🔴 禁止修改正式程式碼。
 > - 🔴 禁止自動啟動 `/plan-build`（或任何實作階段 skill）、禁止建立 Agent Team、禁止要求 Dynamic Workflow。
 > - 🔴 不得因需求文件多或內容長就自行升級 Opus；範圍過大就分節產出。
@@ -131,9 +131,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --step d
 
 #### 2-2. 派工
 
-使用 **Agent tool** 啟動 subagent（`{"model": "opus"}`，agent：`feature-db-designer`）。表結構、索引、約束與交易一致性屬複雜架構決策，🔴 不得因為「只產一個 SQL 檔」而降為 sonnet。
+依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-db-designer`、`model: opus`）。表結構、索引、約束與交易一致性屬複雜架構決策，🔴 不得因為「只產一個 SQL 檔」而主動降級模型目標。
 
-**輸入**：plan.md 現有內容（目標／驗收條件／決策紀錄）＋ 專案 CLAUDE.md 的 DB 類型 ＋ `~/.claude/rules/database.md`（若存在）＋ 既有 Entity／Mapper 的命名慣例。
+**輸入**：plan.md 現有內容（目標／驗收條件／決策紀錄）＋ `project_instructions` 取得的 DB 類型 ＋ Host 可用的 DB 規則（Claude adapter 可額外讀取 `~/.claude/rules/database.md`）＋ 既有 Entity／Mapper 的命名慣例。
 
 **要求 subagent 產出**：
 
@@ -165,7 +165,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 #### 3-1. 派工
 
-使用 **Agent tool** 啟動 subagent（`{"model": "opus"}`，agent：`feature-backend-designer`）。分層決策與設計模式選擇屬複雜架構決策，🔴 不得降為 sonnet。
+依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-backend-designer`、`model: opus`）。分層決策與設計模式選擇屬複雜架構決策，🔴 不得主動降低模型目標。
 
 **輸入**：plan.md 現有內容 ＋ `deploy.sql`（若有）＋ 專案 package 結構與 1-2 條既有呼叫鏈。
 
@@ -216,8 +216,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
   • 指路錨點 {k} 個
 
 後續可使用：
-  • /plan-build  — Agent Teams 產生程式碼
-  • /plan-review — Agent Teams 審查
+  • /plan-build  — 多角色協作產生程式碼
+  • /plan-review — 多角色程式碼審查
   • /plan-next   — 不確定下一步時問它
 ```
 
@@ -239,5 +239,5 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 - **錨點註解不可美化**：`<!-- crew:dec  append-only -->` 的空白數量都是插入點比對的一部分，不要重新對齊或翻譯。
 - **單跑不等於可以跳過確認**：`/plan spec` 一樣要跑完規格確認迴圈；`/plan db`、`/plan arch` 一樣要在寫入後摘要給使用者看。
 - **DB_REQUIRED=false 要留痕**：跳過 db pass 時務必寫 `--status skipped --reason`，否則下游只會看到「沒有 deploy.sql」而必須用猜的。
-- **subagent 的 model 參數**：prompt 中寫模型名稱只是自然語言指示，不保證生效；必須在 Agent tool 的 `model` 參數實際傳入，政策見 `references/model-policy.md`。
+- **委派的 model 目標**：prompt 中只寫模型名稱不算；capability request 必須帶結構化 `model`，Host 對映與降級規則見 `references/host-capabilities.md`，角色政策見 `references/model-policy.md`。
 - **plan.md 不是需求垃圾桶**：使用者貼的長需求原文不要整段收進來 —— 萃取成目標／驗收條件／決策，原文留在 Notion 頁面。
