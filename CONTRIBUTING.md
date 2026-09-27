@@ -102,7 +102,7 @@ python3.11 scripts/lint-plugin-manifest.py # Claude/portable manifest、hooks、
 python3.11 scripts/lint-skills.py         # SKILL.md frontmatter 與行數
 python3.11 scripts/check-shared-refs.py   # 共用 reference sha256 防漂移
 python3.11 scripts/lint-changelog.py      # CHANGELOG 版本／日期排序
-python3.11 scripts/lint-agent-model.py --strict   # 模型分工政策（違規阻擋）\npython3.11 scripts/lint-host-portability.py --strict # Host-specific orchestration 防回歸
+python3.11 scripts/lint-agent-model.py --strict   # 模型分工政策（違規阻擋）\npython3.11 scripts/lint-model-routing.py     # NONE/FAST/STANDARD/DEEP routing smoke test\npython3.11 scripts/lint-host-portability.py --strict # Host-specific orchestration 防回歸
 python3.11 scripts/lint-skill-contract.py # 觸發詞與內部連結
 python3.11 scripts/lint-readme-sync.py    # README 指令表同步
 python3.11 scripts/lint-state-writers.py --strict  # 狀態單一寫者防回歸（違規阻擋）
