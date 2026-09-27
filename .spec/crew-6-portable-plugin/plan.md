@@ -68,7 +68,7 @@ drift_policy: off
 - D-21 [convergence] 暫不進 Phase 4 Runtime/MCP。現有 `crew-state.py` + model router + Approval Gate + Host Capability Contract 已能處理目前已知的 deterministic orchestration；尚無需要常駐服務、跨 session server 或 MCP runtime 才能解的實證痛點。
 - D-22 [convergence] 最高優先技術債是 Bug state model：`crew-state.py` 的 `STEPS` / `compute_next` 仍是 feature lifecycle，`type=bug` 沒有獨立 next 規則；同時 `bug-start` / `bug-investigate` / `bug-fix` 幾乎沒有實際 state transition，與 `state-discipline.md` 的承諾不一致。
 - D-23 [convergence] Host portability 核心已收斂：CI run #97 的 Host portability 為 hard=0；仍有 134 個 advisory / 31 個檔案，其中 82 個是 Claude config path、20 個是 Claude plugin CLI、32 個是 CLAUDE.md。這些主要集中 setup/admin/config，不應拿來當建立 Phase 4 server 的理由。
-- D-24 [convergence] Model routing 尚有刻意保留的 legacy callsites：plan、plan-build、plan-review、bug-investigate、bug-fix 仍由 lint 允許 sonnet/opus 結構化名稱；下一階段應繼續 profile 化，而不是用新的 runtime 包住舊模型名稱。
+- D-24 [convergence] Model routing 尚有刻意保留的 legacy callsites：plan、plan-build、plan-review、bug-fix 仍由 lint 允許 sonnet/opus 結構化名稱；`bug-investigate` 已完成 provider-neutral profile routing。下一階段應繼續 profile 化，而不是用新的 runtime 包住舊模型名稱。
 - D-25 [convergence] v1 相容層先保留。`legacy-v1.md` 已宣告「一個 minor 或 90 天」但沒有機器可判定的明確 retirement marker；先補明確移除條件，再刪 plan/status/next/build/close 等相容分支。
 - D-26 [convergence] state schema 升到 v2 並採 type-aware steps：feature=`start/spec/db/arch/build/security/verify/review/close`；bug=`start/investigate/fix/close`。Bug 的編譯/測試/迴歸證據屬 fix work units，不為了對齊 Feature 而偽造 verify/review phase。
 - D-27 [convergence] `crew-state.py next` 對 type=bug 獨立決策：investigate 未完成→`/bug-investigate`；fix 未完成→`/bug-fix`；fix 完成且 UAT pending→`/bug-close`；UAT rejected→回 `/bug-fix`；close 完成→結案。
@@ -76,6 +76,7 @@ drift_policy: off
 - D-29 [convergence] `/bug-start` 是 Bug runtime 的最小入口：建立 Notion Bug + `.spec/{slug}/state.json`，但不建立 `plan.md` 或新 Git branch。slug 沿用 `/plan-start` 的英文 kebab-case + collision suffix 規則；Notion 暫時失敗也不得讓 Bug lifecycle 沒有 state。
 - D-30 [convergence] `/bug-investigate` 的 resumable work unit 定義為「一個可驗證根因假說」。進入調查即建立 0/1 work unit；每個假說落地後立即更新 done/total/evidence/remaining；只有根因正式確認、報告與必要釐清完成後才 clear unit + investigate=done。
 - D-31 [convergence] `/bug-fix` 的 resumable work unit 固定為 3 段：①根因確認/修復範圍鎖定、②程式碼修改（verify-only 時為既有 diff/commit 確認）、③迴歸測試與驗證。每段完成即寫 state；新一輪 fix 開始時 reset UAT=pending，避免 UAT rejected/approved 的舊決策污染新修復版本。
+- D-32 [convergence] `/bug-investigate` 已完全移除 provider-specific model callsite：Phase 1=`FAST/evidence_collection`、一般模式比對與 debugging=`STANDARD/debugging`、條件式深度根因=`DEEP/deep_investigation`；Skill 全檔禁止結構化 sonnet/opus/haiku 名稱，由 Router/Host adapter 決定實際 mapping。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -205,3 +206,9 @@ drift_policy: off
 - [2026-09-27] [convergence-5] Commit `ec0740c`；GitHub Actions run 36328195823（#105）共 14 個 job 全部 success。
 - [2026-09-27] [convergence] AC-27/AC-28 完成：Bug runtime 與 Skills 已從文件承諾變成真正可恢復的 `start → investigate → fix → close` lifecycle。
 - [2026-09-27] [next] 下一小批開始 AC-29，但仍採逐支收斂：先盤點 `bug-investigate` / `bug-fix` 尚存的直接 sonnet/opus callsite，將其中最安全的一支改為 profile routing；不要同批碰 plan/plan-review。
+
+- [2026-09-27] [convergence-6] `/bug-investigate` 的 legacy model callsite 已收斂：Phase 2 模式比對與一般假說推理改為 `task=debugging + profile=STANDARD`；3-Strike 深度升級改為 `task=deep_investigation + profile=DEEP`。
+- [2026-09-27] [convergence-6] 深度調查派工改走 `crew-model-route.py` + `delegate_readonly` 結構化 routing；Host 無 per-worker routing 時只能回報 `routing_degraded=true`，不得假裝已套用特定 provider model。
+- [2026-09-27] [convergence-6] `lint-agent-model.py` 現在要求 bug-investigate 同時具 FAST/STANDARD/DEEP，並禁止結構化 sonnet/opus/haiku；防止未來退回 provider-specific callsite。
+- [2026-09-27] [convergence-6] Commit `99ef528`；GitHub Actions run 36330914393（#107）共 14 個 job 全部 success。
+- [2026-09-27] [next] AC-29 下一小批只處理 `/bug-fix`：把正式實作者與迴歸測試寫入角色從 legacy `model: opus` 改成 `task=high_risk_implementation + profile=DEEP`；保留 FAST/NONE 現有分工，不碰 plan/plan-review。
