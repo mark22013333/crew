@@ -347,8 +347,11 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         counts["references"] += 1
         counts["calls"] += len(AGENT_CALL_RE.findall(text))
-        findings += check_structured_near_calls(text, path)
-        findings += check_nl_model(text, path)
+        # host-capabilities.md 是 adapter 契約本身，會列出 capability 名稱與
+        # 降級範例；它不是實際派工指令，因此不套「附近必須有 model」規則。
+        if path.name != "host-capabilities.md":
+            findings += check_structured_near_calls(text, path)
+            findings += check_nl_model(text, path)
         findings += check_vague(text, path)
 
     for path in sorted(REPO.glob(AGENT_GLOB)):
