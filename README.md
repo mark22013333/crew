@@ -1,8 +1,10 @@
-# CREW — Claude Code Plugins
+# CREW — AI SDLC Plugins
 
-整合 Notion 與 Claude Code 的自訂 Plugin 集合，涵蓋 Bug 處理與功能開發的完整工作流。
+以 `.spec/`、狀態機與可重複 Skill 管理 Bug 處理與功能開發生命週期。目前 Claude Code 工作流為完整支援路徑；CREW 6.0 起逐步加入 Codex portable plugin 相容層。
 
 ## 快速安裝
+
+### Claude Code
 
 ```bash
 # 安裝 Notion MCP Server（提供 Notion 讀寫能力）
@@ -18,6 +20,19 @@ claude plugin install feature-workflow
 
 > 可用 `claude plugin list` 確認狀態，確保 Plugin 顯示為 `✔ enabled`。
 > 若未自動啟用：`claude plugin enable bug-workflow && claude plugin enable feature-workflow`
+
+### Codex（CREW 6.0 遷移 Phase 1）
+
+先加入 CREW repo marketplace：
+
+```bash
+codex plugin marketplace add mark22013333/crew
+codex plugin marketplace list
+```
+
+接著啟動 `codex`，輸入 `/plugins`，從 **CREW** marketplace 安裝 `bug-workflow`、`feature-workflow`，安裝後開新 chat/session。
+
+> Phase 1 的目標是讓 Codex 能發現與安裝 CREW portable plugins。現有部分 Skill 仍包含 Claude Code 專屬的 Agent Teams、Agent tool、`CLAUDE.md` 與 `claude mcp` 指令；這些會在後續 Phase 2 抽成 Host Capability Adapter。換句話說，目前「能安裝」已成立，但不宣稱所有 Claude-specific orchestration 已在 Codex 等價執行。
 
 ---
 
