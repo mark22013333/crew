@@ -16,13 +16,13 @@
 - 執行退出驗證門檻
 
 ### 🟡 ASK FIRST（顯示計畫，等使用者確認）
-- 啟動 Agent Teams（步驟 4 的確認提示；探索官 `model: sonnet`、實作者 `model: opus`）
+- 啟動多角色實作（步驟 4 的確認提示；探索 `model: sonnet`、實作 `model: opus`；執行方式由 Host adapter 決定）
 - Teammate 失敗時的處理策略（重試 / 跳過 / 終止）
 - API 契約不一致時的調整方向
 - 退出驗證中 WARN 項目的處理
 
 ### 🔴 NEVER（禁止，即使使用者要求也應警告）
-- Leader 自己寫應用程式碼
+- 有獨立 worker 可用時 Leader 自己寫應用程式碼；若 Host 明確降級為 inline，主 Agent 只能依單一 `delegate_write` role 的 scope 依序實作
 - 在 plan.md 決策紀錄沒有 `[arch]` 條目（`state.json` 的 `steps.arch` 既非 `done` 也非 `skipped`）時開工 —— 這是 hard block
 - 自動補寫架構決策條目來繞過上述 hard block
 - 用 Write 整檔改寫 plan.md，或把整個章節當 `old_string` 取代
@@ -100,7 +100,7 @@
 ### 🟢 ALWAYS
 - 產出目錄一律加 `demo-` 前綴，避免污染真實 `.spec/`（前綴就是 demo 的唯一辨識標記）
 - 產出物與真實任務同構：`plan.md`（六章節）＋ `state.json`（用 `crew-state.py init` 建）＋ 必要時 `deploy.sql`
-- 全程本地寫入，不呼叫 Notion / Agent Teams / DB MCP
+- 全程本地寫入，不呼叫 Notion / 多角色委派 / DB 工具
 
 ### 🟡 ASK FIRST
 - `.spec/demo-{slug}/` 已存在時是否覆寫
@@ -108,7 +108,7 @@
 
 ### 🔴 NEVER
 - 寫入 Notion 或觸發 Notion OAuth
-- 啟動 Agent Teams 或連線 DB MCP
+- 啟動多角色委派或連線 DB 工具
 - 建立 Git branch
 
 ---
