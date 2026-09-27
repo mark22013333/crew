@@ -69,6 +69,17 @@ jobs:
       - name: 檢查結構化 model 標示與 model-policy.md 角色分工（strict，違規阻擋）
         run: python3 scripts/lint-agent-model.py --strict
 
+  model-routing:
+    name: Model routing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 NONE/FAST/STANDARD/DEEP 與 escalation
+        run: python3 scripts/lint-model-routing.py
+
   host-portability:
     name: Host portability
     runs-on: ubuntu-latest
