@@ -11,6 +11,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-state.py"
+BUG_START_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-start" / "SKILL.md"
 FEATURE_STEPS = {"start", "spec", "db", "arch", "build", "security", "verify", "review", "close"}
 BUG_STEPS = {"start", "investigate", "fix", "close"}
 
@@ -128,6 +129,16 @@ def main() -> int:
             assert migrated["phase"] == "fix"
             assert next_json(project, legacy)["command"] == "/bug-investigate"
             print("✅ schema v1 bug state normalizes to v2 without fake feature progress")
+
+        bug_start_text = BUG_START_SKILL.read_text(encoding="utf-8")
+        assert 'crew-state.py" init' in bug_start_text
+        assert "--type bug" in bug_start_text
+        assert "--expect-phase start" in bug_start_text
+        assert 'next.command == "/bug-investigate"' in bug_start_text
+        assert "不建立 `plan.md`" in bug_start_text
+        assert "不得使用 `--force`" in bug_start_text
+        assert "Notion API 失敗不阻擋本地 state 建立" in bug_start_text
+        print("✅ bug-start wires Notion intake to minimal bug runtime state")
 
         print("✅ type-aware state lifecycle smoke tests passed")
         return 0
