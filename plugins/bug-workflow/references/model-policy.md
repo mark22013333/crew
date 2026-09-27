@@ -60,7 +60,7 @@ Claude Code adapter 會把上述 `model` 目標轉成實際 Agent/subagent 結�
 - **不得修改正式產品程式碼**；可以寫入 `.spec/`、報告、規格與工作紀錄。
 - 不得因文件數量多或內容較長，就自行升級為 Opus。
 - capability request 必須實際帶 `model: sonnet`，不得只在 prompt 中寫「請使用 Sonnet」。
-- 不得啟動 Agent Team、不得要求 Dynamic Workflow、不得自行往下觸發實作階段的 skill。
+- 不得啟動實作委派、不得要求 Host-specific Dynamic Workflow、不得自行往下觸發實作階段的 skill。
 
 ---
 
