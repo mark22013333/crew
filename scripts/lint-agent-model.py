@@ -45,14 +45,12 @@ WINDOW = 250
 VALID_MODELS = ("opus", "sonnet", "haiku")
 
 # --- 1. 委派 capability／舊式 Agent 呼叫描述 -------------------------------
-# 新版 CREW 以 host-capabilities.md 的 capability 名稱為準；舊字樣暫時保留，
-# 讓尚未遷移的 reference 仍受 model lint 保護。
+# 只把「真的在呼叫 delegate」視為 call site。單純在說明 parallel_delegate、
+# 降級策略或 capability 名稱，不應被要求附近硬塞一個 model。
 AGENT_CALL_RE = re.compile(
-    r"(?:delegate_readonly"
-    r"|delegate_write"
-    r"|parallel_delegate"
+    r"(?:capability\s*:\s*(?:delegate_readonly|delegate_write)"
+    r"|(?:使用|呼叫|執行|建立)[^\n]{0,120}(?:delegate_readonly|delegate_write)"
     r"|啟動\s*(?:唯讀\s*|實作者\s*)?subagent"
-    r"|啟動\s*Agent\s*Teams"
     r"|使用\s*Agent\s*tool"
     r"|Agent\s*tool\s*啟動"
     r"|具名\s*spawn"
