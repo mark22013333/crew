@@ -68,7 +68,7 @@ drift_policy: off
 - D-21 [convergence] 暫不進 Phase 4 Runtime/MCP。現有 `crew-state.py` + model router + Approval Gate + Host Capability Contract 已能處理目前已知的 deterministic orchestration；尚無需要常駐服務、跨 session server 或 MCP runtime 才能解的實證痛點。
 - D-22 [convergence] 最高優先技術債是 Bug state model：`crew-state.py` 的 `STEPS` / `compute_next` 仍是 feature lifecycle，`type=bug` 沒有獨立 next 規則；同時 `bug-start` / `bug-investigate` / `bug-fix` 幾乎沒有實際 state transition，與 `state-discipline.md` 的承諾不一致。
 - D-23 [convergence] Host portability 核心已收斂：CI run #97 的 Host portability 為 hard=0；仍有 134 個 advisory / 31 個檔案，其中 82 個是 Claude config path、20 個是 Claude plugin CLI、32 個是 CLAUDE.md。這些主要集中 setup/admin/config，不應拿來當建立 Phase 4 server 的理由。
-- D-24 [convergence] Model routing 尚有刻意保留的 legacy callsites：plan、plan-review 仍由 lint 允許 sonnet/opus 結構化名稱；`bug-investigate` / `bug-fix` / `plan-build` 已完成 provider-neutral profile routing。下一階段應繼續 profile 化，而不是用新的 runtime 包住舊模型名稱。
+- D-24 [convergence] Model routing 尚有刻意保留的 legacy callsite：`plan` 仍由 lint 允許 sonnet/opus 結構化名稱；`bug-investigate` / `bug-fix` / `plan-build` / `plan-review` 已完成 provider-neutral profile routing。下一階段應完成 `/plan` profile 化，而不是用新的 runtime 包住舊模型名稱。
 - D-25 [convergence] v1 相容層先保留。`legacy-v1.md` 已宣告「一個 minor 或 90 天」但沒有機器可判定的明確 retirement marker；先補明確移除條件，再刪 plan/status/next/build/close 等相容分支。
 - D-26 [convergence] state schema 升到 v2 並採 type-aware steps：feature=`start/spec/db/arch/build/security/verify/review/close`；bug=`start/investigate/fix/close`。Bug 的編譯/測試/迴歸證據屬 fix work units，不為了對齊 Feature 而偽造 verify/review phase。
 - D-27 [convergence] `crew-state.py next` 對 type=bug 獨立決策：investigate 未完成→`/bug-investigate`；fix 未完成→`/bug-fix`；fix 完成且 UAT pending→`/bug-close`；UAT rejected→回 `/bug-fix`；close 完成→結案。
@@ -79,6 +79,7 @@ drift_policy: off
 - D-32 [convergence] `/bug-investigate` 已完全移除 provider-specific model callsite：Phase 1=`FAST/evidence_collection`、一般模式比對與 debugging=`STANDARD/debugging`、條件式深度根因=`DEEP/deep_investigation`；Skill 全檔禁止結構化 sonnet/opus/haiku 名稱，由 Router/Host adapter 決定實際 mapping。
 - D-33 [convergence] `/bug-fix` 已完全移除 provider-specific model callsite：唯讀定位=`FAST/repository_search`、deterministic build/test=`NONE`、輸出整理=`FAST/test_output_summary`、所有正式程式碼與迴歸測試寫入=`DEEP/high_risk_implementation`；Skill 全檔禁止結構化 sonnet/opus/haiku 名稱。
 - D-34 [convergence] `/plan-build` 已完全移除 provider-specific model callsite：Explorer=`FAST/repository_search`；DB/backend/API/frontend/test 等每個可寫角色各自帶 `DEEP/high_risk_implementation` + allowed scope。`parallel_delegate` 只負責排程，不可取代子工作單元各自的 routing contract。
+- D-35 [convergence] `/plan-review` 已完全移除 provider-specific model callsite：邏輯/品質 reviewer 與 `--quick`=`STANDARD/routine_review`；效能 reviewer=`DEEP/performance_review`。`parallel_delegate` 只負責排程，每個 reviewer 仍各自帶 routing contract。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
 - D-3 [spec] 保留 feature-workflow / bug-workflow 兩個 plugin｜理由：目前 domain boundary 清楚｜否決：第一版合併成 crew-sdlc 超大 plugin（破壞性太高）。
@@ -226,3 +227,10 @@ drift_policy: off
 - [2026-09-27] [convergence-8] DB MCP 分支、backend-only 分支與確認畫面同步移除 provider-specific model 描述；`lint-agent-model.py` 要求 plan-build 具 FAST/DEEP + repository_search/high_risk_implementation，並禁止結構化 sonnet/opus/haiku。
 - [2026-09-27] [convergence-8] Commit `d58454c`；GitHub Actions run 36331690057（#111）共 14 個 job 全部 success。
 - [2026-09-27] [next] AC-29 下一小批只處理 `/plan-review`：邏輯/品質 reviewer 轉 `routine_review + STANDARD`，效能 reviewer 轉 `performance_review + DEEP`，`--quick` 維持單一 STANDARD reviewer；不要同批碰 `/plan`。
+
+- [2026-09-28] [convergence-9] `/plan-review` 邏輯/品質 reviewer 已改為 `task=routine_review + profile=STANDARD`；效能 reviewer 改為 `task=performance_review + profile=DEEP`。
+- [2026-09-28] [convergence-9] `--quick` 維持單一 `logic-reviewer`，但 routing 改為 `routine_review + STANDARD`；完整審查的 parallel_delegate 只做排程，每個 reviewer 子工作單元各自帶 routing。
+- [2026-09-28] [convergence-9] `/plan-security` 只以 `security_review + DEEP` 描述邊界，不再從 plan-review 直接指定 provider model。
+- [2026-09-28] [convergence-9] `lint-agent-model.py` 現在要求 plan-review 具 STANDARD/DEEP + routine_review/performance_review，並禁止結構化 sonnet/opus/haiku。
+- [2026-09-28] [convergence-9] Commit `fbeee17`；GitHub Actions run 36331908566（#113）共 14 個 job 全部 success。
+- [2026-09-28] [next] AC-29 最後一小批只處理 `/plan`：spec requirement analysis 轉 STANDARD、db schema design / arch 轉 DEEP，移除最後 sonnet/opus callsite；完成後才勾 AC-29。
