@@ -282,4 +282,4 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 - **Host 無 parallel capability**：自動序列執行 3 個 reviewer；若使用者明確要省成本才建議 `--quick`
 - **交叉審查發現嚴重問題**：提供選項：修正後重新審查 / 忽略繼續 / 終止
 - **Reviewer 失敗**：提供選項：重試 / 跳過該 Reviewer / 終止
-- **--quick 模式**：只執行一個 `delegate_readonly` reviewer
+- **--quick 模式**：只執行一個 `delegate_readonly` reviewer（role=`logic-reviewer`、`model: sonnet`）
