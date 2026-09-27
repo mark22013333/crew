@@ -214,7 +214,19 @@ AI 分析本次 bug 的根因、修復和調查過程，判斷是否有可複用
 
 #### 學習格式
 
-寫入 `~/.claude-company/bug-workflow/learnings/{project-slug}.jsonl`：
+先依 portable config contract 解析本次寫入位置：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+LEARNING_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/learning \
+  --project-slug "{project-slug}" \
+  --mode write \
+  --format path)"
+```
+
+`--mode write` 永遠回 portable canonical path；**不得**自行改寫成 `~/.claude/.../learnings`。
+接著把學習物件序列化成**單行 JSON**並 append 到 `${LEARNING_FILE}`：
 
 ```json
 {
@@ -242,11 +254,14 @@ AI 自動判斷是否有學習價值：
 
 #### 學習目錄建立
 
+Resolver 本身不建立目錄；consumer 在 append 前只建立 canonical file 的 parent directory：
+
 ```bash
-mkdir -p ~/.claude-company/bug-workflow/learnings
+mkdir -p "$(dirname "${LEARNING_FILE}")"
 ```
 
-若目錄不存在，首次使用時自動建立。
+然後把上方學習物件序列化成單行 JSONL append 到 `${LEARNING_FILE}`。
+不得為了相容舊環境改寫回 `~/.claude`；legacy path 只供 `--mode read` fallback。
 
 ### 10. 標記結案狀態
 

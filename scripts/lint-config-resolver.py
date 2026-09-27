@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 RESOLVER = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-config.py"
+BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
 
 
 def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -144,6 +145,16 @@ def main() -> int:
             )
             assert "不得包含路徑分隔符" in bad.stderr
             print("✅ unsafe path traversal input is rejected")
+
+        bug_close_text = BUG_CLOSE_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in bug_close_text
+        assert "--key bug/learning" in bug_close_text
+        assert "--mode write" in bug_close_text
+        assert "--format path" in bug_close_text
+        assert 'mkdir -p "$(dirname "${LEARNING_FILE}")"' in bug_close_text
+        assert "~/.claude/bug-workflow/learnings" not in bug_close_text
+        assert "~/.claude-company/bug-workflow/learnings" not in bug_close_text
+        print("✅ bug-close writes learnings through portable config resolver")
 
         print("✅ portable config resolver smoke tests passed")
         return 0
