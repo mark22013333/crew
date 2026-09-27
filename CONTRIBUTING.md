@@ -199,6 +199,7 @@ git add -f .spec/{slug}/
 - `handoff-discipline.md`
 - `model-policy.md`
 - `host-capabilities.md`
+- `model-routing.json`
 
 **單一權威來源（C9）**：`plugins/bug-workflow/references/` 那份是唯一權威，
 **只改這份**；`feature-workflow` 那份一律視為同步產物，不要直接編輯。
