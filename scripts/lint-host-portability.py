@@ -42,8 +42,8 @@ SOFT_PATTERNS = {
     "CLAUDE_PLUGIN_CLI": re.compile(r"\bclaude\s+plugin\b", re.I),
 }
 
-# adapter 契約本來就必須寫 Host-specific 名稱。
-EXEMPT_REFERENCE_NAMES = {"host-capabilities.md"}
+# adapter / portability contract 本來就必須列出 Host-specific 名稱或 legacy fallback；consumer 才是 lint 對象。
+EXEMPT_REFERENCE_NAMES = {"host-capabilities.md", "config-contract.md"}
 
 
 def rel(path: Path) -> str:

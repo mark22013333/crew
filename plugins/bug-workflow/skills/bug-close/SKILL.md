@@ -225,7 +225,7 @@ LEARNING_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
   --format path)"
 ```
 
-`--mode write` 永遠回 portable canonical path；**不得**自行改寫成 `~/.claude/.../learnings`。
+`--mode write` 永遠回 portable canonical path；**不得**自行改寫成任何 Host-specific legacy learnings path。
 接著把學習物件序列化成**單行 JSON**並 append 到 `${LEARNING_FILE}`：
 
 ```json
