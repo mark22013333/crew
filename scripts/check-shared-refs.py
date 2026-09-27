@@ -29,6 +29,7 @@ SHARED_REFS = [
     "references/state-discipline.md",
     "references/model-policy.md",
     "references/host-capabilities.md",
+    "references/model-routing.json",
 ]
 
 # 共用 script（權威 = bug-workflow，同步到 feature-workflow）。
@@ -36,6 +37,7 @@ SHARED_REFS = [
 # 與 scripts/sync-shared-refs.sh 的 SHARED_SCRIPTS 清單一致。
 SHARED_SCRIPTS = [
     "scripts/crew-state.py",
+    "scripts/crew-model-route.py",
 ]
 
 PLUGIN_A = "bug-workflow"
