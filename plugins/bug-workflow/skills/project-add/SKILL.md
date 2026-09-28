@@ -5,7 +5,7 @@ description: 將當前專案新增或更新到 Notion 專案資料庫 —— 自
 
 # project-add — 新增或更新 Notion 專案
 
-快速將當前 Git 倉庫的專案新增到 Notion 專案資料庫，自動偵測專案架構並產生結構化頁面內容，可選安裝 DB MCP，同步更新所有 Workflow 設定檔。
+快速將當前 Git 倉庫的專案新增到 Notion 專案資料庫，自動偵測專案架構並產生結構化頁面內容，可選安裝 DB MCP，並以 portable `feature/project` contract 維護專案對應。
 
 ---
 
@@ -18,23 +18,29 @@ description: 將當前專案新增或更新到 Notion 專案資料庫 —— 自
 
 ---
 
-## 設定檔
+## 設定來源
 
-依序檢查以下路徑，讀取**所有找到的**設定（因為需要同步更新）：
+不要自行列舉 Host-specific 實體路徑。Bug / Feature 主設定都透過 portable resolver 讀取：
 
-**bug-workflow**（單一檔案格式）：
-1. `~/.claude-company/bug-workflow-config.md`
-2. `~/.claude/bug-workflow-config.md`
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
-**feature-workflow**（階層式目錄格式）：
-3. `~/.claude-company/feature-workflow/config.md`
-4. `~/.claude/feature-workflow/config.md`
-5. `~/.claude-company/feature-workflow-config.md`（舊格式，向下相容）
-6. `~/.claude/feature-workflow-config.md`（舊格式，向下相容）
+BUG_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format json)"
 
-若都不存在，提示使用者先執行 `/bug-setup` 或 `/plan-setup` 完成初始設定。
+FEATURE_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode read \
+  --format json)"
+```
 
-從**第一個找到的設定**中取得「專案資料庫」Data Source ID（所有 workflow 共用同一個專案資料庫）。
+- 解析兩份 JSON 的 `source / path / representation`；只讀取 `source != missing` 的設定。
+- 兩者都是 `source=missing` → 提示先執行 `/bug-setup` 或 `/plan-setup`。
+- 從第一份含有效「專案資料庫」Data Source ID 的設定取得該 ID；Bug / Feature workflow 共用同一個 Notion 專案資料庫。
+- 主設定只用來取得 Workflow / Notion metadata；**專案對應的 canonical ownership 是 `feature/project`**，不再把 project mapping 回寫到 Bug config 或 legacy monolith。
+- 實體 fallback 規則由 `../../references/config-contract.md` 與 `crew-config.py` 統一負責。
 
 ---
 
@@ -60,18 +66,32 @@ git branch --show-current 2>/dev/null || echo ""
 - 其他（GitHub 等）→ 加上 host：`{host}/{group}/{repo}`，例如 `github.com/mark22013333/crew`
 - 同時支援 HTTPS（`https://gitlab.intumit.com/ORG01P2401/PushAPIService.git`）和 SSH（`git@gitlab.intumit.com:ORG01P2401/PushAPIService.git`）格式
 
-### 2. 檢查是否已存在
+### 2. 檢查 portable 專案對應是否已存在
 
-讀取設定檔中的「專案對應」表，檢查當前 Git Repo 識別碼是否已有對應的專案。
+取得 Git Repo 識別碼後，以 `feature/project` logical key 讀取既有 mapping：
+
+```bash
+PROJECT_CONFIG_READ_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{Git Repo 識別碼}" \
+  --mode read \
+  --format json)"
+```
+
+依 resolver 回傳選 parser：
+
+- `source=missing` → 尚未註冊，繼續『搜尋 Notion 專案資料庫』。
+- `representation=hierarchical` → 讀取回傳 `path` 的 project frontmatter。
+- `representation=legacy_monolith` → 沿用舊「專案對應」表 parser，從回傳 `path` 擷取目前 Git Repo 的列；legacy monolith **只讀，不原地修改**。
 
 **已存在** → 顯示現有資訊，詢問：
 ```
-此專案已在設定檔中：
+此專案已有對應：
   專案名稱：範例機關-ORG01P2401
   Git Repo：ORG01P2401/sample-app
 
 請選擇：
-1. 更新專案資訊（Notion + 設定檔）
+1. 更新專案資訊（Notion + portable 專案對應）
 2. 取消
 ```
 
@@ -88,12 +108,12 @@ git branch --show-current 2>/dev/null || echo ""
   專案名稱：範例機關-ORG01P2401
   Git Repo：ORG01P2401/sample-app
 
-是否將此專案加入設定檔的專案對應？[Y/n]
+是否將此專案加入 portable 專案對應？[Y/n]
 ```
 
-若確認 → 跳到『同步更新所有設定』一節（更新設定檔）。
+若確認 → 跳到『寫入 portable 專案對應』一節。
 
-> **缺值處理**：『同步更新所有設定』一節的 feature-workflow 新格式必填 `stack`（技術棧）、`prod_branch`（PROD 分支）；`uat_branch` 可空。情境 A 跳過了『偵測專案類型與架構』（4）與『Git Flow 分支偵測』（4-5），若 Notion 既有專案頁面缺少對應欄位值，寫入設定檔前需補齊：
+> **缺值處理**：portable `feature/project` frontmatter 必填 `stack`（技術棧）、`prod_branch`（PROD 分支）；`uat_branch` 可空。情境 A 跳過了『偵測專案類型與架構』（4）與『Git Flow 分支偵測』（4-5），若 Notion 既有專案頁面缺少對應欄位值，寫入設定檔前需補齊：
 > 1. 優先從 Notion 既有頁面欄位讀取技術棧／PROD 分支／UAT 分支
 > 2. 仍缺值 → 針對缺的項目才執行對應偵測（技術棧跑 4-1、分支跑 4-5），不需重跑整個『偵測專案類型與架構』流程
 > 3. 偵測不出 → 詢問使用者手動輸入 `stack` 與 `prod_branch`（必填不可留空；`uat_branch` 可留空）
@@ -112,7 +132,7 @@ Notion 專案資料庫中有以下專案：
 請選擇要對應的專案（輸入編號）：
 ```
 
-選擇現有專案 → 將 Git Repo 識別碼寫入該專案的「Git Repo」欄位（`notion-update-page`），跳到『同步更新所有設定』一節。
+選擇現有專案 → 將 Git Repo 識別碼寫入該專案的「Git Repo」欄位（`notion-update-page`），跳到『寫入 portable 專案對應』一節。
 選擇建立新專案 → 繼續『偵測專案類型與架構』一節。
 
 **情境 C：Notion 專案資料庫為空或未找到匹配** → 繼續『偵測專案類型與架構』一節。
@@ -285,30 +305,22 @@ claude mcp add dbhub --scope project -- npx @bytebase/dbhub --transport stdio --
 
 > **注意**：H2 為本機檔案型 DB，DBHub 不直接支援。H2 資訊僅記錄在 Notion 頁面，不安裝 MCP。
 
-### 7. 同步更新所有設定
+### 7. 寫入 portable 專案對應
 
-**重要**：必須同步更新所有存在的 Workflow 設定，確保 bug-workflow 和 feature-workflow 共用相同的專案對應。
+專案 mapping 的唯一新寫入目的地是 `feature/project --mode write`。不要修改 Bug config、Feature 主設定或 resolver read fallback 指向的 legacy monolith。
 
-#### bug-workflow（單一檔案格式）
+```bash
+PROJECT_CONFIG_WRITE_PATH="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{Git Repo 識別碼}" \
+  --mode write \
+  --format path)"
 
-依序檢查並更新：
-1. `~/.claude-company/bug-workflow-config.md`
-2. `~/.claude/bug-workflow-config.md`
-
-在「專案對應」表中新增一列：
-```markdown
-| {專案名稱} | `{Git Repo 識別碼}` | {PROD 分支} | {UAT 分支} | {說明} |
+mkdir -p "$(dirname "$PROJECT_CONFIG_WRITE_PATH")"
 ```
 
-#### feature-workflow（階層式目錄格式）
+將以下內容建立或完整更新到 `PROJECT_CONFIG_WRITE_PATH`：
 
-依序檢查並更新：
-1. `~/.claude-company/feature-workflow/projects/`（新格式）
-2. `~/.claude/feature-workflow/projects/`（新格式）
-3. `~/.claude-company/feature-workflow-config.md`（舊格式，向下相容）
-4. `~/.claude/feature-workflow-config.md`（舊格式，向下相容）
-
-**新格式**：建立 `projects/{sanitized-repo-id}.md`（`/` → `--`）：
 ```markdown
 ---
 notion_name: {專案名稱}
@@ -320,15 +332,16 @@ uat_branch: {UAT 分支名稱，可空}
 {說明}
 ```
 
-**舊格式**（向下相容）：在「專案對應」表中新增一列：
-```markdown
-| {專案名稱} | `{Git Repo 識別碼}` | {技術棧} | {PROD 分支} | {UAT 分支} | {說明} |
-```
+**新增專案**：
+- 使用上面的 canonical write path 建立 project file。
+- 若 Step 2 從 `legacy_monolith` 找到舊 mapping，但使用者要更新，仍寫新的 canonical project file；portable canonical path 之後會優先於 legacy fallback。
 
-**更新已存在的專案**（『檢查是否已存在』一節選擇「更新」時）：
-- 使用 `notion-update-page` 更新 Notion 中的專案欄位
-- 新格式：更新 `projects/{sanitized-repo-id}.md` 的 frontmatter
-- 舊格式：更新設定檔中該專案的對應列
+**更新已存在的專案**：
+- 使用 `notion-update-page` 更新 Notion 中的專案欄位。
+- 更新 `PROJECT_CONFIG_WRITE_PATH` 的 frontmatter/body。
+- 若 read source 是 legacy monolith，**不得**修改舊表格；它只作相容讀取來源。
+
+Bug / Feature 主設定仍各自由 `bug/config`、`feature/config` 管理；本步驟不把專案 mapping 複製回主設定。
 
 ### 8. 檢查專案指令是否已納入 Git
 
@@ -357,9 +370,8 @@ done
   DB：MSSQL {+ H2（Quartz）}
   DB MCP：{✅ 已安裝 DBHub / ⏭️ 已跳過}
 
-已同步更新設定檔：
-  ✅ ~/.claude-company/bug-workflow-config.md
-  ✅ ~/.claude-company/feature-workflow/projects/{sanitized-repo-id}.md
+Portable 專案對應：
+  ✅ {PROJECT_CONFIG_WRITE_PATH}
 
 專案指令：{✅ 已推送 / ⚠️ 建議推送 / ⚠️ 尚未建立}
 
@@ -381,7 +393,7 @@ done
 
 ## Gotchas
 
-- **設定同步必須更新「所有存在的」**：bug-workflow（單一檔案）+ feature-workflow（階層式目錄或舊檔案），遺漏任一個會導致另一個 workflow 找不到專案對應。『同步更新所有設定』一節的所有路徑每個存在的都要更新。若同時存在新舊格式的 feature-workflow 設定，**只更新新格式**，忽略舊格式。
+- **專案對應只有一個 canonical writer**：新的 project mapping 只寫 `feature/project --mode write`。`bug/config` / `feature/config` 是主設定 metadata，legacy monolith 只提供 read compatibility；不要為了「同步」再複製 project row 到多個 Host-specific 檔案。
 - **intumit 判斷是硬編碼規則**：Git host 含 `intumit`（公司 GitLab）→ 只取 `{group}/{repo}`。未來若遷移到其他 GitLab 實例，需修改『自動偵測環境資訊』一節的解析邏輯。
 - **Relation 值是頁面 URL 不是名稱**：`notion-create-pages` 的 Relation 欄位需要填入「被關聯頁面的 URL」（如 `https://www.notion.so/xxx`），不是填專案名稱字串。填錯格式會靜默成功但 Relation 為空。
 
@@ -393,8 +405,8 @@ done
 - **專案資料庫 Data Source ID 不存在**：提示使用者重新執行 setup
 - **已在設定檔中但 Notion 中找不到**：提示可能是 Notion 頁面被刪除，詢問是否重新建立
 - **不在 Git repo 中**：提示使用者需在 Git 倉庫目錄下執行，或手動輸入 Git Repo 識別碼
-- **Notion API 失敗**：顯示錯誤訊息，已填入的設定檔變更仍保留
-- **只裝了其中一個 workflow**：僅更新該 workflow 的設定檔，不報錯
+- **Notion API 失敗**：顯示錯誤訊息；若 portable project file 已寫入則保留，後續重跑時依 `feature/project --mode read` 辨識既有 mapping
+- **只完成其中一個 workflow 的 setup**：只要 `bug/config` 或 `feature/config` 其中一份可提供專案資料庫 Data Source ID 就可繼續；project mapping 仍統一寫 `feature/project`
 - **技術棧無法自動偵測**（非 Java 專案等）：技術棧欄位留空或使用者自訂
 - **DB MCP 安裝失敗**：顯示錯誤訊息，不影響其他步驟（Notion 頁面已建立）
 - **DBHub npx 不可用**：提示使用者先安裝 Node.js，或手動安裝 `npm install -g @bytebase/dbhub`

@@ -13,6 +13,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 RESOLVER = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-config.py"
 BUG_SETUP_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-setup" / "SKILL.md"
+PROJECT_ADD_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
 BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
 EVIDENCE_COLLECTION = REPO / "plugins" / "bug-workflow" / "references" / "evidence-collection.md"
 LEARNINGS_SCHEMA = REPO / "plugins" / "bug-workflow" / "references" / "learnings-schema.md"
@@ -159,6 +160,25 @@ def main() -> int:
             )
             assert "不得包含路徑分隔符" in bad.stderr
             print("✅ unsafe path traversal input is rejected")
+
+        project_add_text = PROJECT_ADD_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in project_add_text
+        assert "--key bug/config" in project_add_text
+        assert "--key feature/config" in project_add_text
+        assert project_add_text.count("--key feature/project") >= 2
+        assert project_add_text.count("--mode read") >= 3
+        assert "--mode write" in project_add_text
+        assert project_add_text.count("--format json") >= 3
+        assert "--format path" in project_add_text
+        assert "representation=hierarchical" in project_add_text
+        assert "representation=legacy_monolith" in project_add_text
+        assert "PROJECT_CONFIG_READ_JSON" in project_add_text
+        assert "PROJECT_CONFIG_WRITE_PATH" in project_add_text
+        assert 'mkdir -p "$(dirname "$PROJECT_CONFIG_WRITE_PATH")"' in project_add_text
+        assert "config-contract.md" in project_add_text
+        assert ".claude-company" not in project_add_text
+        assert "~/.claude" not in project_add_text
+        print("✅ project-add reads workflow config and writes project mapping through portable resolver")
 
         bug_setup_text = BUG_SETUP_SKILL.read_text(encoding="utf-8")
         assert "crew-config.py" in bug_setup_text
