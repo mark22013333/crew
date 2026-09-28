@@ -100,6 +100,7 @@ drift_policy: off
 - D-53 [convergence] `/plan-stack` 的自訂技術棧 storage 描述改以 `feature/stack --stack-id {id} --mode write` logical key 表達；canonical path 由 `crew-config.py` / `config-contract.md` 決定，不再把 `~/.claude/feature-workflow` 當預設實體設定目錄。
 - D-54 [convergence] `references/config-resolver.md` 只負責 Feature config 的漸進式載入與 parser 語意；實體 root / fallback / read-write path 統一委派給 `crew-config.py` + `config-contract.md`，並以 `feature/config`、`feature/project`、`feature/stack` logical keys 表達。`feature/project` / `feature/stack` 的 `legacy_monolith` representation 仍沿用舊 parser，內建 stack 仍使用 `stacks/_builtin.md` bundle 語意。
 - D-55 [convergence] `/bug-setup` 的設定生命週期改為 resolver-owned storage：既有設定只透過 `bug/config --mode read` 取得 read source；任何首次建立、重新設定或更新後的輸出一律透過 `bug/config --mode write` 寫 canonical portable path。Legacy fallback 僅可讀，不搬移、不覆寫。
+- D-56 [convergence] `/project-add` 的 Workflow 主設定只透過 `bug/config` / `feature/config --mode read` 取得 Notion metadata；project mapping 的 canonical ownership 統一為 `feature/project --repo-id {repo-id}`。Read 依 `hierarchical` / `legacy_monolith` 選 parser，write 永遠建立或更新 canonical portable project file；legacy monolith 僅讀、不原地修改。
 - D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
@@ -359,3 +360,10 @@ drift_policy: off
 - [2026-09-28] [convergence-24] Functional commit `0bc650e`；GitHub Actions run 36378407237（#143）共 15 個 job 全部 success。
 - [2026-09-28] [convergence-24] Host portability 維持 hard=0，consumer advisory 由 104 降至 99。
 - [2026-09-28] [next] AC-30 下一小批只處理 `/project-add` 的 config/project storage：Bug config 讀取改用 `bug/config --mode read`；Feature config 讀取改用 `feature/config --mode read`；專案存在性與更新/新增目的地改用 `feature/project --repo-id {repo-id}` 的 read/write resolver contract，hierarchical / legacy_monolith 依 resolver representation 選 parser；移除 `.claude-company` / `~/.claude` 實體路徑與完成訊息硬編碼。不要同批改 `/plan-setup`、`/crew-init`、crew-doctor 或 resolver logical keys。
+
+- [2026-09-28] [convergence-25] `/project-add` 已改為 resolver-owned project registration：`bug/config` / `feature/config` 只負責提供 Workflow / Notion metadata；既有 project mapping 用 `feature/project --mode read --format json` 定位，依 `representation=hierarchical|legacy_monolith` 選 parser。
+- [2026-09-28] [convergence-25] 新增／更新 project mapping 一律用 `feature/project --mode write --format path` 取得 canonical path，再由 Skill 建立 parent directory 並寫 frontmatter/body；legacy monolith 只讀，不再原地修改或同步複製到多個 Host-specific 設定檔。
+- [2026-09-28] [convergence-25] `lint-config-resolver.py` 新增 project-add consumer contract，要求 bug/feature config read、feature/project read+write、representation 分支與 canonical parent mkdir，並禁止 `.claude-company` / `~/.claude` storage path 回歸。
+- [2026-09-28] [convergence-25] Functional commit `39a6156`；GitHub Actions run 36385757815（#145）共 15 個 job 全部 success。
+- [2026-09-28] [convergence-25] Host portability 維持 hard=0，consumer advisory 由 99 降至 85。
+- [2026-09-28] [next] AC-30 下一小批只處理 `/crew-init` 的 setup/registration 偵測：階段 1 改用 `bug/config --mode read` 判斷 bug-workflow 是否已設定；階段 2 改用 `feature/config --mode read` 判斷 feature-workflow 是否已設定；階段 4 改用 `feature/project --repo-id {repo-id} --mode read` + representation 判斷專案是否已註冊。提示文字不再宣告 Host-specific 產出路徑；`crew-init` 仍只委派 `/bug-setup`、`/plan-setup`、`/project-add`，不自行寫 config。不要同批改 `/plan-setup`、crew-doctor、crew-upgrade 或 resolver logical keys。
