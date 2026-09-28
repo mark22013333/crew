@@ -13,6 +13,7 @@ description: CREW 環境健診 —— 一次性檢查必要與選配依賴（Nod
 ## 紀律護欄
 
 > 紀律護欄：`../../references/discipline-preamble.md`（通用紀律）＋ `../../references/anti-rationalizations.md`「crew-doctor 專用」＋ `../../references/boundaries.md`「crew-doctor」段。
+> CREW-owned config/project 的實體 root、fallback 與 representation 以 `../../references/config-contract.md` + `scripts/crew-config.py` 為權威；doctor 只做 read-only 診斷，不自行建立 config storage。
 
 ---
 
@@ -37,9 +38,9 @@ description: CREW 環境健診 —— 一次性檢查必要與選配依賴（Nod
 | 3 | Notion 能力 | 依 `host-capabilities.md` 的 `tool_probe(tool_kind=notion)` | 提示目前 Host 的 Notion plugin/MCP 安裝方式 |
 | 4 | 委派能力 | 探測 `delegate_readonly` / `parallel_delegate` 可用層級 | 無平行能力可序列執行，不視為 BLOCK |
 | 5 | 專案指令 | `test -f AGENTS.md || test -f CLAUDE.md` | Codex 建立 `AGENTS.md`；Claude Code 可用 `/init` |
-| 6 | bug-workflow 設定檔 | `~/.claude-company/bug-workflow-config.md` | `/bug-setup` |
-| 7 | feature-workflow 設定 | `~/.claude-company/feature-workflow/config.md` | `/plan-setup` |
-| 8 | 專案註冊 | `~/.claude-company/feature-workflow/projects/{repo-id}.md` | `/project-add` |
+| 6 | bug-workflow 設定檔 | `bug/config --mode read` resolver：`source != missing` | `/bug-setup` |
+| 7 | feature-workflow 設定 | `feature/config --mode read` resolver：`source != missing` | `/plan-setup` |
+| 8 | 專案註冊 | `feature/project --repo-id {repo-id} --mode read` + `representation` | `/project-add` |
 
 ### 🟡 強烈建議（3 項，影響核心功能）
 
@@ -112,6 +113,38 @@ OS 決定缺失提示的指令（例如 `brew install node` vs `winget install N
 依序執行，每項通過或失敗都立即顯示在輸出中。
 紅燈項目**不阻擋**後續檢查（要把完整圖像給使用者）。
 
+#6–#8 的 config/project 診斷統一走 portable resolver，不自行猜測 Host path：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+BUG_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format json)"
+
+FEATURE_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode read \
+  --format json)"
+
+PROJECT_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{repo-id}" \
+  --mode read \
+  --format json)"
+```
+
+判定規則：
+
+- **#6 bug-workflow 設定**：`BUG_CONFIG_JSON.source != missing` 即通過；legacy fallback 仍算可讀。
+- **#7 feature-workflow 設定**：`FEATURE_CONFIG_JSON.source != missing` 即通過；legacy fallback 仍算可讀。
+- **#8 專案註冊**：
+  - `source=missing` → 紅燈，提示 `/project-add`。
+  - `representation=hierarchical` → 通過。
+  - `representation=legacy_monolith` → 使用既有 monolith parser 檢查 `repo-id` 對應列；找到才通過。
+- doctor 不搬移、不寫回 legacy source；config/project 的建立與修復分別交給 `/bug-setup`、`/plan-setup`、`/project-add`。
+
 ### 3. 跑強烈建議（#9-11）與選配（#12-16）
 
 執行後標示為 🟡 警告或 🔵 選配。
@@ -148,14 +181,21 @@ CREW 環境健診摘要
 
 ### 6. `--fix` 模式
 
-對下列項目嘗試自動修復：
+只對 doctor 明確擁有、且不涉及 CREW config storage ownership 的項目嘗試自動修復：
 
 | 項目 | 修法 |
 |------|------|
-| ~/.claude-company/feature-workflow/ 缺失 | `mkdir -p` |
-| ~/.claude-company/feature-workflow/projects/ 缺失 | `mkdir -p` |
-| ~/.claude-company/feature-workflow/stacks/ 缺失 | `mkdir -p` |
 | 無 parallel delegation | 不需修復；CREW 自動序列執行。若使用者想啟用 Host 的平行能力，再提供該 Host 專屬指引 |
+
+**config/project 缺失不由 doctor 直接 mkdir 或寫檔**：
+
+| 診斷失敗 | 修復入口 |
+|----------|----------|
+| #6 `bug/config` missing | `/bug-setup` |
+| #7 `feature/config` missing | `/plan-setup` |
+| #8 `feature/project` missing / monolith 無 repo row | `/project-add` |
+
+上述 Skill 會依 resolver canonical write contract 決定目的地；doctor 不建立 Host-specific 或 portable config directory。
 
 **不會自動修復**（仍要使用者操作）：
 - MCP 安裝（要 `claude plugin/mcp` 指令）
@@ -192,9 +232,9 @@ CREW 環境健診摘要
       → 安裝後重啟 Claude Code
    ✅ 委派能力：parallel_delegate 可用
    ✅ 專案指令存在：AGENTS.md
-   ✅ bug-workflow-config.md 存在
-   ✅ feature-workflow/config.md 存在
-   ❌ 專案未註冊（找不到 projects/{repo-id}.md）
+   ✅ bug-workflow 設定可讀（bug/config）
+   ✅ feature-workflow 設定可讀（feature/config）
+   ❌ 專案未註冊（feature/project missing）
       → 修法：/project-add
 
 🟡 強烈建議（3）
@@ -231,7 +271,7 @@ CREW 環境健診摘要
 ## Gotchas
 
 - **工具探測不要綁 CLI 輸出格式**：一律依 `host-capabilities.md` 的 `tool_probe`，以 session 真正可呼叫能力為準
-- **跨平台路徑**：Windows 用 `%USERPROFILE%`、Unix 用 `$HOME`
+- **跨平台 config path**：CREW-owned config/project 不自行拼 `%USERPROFILE%` / `$HOME` 路徑；一律讀 resolver 結果
 - **Notion API 速率限制**：#17-18 試查若被 throttle，標示為 ⚠️ 不算失敗
 - **`--fix` 改 settings.json 風險**：先 cp settings.json.bak，失敗能還原
 - **MCP 未啟用 vs 未安裝**：`claude plugin list` 顯示 `enabled` 才算可用

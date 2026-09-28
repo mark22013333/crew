@@ -15,6 +15,7 @@ RESOLVER = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-config.py"
 BUG_SETUP_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-setup" / "SKILL.md"
 PROJECT_ADD_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
 CREW_INIT_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "crew-init" / "SKILL.md"
+CREW_DOCTOR_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "crew-doctor" / "SKILL.md"
 BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
 EVIDENCE_COLLECTION = REPO / "plugins" / "bug-workflow" / "references" / "evidence-collection.md"
 LEARNINGS_SCHEMA = REPO / "plugins" / "bug-workflow" / "references" / "learnings-schema.md"
@@ -161,6 +162,27 @@ def main() -> int:
             )
             assert "不得包含路徑分隔符" in bad.stderr
             print("✅ unsafe path traversal input is rejected")
+
+        crew_doctor_text = CREW_DOCTOR_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in crew_doctor_text
+        assert "--key bug/config" in crew_doctor_text
+        assert "--key feature/config" in crew_doctor_text
+        assert "--key feature/project" in crew_doctor_text
+        assert "--repo-id" in crew_doctor_text
+        assert crew_doctor_text.count("--mode read") >= 3
+        assert crew_doctor_text.count("--format json") >= 3
+        assert "source=missing" in crew_doctor_text
+        assert "representation=hierarchical" in crew_doctor_text
+        assert "representation=legacy_monolith" in crew_doctor_text
+        assert "config-contract.md" in crew_doctor_text
+        assert "/bug-setup" in crew_doctor_text
+        assert "/plan-setup" in crew_doctor_text
+        assert "/project-add" in crew_doctor_text
+        assert ".claude-company" not in crew_doctor_text
+        assert "~/.claude/feature-workflow/" not in crew_doctor_text
+        assert "feature-workflow/projects/ 缺失" not in crew_doctor_text
+        assert "feature-workflow/stacks/ 缺失" not in crew_doctor_text
+        print("✅ crew-doctor diagnoses config/project state through portable resolver without owning storage repair")
 
         crew_init_text = CREW_INIT_SKILL.read_text(encoding="utf-8")
         assert "crew-config.py" in crew_init_text
