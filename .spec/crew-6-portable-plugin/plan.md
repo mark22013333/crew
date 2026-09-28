@@ -41,7 +41,7 @@ drift_policy: off
 - [x] AC-27 Bug state lifecycle contract 改為 type-aware：runtime 不再讓 `type=bug` 走 feature 的 spec/db/arch/build next 決策，並先以 deterministic smoke test 定義合法轉移。
 - [x] AC-28 Bug skills 逐批接上 state lifecycle：`bug-start` init、`bug-investigate` 進度、`bug-fix` 修復/驗證、`bug-close` 結案；中斷後 `next/session-brief` 可正確續跑。
 - [x] AC-29 剩餘 provider-specific model callsites（plan/plan-build/plan-review/bug-investigate/bug-fix）完成 profile routing 遷移，不再靠 legacy sonnet/opus 名稱。
-- [ ] AC-30 Host-management/setup portability 收斂：將設定路徑與 plugin CLI 類 advisory 分離成 portable config contract / host-specific 管理 adapter；核心 workflow 維持 hard=0。
+- [x] AC-30 Host-management/setup portability 收斂：將設定路徑與 plugin CLI 類 advisory 分離成 portable config contract / host-specific 管理 adapter；核心 workflow 維持 hard=0。
 - [ ] AC-31 v1 legacy retirement 具明確移除條件與版本/日期，不在條件未滿足前刪相容層。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -104,6 +104,7 @@ drift_policy: off
 - D-57 [convergence] `/crew-init` 僅以 resolver read contract 判斷 setup / registration 狀態：階段 1=`bug/config`、階段 2=`feature/config`、階段 4=`feature/project --repo-id {repo-id}`；project registration 依 `hierarchical` / `legacy_monolith` representation 判斷。`crew-init` 不自行寫 config，所有建立／更新仍委派既有 setup/project Skill。
 - D-58 [convergence] `crew-doctor` 對 CREW-owned config/project 只做 resolver read 診斷：#6=`bug/config`、#7=`feature/config`、#8=`feature/project --repo-id {repo-id}` + representation；`--fix` 不再自行 mkdir config storage，缺失時回到 `/bug-setup`、`/plan-setup`、`/project-add` 的 canonical writer。Host settings/rules 仍屬 host-management adapter，不混入 config resolver。
 - D-59 [convergence] `/plan-setup` 主設定層改為 resolver-owned storage：既有 Feature config 由 `feature/config --mode read` 定位，主設定新建／重新設定一律寫 `feature/config --mode write` canonical path；Bug 共用 Notion metadata 由 `bug/config --mode read` 取得。`stacks/_builtin.md` / projects bundle 本批只維持既有相對建立語意，不新增 resolver key。
+- D-60 [convergence] AC-30 closure criteria 以「CREW-owned config violation=0 + Host portability hard=0 + deterministic resolver smoke 全綠」為準，不要求 advisory=0。剩餘 `CLAUDE_PLUGIN_CLI` / `CLAUDE_CONFIG_PATH`（marketplace、plugin install、`settings.json`、Host rules）屬 host-management adapter；`CLAUDE_MD` 屬 `project_instructions` alias，不再視為 AC-30 未完成。
 - D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
@@ -391,3 +392,9 @@ drift_policy: off
 - [2026-09-28] [convergence-28] Functional commit `3754ac6`；GitHub Actions run 36417568716（#151）共 15 個 job 全部 success。
 - [2026-09-28] [convergence-28] Host portability 維持 hard=0，consumer advisory 由 69 降至 62；剩餘 CLAUDE_CONFIG_PATH advisory 已全部落在 marketplace/plugin install、Host settings、Host rules 等 host-management/adapter 範圍，不再屬 CREW-owned config storage。
 - [2026-09-28] [next] AC-30 下一小批不先改 code，改做 closure audit：逐一核對 AC-30 + D-37~D-43 的 contract，掃描 active Skill/reference 中 CREW-owned feature config/projects/stacks、bug config/learnings 是否仍有直接 Host path 或繞過 `crew-config.py` 的 consumer/writer；把剩餘 advisory 分類為 CREW config violation vs host-management adapter vs project-instructions alias。若 CREW-owned config violation=0 且 hard=0，補可重現 evidence 並評估勾選 AC-30；不要同批處理 AC-31、Codex CLI smoke、Phase 4 或 merge PR。
+
+- [2026-09-28] [convergence-29] AC-30 closure audit 以 HEAD `d2d18af` 為基準完成；AC-30 已勾選。GitHub Actions #152 的 Host portability 掃描 74 個 active Skill/reference，結果 `hard=0 / advisory=62`。
+- [2026-09-28] [convergence-29] #152 的 62 筆 advisory 精確分類為：`CLAUDE_PLUGIN_CLI=20`、`CLAUDE_MD=32`、`CLAUDE_CONFIG_PATH=10`。10 筆 config-path advisory 全部是 marketplace/plugin install path、`settings.json` 或 `~/.claude/rules/*`，符合 `config-contract.md` 明定的 host-management adapter 邊界；32 筆 `CLAUDE_MD` 屬 `project_instructions` alias。
+- [2026-09-28] [convergence-29] Legacy storage keyword 候選的 18 個 active Skill/reference 已逐檔以目前 branch 回讀：direct CREW-owned Host path violation=0，18/18 均引用 `crew-config.py`；涵蓋 `feature/config`、`feature/project`、`feature/stack`、`bug/config`、`bug/learning` 及 legacy_monolith parser consumers。
+- [2026-09-28] [convergence-29] Config resolver CI #152 同時通過 setup/admin 與 runtime consumer smoke：bug-setup、project-add、crew-init、crew-doctor、plan-setup、plan-stack、plan-start/close、bug-close、dev_branch consumers、shared prerequisites/templates/config-resolver reference 全部綠燈；portable read precedence / canonical write / legacy representation 契約有 deterministic 防回歸。
+- [2026-09-28] [convergence-29] 可重現 closure 檢查：`python3 scripts/lint-host-portability.py --strict` 應維持 hard=0；`python3 scripts/lint-config-resolver.py` 應全綠；另以 active Skill/reference 搜尋 `~/.claude[-company]` 的 feature-workflow config/projects/stacks、bug-workflow config/learnings 與 `~/.config/crew/{feature,bug}` direct storage path，排除 `config-contract.md` 後應為 0。
