@@ -35,7 +35,7 @@ description: 部署 SQL 執行回報 —— 實際跑完 deploy.sql 後勾選每
 
 - 任務必須已執行過 `/plan-close` 並產出 `deploy.sql`
 - Notion 條目已存在且含「🚀 部署狀態」可寫入區塊（plan-close 會自動建立）
-- 設定檔含「任務追蹤工具」資料庫 ID（依 `../../references/config-resolver.md` 的階層式設定目錄解析取得，見 `~/.claude/feature-workflow/config.md` 的 Notion IDs）
+- 設定檔含「任務追蹤工具」資料庫 ID；讀取時不要自行判斷 Host-specific 實體路徑，改用 `crew-config.py resolve --key feature/config --mode read --format path` 取得實際 path，再讀取 Notion IDs（fallback contract 見 `../../references/config-contract.md`）。
 
 > **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
