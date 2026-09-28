@@ -129,36 +129,63 @@ uname -s 2>/dev/null || echo "Windows"
 
 ### 2. Workflow 設定是否存在？
 
-依序檢查：
-1. `~/.claude-company/bug-workflow-config.md`
-2. `~/.claude/bug-workflow-config.md`
-3. `~/.claude/feature-workflow/config.md`（新階層式格式）
-4. `~/.claude-company/feature-workflow-config.md`（舊格式，向下相容）
-5. `~/.claude/feature-workflow-config.md`（舊格式，向下相容）
+不要自行判斷 Host-specific 實體路徑。先用 portable config resolver 解析 Bug / Feature 設定：
 
-- **至少找到一個** → 繼續
-- **全部不存在** → 提示並中止：
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format json
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode read \
+  --format json
+```
+
+分別讀取兩次 resolver 回傳的 `source / representation / path`：
+
+- **任一 `source != missing`** → 繼續。
+- **兩者都是 `source=missing`** → 提示並中止：
   ```
   ⚠️ 尚未完成 Workflow 初始設定。
   請先執行 /bug-setup（Bug 工作流）或 /plan-setup（功能開發工作流）。
   ```
+- Feature resolver 若回 `representation=legacy_monolith` → 在控制台顯示一次：
+  `💡 偵測到舊版設定檔格式。建議執行 /plan-setup --migrate 遷移到階層式目錄結構。`
 
-> 若找到舊格式 feature-workflow 設定（第 5、6 項），在控制台顯示一次提示：
-> `💡 偵測到舊版設定檔格式。建議執行 /plan-setup --migrate 遷移到階層式目錄結構。`
+Legacy fallback 的實體位置只由 `references/config-contract.md` 與 `crew-config.py` 負責；本 precheck 不得自行列舉或重試 Host path。
 
 ### 3. 當前專案是否已註冊？
 
-從 `git remote get-url origin` 解析 Git Repo 識別碼，比對設定中的專案對應：
-- bug-workflow：比對設定檔「專案對應」表
-- feature-workflow（新格式）：檢查 `projects/{sanitized-repo-id}.md` 是否存在
-- feature-workflow（舊格式）：比對設定檔「專案對應」表
+先沿用 `/project-add` 的規則，從 `git remote get-url origin` 解析 Git Repo 識別碼 `{repo-id}`，再解析 Feature project：
 
-- **已註冊** → 繼續，取得對應的 Notion 專案名稱
-- **未註冊** → 提示（非中止，部分 Skill 仍可使用）：
-  ```
-  ⚠️ 當前專案尚未註冊到 Notion。
-  建議執行 /project-add 將專案加入 Notion 專案資料庫。
-  ```
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{repo-id}" \
+  --mode read \
+  --format json
+```
+
+專案對應判斷：
+
+- **bug-workflow**：若步驟 2 的 `bug/config` 存在，仍比對該設定檔「專案對應」表。
+- **feature/project + `representation=hierarchical`**：讀 project frontmatter，以 `git_repo` 精確匹配 `{repo-id}`，取得 `notion_name`。
+- **feature/project + `representation=legacy_monolith`**：沿用既有舊設定「專案對應」表 parser，以 `{repo-id}` 精確匹配。
+- **feature/project + `source=missing`**：Feature project 視為未註冊，不自行拼 `projects/{sanitized-repo-id}.md` 路徑。
+
+Bug 或 Feature 任一來源能精確匹配目前 repo → **已註冊**，繼續並取得對應的 Notion 專案名稱。
+
+全部未匹配 → 提示（非中止，部分 Skill 仍可使用）：
+```
+⚠️ 當前專案尚未註冊到 Notion。
+建議執行 /project-add 將專案加入 Notion 專案資料庫。
+```
 
 ---
 

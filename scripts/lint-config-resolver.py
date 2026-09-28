@@ -19,6 +19,8 @@ BUG_FIX_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-fix" / "SKIL
 MERGE_GUIDE = REPO / "plugins" / "bug-workflow" / "references" / "merge-guide.md"
 PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-close" / "SKILL.md"
 PLAN_START_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-start" / "SKILL.md"
+BUG_PREREQUISITES = REPO / "plugins" / "bug-workflow" / "references" / "prerequisites.md"
+FEATURE_PREREQUISITES = REPO / "plugins" / "feature-workflow" / "references" / "prerequisites.md"
 
 
 def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -208,6 +210,29 @@ def main() -> int:
         assert ".claude-company/bug-workflow-config.md" not in plan_start_text
         assert "~/.claude/bug-workflow-config.md" not in plan_start_text
         print("✅ plan-start reads bug config through portable resolver")
+
+        bug_prereq_text = BUG_PREREQUISITES.read_text(encoding="utf-8")
+        feature_prereq_text = FEATURE_PREREQUISITES.read_text(encoding="utf-8")
+        assert bug_prereq_text == feature_prereq_text
+        prereq_text = bug_prereq_text
+        assert "crew-config.py" in prereq_text
+        assert "--key bug/config" in prereq_text
+        assert "--key feature/config" in prereq_text
+        assert "--key feature/project" in prereq_text
+        assert "--repo-id" in prereq_text
+        assert prereq_text.count("--mode read") >= 3
+        assert prereq_text.count("--format json") >= 3
+        assert "representation=hierarchical" in prereq_text
+        assert "representation=legacy_monolith" in prereq_text
+        for retired_path in (
+            ".claude-company/bug-workflow-config.md",
+            "~/.claude/bug-workflow-config.md",
+            "~/.claude/feature-workflow/config.md",
+            ".claude-company/feature-workflow-config.md",
+            "~/.claude/feature-workflow-config.md",
+        ):
+            assert retired_path not in prereq_text
+        print("✅ shared prerequisites resolve workflow/project config portably")
 
         print("✅ portable config resolver smoke tests passed")
         return 0
