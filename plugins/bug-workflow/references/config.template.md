@@ -1,7 +1,8 @@
 # Bug Workflow 設定檔
 
-此檔案由 `/bug-setup` 自動產生，儲存於 `~/.claude-company/bug-workflow-config.md`。
-所有 Bug Skill 會讀取此檔案取得 Notion ID 與專案對應。
+此檔案由 `/bug-setup` 自動產生；storage contract 使用 portable logical key `bug/config`。
+實體位置由 `scripts/crew-config.py` 與 `references/config-contract.md` 決定，template 不宣告 Host-specific path。
+所有 Bug Skill 透過 resolver 取得此設定，讀取 Notion ID 與專案對應。
 
 ---
 

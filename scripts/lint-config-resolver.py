@@ -21,6 +21,8 @@ PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-clos
 PLAN_START_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-start" / "SKILL.md"
 BUG_PREREQUISITES = REPO / "plugins" / "bug-workflow" / "references" / "prerequisites.md"
 FEATURE_PREREQUISITES = REPO / "plugins" / "feature-workflow" / "references" / "prerequisites.md"
+BUG_CONFIG_TEMPLATE = REPO / "plugins" / "bug-workflow" / "references" / "config.template.md"
+FEATURE_CONFIG_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "config.template.md"
 
 
 def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -233,6 +235,22 @@ def main() -> int:
         ):
             assert retired_path not in prereq_text
         print("✅ shared prerequisites resolve workflow/project config portably")
+
+        bug_template_text = BUG_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+        feature_template_text = FEATURE_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+        assert "bug/config" in bug_template_text
+        assert "crew-config.py" in bug_template_text
+        assert "config-contract.md" in bug_template_text
+        assert "feature/config" in feature_template_text
+        assert "feature/stack" in feature_template_text
+        assert "feature/project" in feature_template_text
+        assert "portable-config-root" in feature_template_text
+        assert "crew-config.py" in feature_template_text
+        assert "config-contract.md" in feature_template_text
+        for template_text in (bug_template_text, feature_template_text):
+            assert ".claude-company" not in template_text
+            assert "~/.claude" not in template_text
+        print("✅ config templates describe logical storage instead of Host paths")
 
         print("✅ portable config resolver smoke tests passed")
         return 0

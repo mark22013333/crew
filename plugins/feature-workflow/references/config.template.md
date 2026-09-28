@@ -1,20 +1,20 @@
 # Feature Workflow 設定檔模板
 
-此目錄由 `/plan-setup` 自動產生，儲存於 `~/.claude/feature-workflow/`。
-所有 plan-* Skill 依 `references/config-resolver.md` 的漸進式載入邏輯讀取此目錄。
+此設定集合由 `/plan-setup` 自動產生；主設定 storage contract 使用 portable logical key `feature/config`。
+實體位置由 `scripts/crew-config.py` 與 `references/config-contract.md` 決定，所有 plan-* Skill 依 resolver 的漸進式載入邏輯存取，不宣告 Host-specific path。
 
 ---
 
-## 目錄結構
+## 邏輯目錄結構
 
-```
-feature-workflow/
-├── config.md          ← 本檔案模板
+```text
+{portable-config-root}/feature/
+├── config.md          ← feature/config；本檔案模板
 ├── stacks/
 │   ├── _builtin.md    ← 內建技術棧模板
-│   └── {custom}.md    ← 自訂技術棧模板
+│   └── {custom}.md    ← feature/stack；自訂技術棧模板
 └── projects/
-    └── {repo-id}.md   ← 專案對應模板
+    └── {repo-id}.md   ← feature/project；專案對應模板
 ```
 
 ---
