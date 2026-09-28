@@ -96,6 +96,7 @@ drift_policy: off
 - D-49 [convergence] `/plan-start` 的 Bug 類型設定檢查也統一使用 `bug/config --mode read`；Feature workflow 的核心 intake/close consumer 不再知道 bug-workflow 的 Host-specific config 實體路徑。
 - D-50 [convergence] 共用 `prerequisites.md` 的設定/專案 precheck 只依賴 logical keys：workflow setup 用 `bug/config` + `feature/config`，專案註冊用 `feature/project`；Host fallback 與 legacy_monolith representation 只由 resolver contract 解釋。
 - D-51 [convergence] `config.template.md` 只描述 logical storage contract，不宣告 Host-specific 實體路徑：Bug template=`bug/config`；Feature template=`feature/config` + `{portable-config-root}/feature`，並標示 `feature/project` / `feature/stack` 邏輯結構。
+- D-52 [convergence] `/plan-deploy-confirm` 讀取 Feature workflow Notion IDs 時只依賴 `feature/config --mode read` logical key；實體 path 與 legacy fallback 由 `crew-config.py` / `config-contract.md` 決定，Skill 不再宣告 `~/.claude/feature-workflow/config.md`。
 - D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
@@ -328,3 +329,10 @@ drift_policy: off
 - [2026-09-28] [convergence-20] Commit `b4de11c`；GitHub Actions run 36373092862（#135）共 15 個 job 全部 success。
 - [2026-09-28] [convergence-20] Host portability 維持 hard=0，consumer advisory 由 117 降至 115。
 - [2026-09-28] [next] AC-30 下一小批只處理 `/plan-deploy-confirm` 的 Feature config 描述：把 `~/.claude/feature-workflow/config.md` 改為 `feature/config` resolver logical key，補 consumer smoke contract；不要同批改 plan-stack、plan-setup 或其他 setup/admin。
+
+- [2026-09-28] [convergence-21] `/plan-deploy-confirm` 的「任務追蹤工具」資料庫 ID 讀取描述已改為 `crew-config.py resolve --key feature/config --mode read --format path`；Skill 不再宣告 Host-specific Feature config 實體位置。
+- [2026-09-28] [convergence-21] `lint-config-resolver.py` 新增 plan-deploy-confirm consumer contract，要求 `feature/config` read resolver + `config-contract.md`，並禁止 `~/.claude/feature-workflow/config.md` / `.claude-company` 回歸。
+- [2026-09-28] [convergence-21] Functional commit `2d8f8eb`；GitHub Actions run 36375453153（#137）共 15 個 job 全部 success。
+- [2026-09-28] [convergence-21] Host portability 維持 hard=0，consumer advisory 由 115 降至 114。
+- [2026-09-28] [scope-note] `plan.md` 既有 D-48 編號重複；屬本批 scope 外，保持原狀未修。
+- [2026-09-28] [next] AC-30 下一小批只處理 `/plan-stack` 的 Feature stack storage 描述：把「通常為 `~/.claude/feature-workflow`」改為 `feature/stack` resolver logical key，補 consumer smoke contract；不要同批改 `/plan-setup` 或其他 setup/admin。
