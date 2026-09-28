@@ -25,6 +25,7 @@ PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-clos
 PLAN_START_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-start" / "SKILL.md"
 PLAN_DEPLOY_CONFIRM_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-deploy-confirm" / "SKILL.md"
 PLAN_STACK_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-stack" / "SKILL.md"
+PLAN_SETUP_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-setup" / "SKILL.md"
 BUG_PREREQUISITES = REPO / "plugins" / "bug-workflow" / "references" / "prerequisites.md"
 FEATURE_PREREQUISITES = REPO / "plugins" / "feature-workflow" / "references" / "prerequisites.md"
 BUG_CONFIG_TEMPLATE = REPO / "plugins" / "bug-workflow" / "references" / "config.template.md"
@@ -301,6 +302,28 @@ def main() -> int:
         assert "~/.claude/feature-workflow/config.md" not in plan_deploy_confirm_text
         assert ".claude-company" not in plan_deploy_confirm_text
         print("✅ plan-deploy-confirm reads feature config through portable resolver")
+
+        plan_setup_text = PLAN_SETUP_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_setup_text
+        assert "--key feature/config" in plan_setup_text
+        assert "--key bug/config" in plan_setup_text
+        assert plan_setup_text.count("--mode read") >= 2
+        assert "--mode write" in plan_setup_text
+        assert plan_setup_text.count("--format json") >= 2
+        assert "--format path" in plan_setup_text
+        assert "FEATURE_CONFIG_READ_JSON" in plan_setup_text
+        assert "FEATURE_CONFIG_WRITE_PATH" in plan_setup_text
+        assert "FEATURE_CONFIG_DIR" in plan_setup_text
+        assert "representation=hierarchical" in plan_setup_text
+        assert "representation=legacy_monolith" in plan_setup_text
+        assert "config-contract.md" in plan_setup_text
+        assert 'mkdir -p "$FEATURE_CONFIG_DIR/stacks"' in plan_setup_text
+        assert "stacks/_builtin.md" in plan_setup_text
+        assert "/project-add" in plan_setup_text
+        assert ".claude-company" not in plan_setup_text
+        assert "~/.claude/feature-workflow" not in plan_setup_text
+        assert "~/.claude/bug-workflow" not in plan_setup_text
+        print("✅ plan-setup main config layer reads/writes through portable resolver while preserving bundle semantics")
 
         plan_stack_text = PLAN_STACK_SKILL.read_text(encoding="utf-8")
         assert "crew-config.py" in plan_stack_text
