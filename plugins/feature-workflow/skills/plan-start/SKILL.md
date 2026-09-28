@@ -19,7 +19,19 @@ argument-hint: "<任務簡述> [選項]"
 - **第 1 層**：`config.md`（Notion IDs）
 - **第 2 層**：`projects/{repo-id}.md`（專案對應、技術棧 ID）
 
-Bug 類型還需檢查 bug-workflow 設定檔（`~/.claude-company/bug-workflow-config.md` 或 `~/.claude/bug-workflow-config.md`）。
+Bug 類型還需讀取 bug-workflow 設定。不要自行判斷 Host 路徑，改用 portable config resolver：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+BUG_CONFIG_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format path)"
+```
+
+- `[ -f "$BUG_CONFIG_FILE" ]` → 讀取 Bug 任務所需的 bug-workflow 設定。
+- 檔案不存在 → 提示使用者先執行 `/bug-setup`；不得自行 fallback 到 Host-specific 實體路徑。
+- `--mode read` 的 portable/legacy fallback 由 `config-contract.md` 統一負責。
 
 若設定目錄不存在，提示使用者先執行 `/plan-setup` 或 `/bug-setup`。
 
