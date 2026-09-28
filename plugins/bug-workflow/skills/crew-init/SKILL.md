@@ -23,6 +23,7 @@ argument-hint: "[--skip-bug] [--skip-plan] [--resume]"
 ## 紀律護欄
 
 > 紀律護欄：`../../references/discipline-preamble.md`（通用紀律）＋ `../../references/anti-rationalizations.md`「crew-init 專用」＋ `../../references/boundaries.md`「crew-init」段。
+> Portable config 的實體 root / fallback / representation contract 以 `../../references/config-contract.md` 與 `scripts/crew-config.py` 為權威；本 Skill 只做 read-only 偵測與委派。
 
 ---
 
@@ -59,12 +60,20 @@ argument-hint: "[--skip-bug] [--skip-plan] [--resume]"
 
 #### 1a. 偵測是否已設定
 
-檢查設定檔是否存在（依序）：
-1. `~/.claude-company/bug-workflow-config.md`
-2. `~/.claude/bug-workflow-config.md`
+透過 portable resolver 判斷 `bug/config` 是否存在，不自行列舉 Host-specific path：
 
-**已存在** → 標示為 ✅ 跳過，進階段 2。
-**不存在** → 進 1b。
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+BUG_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format json)"
+```
+
+- `source != missing` → 標示為 ✅ 跳過，進階段 2。
+- `source=missing` → 進 1b。
+- 若 read fallback 找到 legacy source，只代表「已設定」；crew-init 不搬檔、不改檔。
 
 #### 1b. 觸發 /bug-setup
 
@@ -75,14 +84,14 @@ argument-hint: "[--skip-bug] [--skip-plan] [--resume]"
 即將執行 /bug-setup，這會：
   - 偵測 Notion Workspace 中的「任務追蹤工具」「專案資料庫」資料庫
   - 若不存在則引導從零建立（含標準欄位 + Views + Relation）
-  - 產出設定檔到 ~/.claude-company/bug-workflow-config.md
+  - 依 `bug/config --mode write` contract 產出 canonical portable 設定（實際寫入由 /bug-setup 負責）
 
 需要你的互動（選資料庫、確認 ID 等）
 
 [Enter 繼續，Ctrl+C 終止]
 ```
 
-呼叫 `/bug-setup` 流程（同 plugin 內可直接觸發），完成後驗證設定檔存在。
+呼叫 `/bug-setup` 流程（同 plugin 內可直接觸發），完成後重新執行 1a 的 `bug/config --mode read` 驗證設定已存在。
 
 #### 1c. 失敗處理
 
@@ -92,16 +101,18 @@ bug-setup 失敗或使用者中斷 → 停止 crew-init，提示「下次可用 
 
 #### 2a. 偵測是否已設定
 
-檢查設定目錄（新版階層式）：
-1. `~/.claude-company/feature-workflow/config.md`
-2. `~/.claude/feature-workflow/config.md`
+透過 portable resolver 判斷 `feature/config` 是否存在：
 
-若以上皆不存在，再檢查舊單一檔格式（向下相容，同 `/plan-setup` 的偵測邏輯）：
-3. `~/.claude-company/feature-workflow-config.md`
-4. `~/.claude/feature-workflow-config.md`
+```bash
+FEATURE_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode read \
+  --format json)"
+```
 
-**新版或舊版任一存在** → 標示為 ✅ 跳過，進階段 3（偵測到舊版時附註：可執行 `/plan-setup --migrate` 遷移到新階層式目錄，非必要）。
-**皆不存在** → 進 2b。
+- `source != missing` → 標示為 ✅ 跳過，進階段 3。
+- `source=missing` → 進 2b。
+- 若 `source=legacy`，可附註目前由 resolver compatibility fallback 讀取；是否遷移由 `/plan-setup` 決定，crew-init 不自行搬移。
 
 #### 2b. 觸發 /plan-setup
 
@@ -113,12 +124,12 @@ bug-setup 失敗或使用者中斷 → 停止 crew-init，提示「下次可用 
   - 自動匯入 bug-workflow 共用的 Notion ID（任務追蹤工具、專案資料庫）
   - 提示是否建立「功能設計庫」資料庫（選填）
   - 偵測或設定常用技術棧
-  - 產出 ~/.claude-company/feature-workflow/config.md + stacks/
+  - 依 Feature portable config contract 建立主設定與技術棧資料（實際寫入由 /plan-setup 負責）
 
 [Enter 繼續]
 ```
 
-呼叫 `/plan-setup`，完成後驗證 config.md 存在。
+呼叫 `/plan-setup`，完成後重新執行 2a 的 `feature/config --mode read` 驗證設定已存在。
 
 ### 階段 3：當前專案指令
 
@@ -162,13 +173,21 @@ test -f AGENTS.md || test -f CLAUDE.md
 
 ```bash
 git remote get-url origin
-# 解析為 {owner}/{repo} 或 {project}/{repo}
+# 依共用 repo-id 規則解析為 {repo-id}
+
+PROJECT_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{repo-id}" \
+  --mode read \
+  --format json)"
 ```
 
-檢查 `~/.claude-company/feature-workflow/projects/{repo-id}.md` 是否存在。
+依 resolver 結果判斷：
 
-**已存在** → 標示為 ✅ 跳過，進結尾摘要。
-**不存在** → 進 4b。
+- `source=missing` → 尚未註冊，進 4b。
+- `representation=hierarchical` → project file 已存在，標示為 ✅ 跳過。
+- `representation=legacy_monolith` → 使用既有 monolith parser 確認該 `repo-id` 是否有對應列；有則標示為 ✅，沒有則進 4b。
+- legacy source 只作 read compatibility；crew-init 不建立、不更新 project mapping，實際註冊仍委派 `/project-add`。
 
 #### 4b. 提示
 
@@ -249,4 +268,4 @@ git remote get-url origin
 - **專案指令存在但不完整**：本 skill 只檢查 `AGENTS.md` / `CLAUDE.md` 至少一份存在，不判斷內容品質；後續 Skill 依 `project_instructions` 讀取
 - **使用者跳過所有步驟（連按 s）**：摘要顯示全部 ⚠️，提示「至少需完成階段 1+2 才能用大部分 Skill」
 - **非 Git 專案**：階段 4 偵測 `git remote` 失敗時，標示為 ⏭️ 不適用（非 git 專案不需註冊）
-- **WSL2 / Windows 桌面版混用**：設定檔路徑共享 `~/.claude-company/`，重複設定會偵測為已存在自動跳過
+- **跨 Host / WSL2 / Windows 桌面版混用**：是否已設定只看 `crew-config.py` resolver 結果；portable root 可由 `CREW_CONFIG_HOME` 或 XDG-style root 統一。crew-init 不假設任何 Host-specific 共用目錄。
