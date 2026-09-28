@@ -101,6 +101,7 @@ drift_policy: off
 - D-54 [convergence] `references/config-resolver.md` 只負責 Feature config 的漸進式載入與 parser 語意；實體 root / fallback / read-write path 統一委派給 `crew-config.py` + `config-contract.md`，並以 `feature/config`、`feature/project`、`feature/stack` logical keys 表達。`feature/project` / `feature/stack` 的 `legacy_monolith` representation 仍沿用舊 parser，內建 stack 仍使用 `stacks/_builtin.md` bundle 語意。
 - D-55 [convergence] `/bug-setup` 的設定生命週期改為 resolver-owned storage：既有設定只透過 `bug/config --mode read` 取得 read source；任何首次建立、重新設定或更新後的輸出一律透過 `bug/config --mode write` 寫 canonical portable path。Legacy fallback 僅可讀，不搬移、不覆寫。
 - D-56 [convergence] `/project-add` 的 Workflow 主設定只透過 `bug/config` / `feature/config --mode read` 取得 Notion metadata；project mapping 的 canonical ownership 統一為 `feature/project --repo-id {repo-id}`。Read 依 `hierarchical` / `legacy_monolith` 選 parser，write 永遠建立或更新 canonical portable project file；legacy monolith 僅讀、不原地修改。
+- D-57 [convergence] `/crew-init` 僅以 resolver read contract 判斷 setup / registration 狀態：階段 1=`bug/config`、階段 2=`feature/config`、階段 4=`feature/project --repo-id {repo-id}`；project registration 依 `hierarchical` / `legacy_monolith` representation 判斷。`crew-init` 不自行寫 config，所有建立／更新仍委派既有 setup/project Skill。
 - D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
@@ -367,3 +368,10 @@ drift_policy: off
 - [2026-09-28] [convergence-25] Functional commit `39a6156`；GitHub Actions run 36385757815（#145）共 15 個 job 全部 success。
 - [2026-09-28] [convergence-25] Host portability 維持 hard=0，consumer advisory 由 99 降至 85。
 - [2026-09-28] [next] AC-30 下一小批只處理 `/crew-init` 的 setup/registration 偵測：階段 1 改用 `bug/config --mode read` 判斷 bug-workflow 是否已設定；階段 2 改用 `feature/config --mode read` 判斷 feature-workflow 是否已設定；階段 4 改用 `feature/project --repo-id {repo-id} --mode read` + representation 判斷專案是否已註冊。提示文字不再宣告 Host-specific 產出路徑；`crew-init` 仍只委派 `/bug-setup`、`/plan-setup`、`/project-add`，不自行寫 config。不要同批改 `/plan-setup`、crew-doctor、crew-upgrade 或 resolver logical keys。
+
+- [2026-09-28] [convergence-26] `/crew-init` 階段 1 已改用 `bug/config --mode read --format json` 判斷 bug-workflow setup；階段 2 改用 `feature/config --mode read --format json` 判斷 feature-workflow setup，legacy source 僅表示既有設定可讀，不由 crew-init 搬移。
+- [2026-09-28] [convergence-26] 階段 4 已改用 `feature/project --repo-id {repo-id} --mode read --format json`；`hierarchical` 直接視為已註冊，`legacy_monolith` 先用既有 parser 確認 repo row。crew-init 不建立或更新 project mapping，仍委派 `/project-add`。
+- [2026-09-28] [convergence-26] `/bug-setup` / `/plan-setup` 提示不再宣告 Host-specific 產出路徑；跨 Host/WSL gotcha 改以 resolver root 為準。`lint-config-resolver.py` 新增 crew-init read-only detection contract，禁止 `.claude-company` / `~/.claude` storage path 回歸。
+- [2026-09-28] [convergence-26] Functional commit `8510a50`；GitHub Actions run 36387242501（#147）共 15 個 job 全部 success。
+- [2026-09-28] [convergence-26] Host portability 維持 hard=0，consumer advisory 由 85 降至 75。
+- [2026-09-28] [next] AC-30 下一小批只處理 `crew-doctor` 的 config/project 診斷：必要項 #6 改用 `bug/config --mode read`、#7 改用 `feature/config --mode read`、#8 改用 `feature/project --repo-id {repo-id} --mode read` + representation；移除 `--fix` 對 Host-specific feature-workflow 目錄的直接 `mkdir -p`，改提示由 `/bug-setup`、`/plan-setup`、`/project-add` 依 canonical resolver contract 修復。不要同批改 `/plan-setup`、crew-upgrade、host settings/rules advisory 或 resolver logical keys。
