@@ -25,6 +25,7 @@ BUG_PREREQUISITES = REPO / "plugins" / "bug-workflow" / "references" / "prerequi
 FEATURE_PREREQUISITES = REPO / "plugins" / "feature-workflow" / "references" / "prerequisites.md"
 BUG_CONFIG_TEMPLATE = REPO / "plugins" / "bug-workflow" / "references" / "config.template.md"
 FEATURE_CONFIG_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "config.template.md"
+FEATURE_CONFIG_RESOLVER_REF = REPO / "plugins" / "feature-workflow" / "references" / "config-resolver.md"
 
 
 def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
@@ -274,6 +275,22 @@ def main() -> int:
             assert ".claude-company" not in template_text
             assert "~/.claude" not in template_text
         print("✅ config templates describe logical storage instead of Host paths")
+
+        feature_config_resolver_text = FEATURE_CONFIG_RESOLVER_REF.read_text(encoding="utf-8")
+        assert "crew-config.py" in feature_config_resolver_text
+        assert "config-contract.md" in feature_config_resolver_text
+        assert "feature/config" in feature_config_resolver_text
+        assert "feature/project" in feature_config_resolver_text
+        assert "feature/stack" in feature_config_resolver_text
+        assert feature_config_resolver_text.count("--mode read") >= 3
+        assert "--mode write" in feature_config_resolver_text
+        assert "representation=hierarchical" in feature_config_resolver_text
+        assert "representation=legacy_monolith" in feature_config_resolver_text
+        assert "stacks/_builtin.md" in feature_config_resolver_text
+        assert "## 漸進式載入" in feature_config_resolver_text
+        assert ".claude-company" not in feature_config_resolver_text
+        assert "~/.claude" not in feature_config_resolver_text
+        print("✅ feature config resolver reference delegates storage/fallback to portable contract")
 
         print("✅ portable config resolver smoke tests passed")
         return 0
