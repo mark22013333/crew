@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 RESOLVER = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-config.py"
+BUG_SETUP_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-setup" / "SKILL.md"
 BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
 EVIDENCE_COLLECTION = REPO / "plugins" / "bug-workflow" / "references" / "evidence-collection.md"
 LEARNINGS_SCHEMA = REPO / "plugins" / "bug-workflow" / "references" / "learnings-schema.md"
@@ -158,6 +159,21 @@ def main() -> int:
             )
             assert "不得包含路徑分隔符" in bad.stderr
             print("✅ unsafe path traversal input is rejected")
+
+        bug_setup_text = BUG_SETUP_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in bug_setup_text
+        assert "--key bug/config" in bug_setup_text
+        assert "--mode read" in bug_setup_text
+        assert "--mode write" in bug_setup_text
+        assert bug_setup_text.count("--format path") >= 2
+        assert "BUG_CONFIG_READ_PATH" in bug_setup_text
+        assert "BUG_CONFIG_WRITE_PATH" in bug_setup_text
+        assert '[ -f "$BUG_CONFIG_READ_PATH" ]' in bug_setup_text
+        assert 'mkdir -p "$(dirname "$BUG_CONFIG_WRITE_PATH")"' in bug_setup_text
+        assert "config-contract.md" in bug_setup_text
+        assert ".claude-company" not in bug_setup_text
+        assert "~/.claude" not in bug_setup_text
+        print("✅ bug-setup reads existing config and writes canonical config through portable resolver")
 
         bug_close_text = BUG_CLOSE_SKILL.read_text(encoding="utf-8")
         assert "crew-config.py" in bug_close_text
