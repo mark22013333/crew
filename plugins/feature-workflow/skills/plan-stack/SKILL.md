@@ -97,7 +97,7 @@ scaffold: {scaffold 行為}
 ```
 自訂技術棧設定完成！
 
-  技術棧檔案：{設定目錄}/stacks/{id}.md（{設定目錄} 依 `references/config-resolver.md` 解析結果代入，通常為 ~/.claude/feature-workflow）
+  技術棧檔案：由 `crew-config.py resolve --key feature/stack --stack-id {id} --mode write --format path` 取得 canonical portable path（storage contract 見 `../../references/config-contract.md`）
   層級數：{N}
 
 現在執行 /plan-build 時會自動使用此技術棧的掃描規則。

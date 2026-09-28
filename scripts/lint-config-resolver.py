@@ -20,6 +20,7 @@ MERGE_GUIDE = REPO / "plugins" / "bug-workflow" / "references" / "merge-guide.md
 PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-close" / "SKILL.md"
 PLAN_START_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-start" / "SKILL.md"
 PLAN_DEPLOY_CONFIRM_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-deploy-confirm" / "SKILL.md"
+PLAN_STACK_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-stack" / "SKILL.md"
 BUG_PREREQUISITES = REPO / "plugins" / "bug-workflow" / "references" / "prerequisites.md"
 FEATURE_PREREQUISITES = REPO / "plugins" / "feature-workflow" / "references" / "prerequisites.md"
 BUG_CONFIG_TEMPLATE = REPO / "plugins" / "bug-workflow" / "references" / "config.template.md"
@@ -223,6 +224,17 @@ def main() -> int:
         assert "~/.claude/feature-workflow/config.md" not in plan_deploy_confirm_text
         assert ".claude-company" not in plan_deploy_confirm_text
         print("✅ plan-deploy-confirm reads feature config through portable resolver")
+
+        plan_stack_text = PLAN_STACK_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_stack_text
+        assert "--key feature/stack" in plan_stack_text
+        assert "--stack-id" in plan_stack_text
+        assert "--mode write" in plan_stack_text
+        assert "--format path" in plan_stack_text
+        assert "config-contract.md" in plan_stack_text
+        assert "~/.claude/feature-workflow" not in plan_stack_text
+        assert ".claude-company" not in plan_stack_text
+        print("✅ plan-stack describes feature stack storage through portable resolver")
 
         bug_prereq_text = BUG_PREREQUISITES.read_text(encoding="utf-8")
         feature_prereq_text = FEATURE_PREREQUISITES.read_text(encoding="utf-8")
