@@ -210,9 +210,9 @@ AI 分析每條驗收條件，將其分類並規劃驗證方式：
 
 > `$CDP` 是本文所有 Bash 範例對 plugin 內建 `scripts/cdp.mjs` 的別名，使用前需先設定：
 > ```bash
-> CDP="node {plugin_path}/scripts/cdp.mjs"
+> CDP="node ${CREW_PLUGIN_ROOT}/scripts/cdp.mjs"
 > ```
-> （`{plugin_path}` 為本 plugin 根目錄，通常是 `~/.claude/plugins/marketplaces/company-marketplace/plugins/feature-workflow`；需 Node.js 22+）
+> `CREW_PLUGIN_ROOT` 由 `plugin_root` capability 解析；不得猜 Host marketplace/cache path。需 Node.js 22+。
 
 | 類型 | 工具 | 範例 |
 |------|------|------|
@@ -342,7 +342,7 @@ verify-map.json 格式：
 每筆寫入記憶**必須包含 `last_verified: YYYY-MM-DD` 欄位**（當天日期）。
 若覆寫既有條目（值改變），仍刷新 `last_verified`。
 
-暫存在 `.spec/{slug}/.cache/verify-memory.md`（Layer 1，gitignore）。欄位格式見本文件『2.5 載入驗證記憶』（`last_verified` 時效性欄位）與『5.5 記憶記錄判斷』（各觸發條件對應的記錄內容），無獨立 schema 文件。跨任務資產請走『記憶升級判斷』一節升級到專案 `.claude/verify-memory.md`（Layer 2）—— `.cache/` 隨時會被清掉。
+暫存在 `.spec/{slug}/.cache/verify-memory.md`（Layer 1，gitignore）。欄位格式見本文件『2.5 載入驗證記憶』（`last_verified` 時效性欄位）與『5.5 記憶記錄判斷』（各觸發條件對應的記錄內容），無獨立 schema 文件。跨任務資產請走『記憶升級判斷』一節升級到 canonical `.crew/verify-memory.md`（Layer 2）—— `.cache/` 隨時會被清掉。
 
 ### 6. 收集截圖與 Evidence
 
