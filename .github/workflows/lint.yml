@@ -173,3 +173,79 @@ jobs:
           python-version: '3.11'
       - name: 檢查沒有「叫 LLM 手寫狀態欄位」的殘留指示（strict，違規阻擋）
         run: python3 scripts/lint-state-writers.py --strict
+
+  codex-marketplace-smoke:
+    name: Codex marketplace smoke (temporary)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install current Codex CLI
+        run: |
+          set -euxo pipefail
+          npm install -g @openai/codex@latest
+          codex --version
+      - name: Add and inspect CREW marketplace
+        env:
+          SMOKE_HOME: ${{ runner.temp }}/crew-codex-home
+        run: |
+          set -euxo pipefail
+          mkdir -p "$SMOKE_HOME"
+          export HOME="$SMOKE_HOME"
+
+          echo "=== codex plugin --help ==="
+          codex plugin --help
+          echo "=== codex plugin marketplace --help ==="
+          codex plugin marketplace --help
+
+          REF="${GITHUB_HEAD_REF:-feature/crew-6-portable-plugin}"
+          codex plugin marketplace add mark22013333/crew --ref "$REF"
+
+          echo "=== marketplace list ==="
+          codex plugin marketplace list | tee "$RUNNER_TEMP/codex-marketplace-list.txt"
+          grep -q "crew" "$RUNNER_TEMP/codex-marketplace-list.txt"
+
+          echo "=== resolved marketplace/plugin files ==="
+          find "$HOME" -maxdepth 8 -type f \
+            \( -name marketplace.json -o -name plugin.json \) -print | sort
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          home = Path.home()
+          found_marketplace = False
+          found_plugins = set()
+
+          for path in home.rglob("marketplace.json"):
+              try:
+                  data = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              if data.get("name") != "crew":
+                  continue
+              found_marketplace = True
+              found_plugins.update(
+                  item.get("name")
+                  for item in data.get("plugins", [])
+                  if isinstance(item, dict)
+              )
+              print(f"marketplace={path}")
+              print(f"plugins={sorted(found_plugins)}")
+
+          assert found_marketplace, "Codex snapshot did not contain marketplace name=crew"
+          assert {"bug-workflow", "feature-workflow"} <= found_plugins, (
+              "Codex snapshot did not expose both CREW plugins"
+          )
+          PY
+
+          echo "=== install command capability probe ==="
+          set +e
+          codex plugin install bug-workflow@crew >"$RUNNER_TEMP/codex-plugin-install.out" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/codex-plugin-install.out"
+          echo "codex_plugin_install_exit=$rc"
+          # Current official CLI documents marketplace add/list; local plugin installation
+          # is performed from the Plugins Directory. Record the capability without
+          # treating absence of a CLI install subcommand as marketplace failure.
+
