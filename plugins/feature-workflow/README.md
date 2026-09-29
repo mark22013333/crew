@@ -20,6 +20,34 @@ codex plugin add feature-workflow@crew
 
 首次使用執行 `/plan-setup`；若 Bug workflow 也安裝，建議先跑 `/bug-setup`，Feature setup 可重用共用 Notion metadata。
 
+## 更新
+
+若同時安裝 `bug-workflow`，可直接用統一入口：
+
+```text
+/crew-upgrade
+/crew-upgrade --check
+```
+
+若只安裝 Feature plugin，使用 Host-native 更新：
+
+### Claude Code
+
+```bash
+claude plugin marketplace update company-marketplace
+claude plugin update feature-workflow@company-marketplace
+claude plugin list
+```
+
+### Codex
+
+```bash
+codex plugin marketplace upgrade crew
+codex plugin list
+```
+
+更新後開新 session。若 Codex marketplace 尚未註冊，先執行 `codex plugin marketplace add mark22013333/crew`。
+
 ---
 
 ## Feature lifecycle

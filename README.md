@@ -71,6 +71,41 @@ codex plugin list
 
 ---
 
+## 更新既有 CREW
+
+如果你已經安裝 CREW，**優先使用統一入口**：
+
+```text
+/crew-upgrade
+/crew-upgrade --check
+```
+
+`/crew-upgrade` 由 `bug-workflow` 提供，會依目前 Host 執行對應的公開 plugin CLI；不直接讀寫 Host 私有 cache/registry。更新完成後請開新 session，避免目前 session 仍載入舊 Skill。
+
+如果只安裝 `feature-workflow`、舊版 `/crew-upgrade` 無法使用，或要手動復原，可直接執行 Host-native 指令。
+
+### Claude Code 手動更新
+
+```bash
+claude plugin marketplace update company-marketplace
+claude plugin update bug-workflow@company-marketplace
+claude plugin update feature-workflow@company-marketplace
+claude plugin list
+```
+
+只更新你已安裝的 plugin；若只裝其中一個，就只執行該行 `plugin update`。
+
+### Codex 手動更新
+
+```bash
+codex plugin marketplace upgrade crew
+codex plugin list
+```
+
+Codex 的 marketplace upgrade 會刷新 Git-backed marketplace snapshot；已設定的 local-marketplace plugin 會隨 refresh 取得新版內容。若 marketplace 尚未註冊，先執行 `codex plugin marketplace add mark22013333/crew`；缺少某個 plugin 時再用 `codex plugin add <plugin>@crew` 安裝。
+
+---
+
 ## 首次設定
 
 ### 1. 準備專案指令
