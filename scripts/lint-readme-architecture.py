@@ -124,6 +124,32 @@ def github_heading_anchors(text: str) -> set[str]:
     return anchors
 
 
+def check_readme_commands(errors: list[str]) -> None:
+    skill_commands = {
+        f"/{path.parent.name}"
+        for path in REPO.glob("plugins/*/skills/*/SKILL.md")
+    }
+    allowed_host_commands = {"/init"}
+    known = skill_commands | allowed_host_commands
+
+    inline_pattern = re.compile(r"`(/[a-z][a-z0-9-]*)(?:\s[^`]*)?`")
+    line_pattern = re.compile(r"^\s*(/[a-z][a-z0-9-]*)(?:\s|$)")
+
+    for readme in sorted(REPO.rglob("README.md")):
+        text = readme.read_text(encoding="utf-8")
+        commands = set(inline_pattern.findall(text))
+        for line in text.splitlines():
+            match = line_pattern.match(line)
+            if match:
+                commands.add(match.group(1))
+
+        for command in sorted(commands):
+            if command not in known:
+                errors.append(
+                    f"{readme.relative_to(REPO)} 引用不存在/非允許的 slash command：{command}"
+                )
+
+
 def check_internal_readme_links(errors: list[str]) -> None:
     pattern = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
     for readme in sorted(REPO.rglob("README.md")):
@@ -163,6 +189,7 @@ def main() -> int:
     errors: list[str] = []
 
     check_internal_readme_links(errors)
+    check_readme_commands(errors)
 
     for path in HISTORICAL_READMES:
         if not path.is_file():
