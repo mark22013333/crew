@@ -12,6 +12,8 @@ created: 2026-04-25
 
 # plan-verify 報告產出改版 — Word 驗收報告
 
+> **歷史 v1 規劃 artifact**：本檔保留 2026-04-25 當時的需求、status 與報告設計，不代表目前 `plan-verify` 的完整報告 contract。現行行為以 Feature Workflow README、`plan-verify` Skill 與相關 active references 為準。
+
 ## 需求描述
 
 plan-verify 驗證完成後的報告產出改版：

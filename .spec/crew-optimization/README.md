@@ -9,6 +9,8 @@
 
 ## 需求描述
 
+> **歷史 v1 規劃 artifact**：本檔保留 2026-04-24 當時的需求、status、branch 與「不包含」範圍，不代表 CREW 6 現行 contract；例如當時尚未進行的 portability 已由後續版本完成。現行使用方式以根 README 與各 plugin README 為準。
+
 參考 [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) 的設計理念，對 CREW（feature-workflow plugin）進行深層優化，涵蓋：
 
 1. **AI 紀律護欄**：反合理化表、退出驗證門檻、三層邊界系統

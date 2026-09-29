@@ -9,7 +9,9 @@
 
 ## 需求描述
 
-參考 [gstack investigate](~/.claude/skills/gstack/investigate/SKILL.md) 的調查方法論和 [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) 的除錯工程紀律，對 CREW bug-workflow plugin 進行深層優化。
+> **歷史 v1 規劃 artifact**：本檔保留 2026-04-24 當時的需求、status、branch 與工具脈絡，不代表 CREW 6 現行 contract。現行使用方式以根 README 與各 plugin README 為準。
+
+參考當時本機的 gstack investigate（路徑：`~/.claude/skills/gstack/investigate/SKILL.md`）調查方法論和 [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) 的除錯工程紀律，對 CREW bug-workflow plugin 進行深層優化。
 
 核心理念：**把 bug-workflow 從「記錄器」升級為「偵探夥伴」**。
 

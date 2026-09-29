@@ -12,6 +12,8 @@ created: 2026-05-15
 
 # plan-verify 進化 — 萃取 E2E 智慧 + 驗證記憶系統
 
+> **歷史 v1 規劃 artifact**：本檔保留 2026-05-15 當時的需求、status 與設計決策，不代表目前 `plan-verify` 的完整功能契約。現行行為以 Feature Workflow README 與 active Skill/reference 為準。
+
 ## 需求描述
 
 以 SmartRobotE2ETest（Playwright E2E 測試框架，109 個 spec 檔案、32,775 行）為知識來源，對 plan-verify 技能進行三階段優化。核心理念：**萃取 E2E 的成熟策略內建到 plugin，而非在 runtime 依賴外部 repo**。
