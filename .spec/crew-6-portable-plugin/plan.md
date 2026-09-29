@@ -42,7 +42,7 @@ drift_policy: off
 - [x] AC-28 Bug skills 逐批接上 state lifecycle：`bug-start` init、`bug-investigate` 進度、`bug-fix` 修復/驗證、`bug-close` 結案；中斷後 `next/session-brief` 可正確續跑。
 - [x] AC-29 剩餘 provider-specific model callsites（plan/plan-build/plan-review/bug-investigate/bug-fix）完成 profile routing 遷移，不再靠 legacy sonnet/opus 名稱。
 - [x] AC-30 Host-management/setup portability 收斂：將設定路徑與 plugin CLI 類 advisory 分離成 portable config contract / host-specific 管理 adapter；核心 workflow 維持 hard=0。
-- [ ] AC-31 v1 legacy retirement 具明確移除條件與版本/日期，不在條件未滿足前刪相容層。
+- [x] AC-31 v1 legacy retirement 具明確移除條件與版本/日期，不在條件未滿足前刪相容層。
 - [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
@@ -105,6 +105,7 @@ drift_policy: off
 - D-58 [convergence] `crew-doctor` 對 CREW-owned config/project 只做 resolver read 診斷：#6=`bug/config`、#7=`feature/config`、#8=`feature/project --repo-id {repo-id}` + representation；`--fix` 不再自行 mkdir config storage，缺失時回到 `/bug-setup`、`/plan-setup`、`/project-add` 的 canonical writer。Host settings/rules 仍屬 host-management adapter，不混入 config resolver。
 - D-59 [convergence] `/plan-setup` 主設定層改為 resolver-owned storage：既有 Feature config 由 `feature/config --mode read` 定位，主設定新建／重新設定一律寫 `feature/config --mode write` canonical path；Bug 共用 Notion metadata 由 `bug/config --mode read` 取得。`stacks/_builtin.md` / projects bundle 本批只維持既有相對建立語意，不新增 resolver key。
 - D-60 [convergence] AC-30 closure criteria 以「CREW-owned config violation=0 + Host portability hard=0 + deterministic resolver smoke 全綠」為準，不要求 advisory=0。剩餘 `CLAUDE_PLUGIN_CLI` / `CLAUDE_CONFIG_PATH`（marketplace、plugin install、`settings.json`、Host rules）屬 host-management adapter；`CLAUDE_MD` 屬 `project_instructions` alias，不再視為 AC-30 未完成。
+- D-61 [convergence] v1 retirement eligibility 固定為：起點 `feature-workflow@5.0.0 / 2026-07-28`；第一個 `5.1.0+` 發布或 `2026-10-26`（90 天）以先到者為 removal gate。Gate 未達前 `legacy-v1.md`、`plan-status --migrate`、crew-doctor v1 偵測必須存在；gate 達成只解除「不得刪」限制，不會自動 cleanup。
 - D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
@@ -400,3 +401,10 @@ drift_policy: off
 - [2026-09-28] [convergence-29] 可重現 closure 檢查：`python3 scripts/lint-host-portability.py --strict` 應維持 hard=0；`python3 scripts/lint-config-resolver.py` 應全綠；另以 active Skill/reference 搜尋 `~/.claude[-company]` 的 feature-workflow config/projects/stacks、bug-workflow config/learnings 與 `~/.config/crew/{feature,bug}` direct storage path，排除 `config-contract.md` 後應為 0。
 - [2026-09-28] [convergence-29] Closure commit `d9de577`；GitHub Actions run 36419432700（#153）共 15 個 job 全部 success；Host portability 再確認 `hard=0 / advisory=62`。AC-30 closure evidence 已由 audited HEAD + closure commit 自身 CI 雙重驗證。
 - [2026-09-28] [next] AC-31 下一小批只建立 v1 retirement contract，不刪相容層：以 `feature-workflow@5.0.0` 發布日 `2026-07-28` 為起點，明確寫出「第一個 `5.1.0` minor 發布日或 `2026-10-26`，以先到者為 removal eligibility」；目前 `5.0.2` / `2026-09-28` 尚未達門檻。更新 `references/legacy-v1.md` 的 `{日期}`、到期條件與清理 checklist，並補 deterministic lint 防止未達條件就刪除 `legacy-v1.md` / `plan-status --migrate` / crew-doctor v1 檢查；不要同批真正移除 v1、處理 AC-1、Phase 4 或 merge PR。
+
+- [2026-09-29] [convergence-30] AC-31 retirement contract 已具體化：`legacy-v1.md` 明列起點 `feature-workflow@5.0.0 / 2026-07-28`，removal eligibility 為 `5.1.0+` 發布或 `2026-10-26`，以先到者為準；原 `{日期}` placeholder 已移除。
+- [2026-09-29] [convergence-30] `legacy-v1.md` 到期 cleanup checklist 已明列 atomic removal surface：legacy reference、各 Skill v1 分支、`plan-status --migrate`、crew-doctor v1 檢查與項數、state-writer 過渡期 EXEMPTIONS/guard、README 現行連結與完整 CI；eligibility 到達前禁止部分刪除。
+- [2026-09-29] [convergence-30] `lint-state-writers.py` 新增 machine-checkable retirement gate：讀 `feature-workflow/plugin.json` 實際版本，預設以執行日期判斷，並支援 `CREW_LINT_DATE=YYYY-MM-DD` 重現日期條件。Gate 未達時缺 `legacy-v1.md`、`plan-status --migrate` 或 crew-doctor v1 偵測皆會讓 `--strict` 失敗。
+- [2026-09-29] [convergence-30] Functional commit `a9ed9dc`；GitHub Actions run 36514170638（#155）15/15 success。State-writer gate 實際輸出：`feature-workflow=5.0.2, check_date=2026-09-29, gate=version>=5.1.0 OR date>=2026-10-26, eligible=false`，且 compatibility presence guard success。
+- [2026-09-29] [convergence-30] Host portability 維持 `hard=0 / advisory=62`；AC-31 已勾選完成。v1 相容層目前仍完整存在，沒有提前退休。
+- [2026-09-29] [next] 剩餘唯一未完成驗收條件為 AC-1。下一小批只做「真實 Codex CLI marketplace add/install smoke」：先確認執行環境真的有可用 Codex CLI，依執行當下官方 CLI 語法把 `mark22013333/crew` 當 marketplace source，驗證可發現並安裝 portable plugin，記錄 Codex CLI version、實際命令、stdout/stderr 與結果。若環境沒有 Codex CLI 或 marketplace 功能不可用，明確記為未完成，絕不以 manifest/lint 代替真機 smoke；不要同批進 Phase 4、修改已完成 AC-30/31、mark ready 或 merge PR。
