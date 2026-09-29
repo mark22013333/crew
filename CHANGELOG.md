@@ -8,6 +8,30 @@
 
 ---
 
+## [feature-workflow@5.0.3] - 2026-09-29
+
+> **plan-verify portable convergence。** 收斂 browser adapter、plugin root、verify memory 與 Human UAT 邊界；不改 Feature lifecycle 本身。
+
+### Fixed
+
+- `/plan-verify` 不再把 Playwright MCP 當 Host-specific hard prerequisite；改為 `tool_probe` 選 Playwright → chrome-devtools → local CDP fallback。
+- 內建 script / report generator 一律透過 `CREW_PLUGIN_ROOT` 解析，不再猜 CREW 自身 Claude marketplace path。
+- 修正 verify 完成後的 UAT 文案：`verify PASS` → `/plan-review` → `/plan-close`；Human UAT 在 `/plan-close` 內取得。
+- Project verify memory canonical storage 改為 `.crew/verify-memory.md`；舊 `.claude/verify-memory.md` 僅在 canonical 不存在時 read fallback，新寫入只寫 canonical。
+
+### Added
+
+- `references/verify-memory.md`：三層 memory、freshness、legacy read fallback、promotion 與 state/UAT boundary。
+- Feature README 新增 `plan-verify-flow` Mermaid，視覺化 AC → evidence → results.verify → review → plan-close/UAT。
+- `lint-skill-contract.py` 新增 plan-verify convergence guard；README Mermaid contract 也要求保留 `plan-verify-flow`。
+
+### Compatibility
+
+- 歷史 `.spec/plan-verify-evolution/*` 保留原始設計史實，不回寫。
+- Word report 的 `report-config.md` 與 Minimax external plugin fallback 仍是獨立 compatibility surface；本版只收斂 CREW 自身 plugin path。
+
+---
+
 ## [bug-workflow@4.0.2] - 2026-09-29
 
 > **Portable CREW update workflow。** `/crew-upgrade` 不再讀 Host 私有 plugin cache/registry，也不再保留 `.claude-company` fallback；改由目前 Host 的公開 plugin CLI 執行更新。
