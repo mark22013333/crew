@@ -18,17 +18,29 @@ description: bug-workflow 首次設定引導 —— 自動偵測 Notion 資料�
 
 ## 流程
 
-### 1. 決定設定檔位置並檢查是否已存在
+### 1. 透過 portable resolver 檢查既有設定並決定寫入位置
 
-**設定檔路徑規則**：
+不要自行判斷 Host-specific 實體路徑。讀取與寫入都透過 `bug/config` logical key：
 
-1. 先檢查 `~/.claude-company/bug-workflow-config.md`
-2. 再檢查 `~/.claude/bug-workflow-config.md`
-3. 若都不存在 → 自動偵測目標路徑：
-   - `~/.claude-company/` 目錄存在 → 使用 `~/.claude-company/bug-workflow-config.md`
-   - 否則 → 使用 `~/.claude/bug-workflow-config.md`
-   - **不詢問使用者選擇路徑**，直接建立
-4. 若已存在 → 詢問使用者要「重新設定」還是「更新專案對應」
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+BUG_CONFIG_READ_PATH="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format path)"
+
+BUG_CONFIG_WRITE_PATH="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode write \
+  --format path)"
+```
+
+- `[ -f "$BUG_CONFIG_READ_PATH" ]` → 讀取既有設定，詢問使用者要「重新設定」還是「更新專案對應」。
+- 既有設定可能由 resolver 的 read fallback 找到；它只作為**讀取來源**。若 `BUG_CONFIG_READ_PATH != BUG_CONFIG_WRITE_PATH`，不得修改或搬移該 legacy 檔。
+- 既有設定不存在 → 直接進入首次設定。
+- 所有本次新建／更新的設定一律寫入 `BUG_CONFIG_WRITE_PATH`；`--mode write` 永遠回 canonical portable path。
+- resolver 本身無副作用；實體 root / fallback 規則以 `../../references/config-contract.md` 為權威。
 
 ### 2. 偵測 Notion 資料庫
 
@@ -272,7 +284,15 @@ pwd
 
 ### 4. 產出設定檔
 
-以 plugin 根目錄 `references/config.template.md`（相對 SKILL.md 為 `../../references/`）為模板，填入偵測到的 ID 與對應資訊，寫入使用者在『決定設定檔位置並檢查是否已存在』一節選擇的路徑。
+以 plugin 根目錄 `references/config.template.md`（相對 SKILL.md 為 `../../references/`）為模板，填入偵測到的 ID 與對應資訊，寫入 Step 1 的 canonical `BUG_CONFIG_WRITE_PATH`。
+
+寫入前由 Skill 建立 parent directory；resolver 不負責 mkdir：
+
+```bash
+mkdir -p "$(dirname "$BUG_CONFIG_WRITE_PATH")"
+```
+
+即使 Step 1 是從 legacy fallback 讀到既有設定，更新結果也只寫 canonical portable path，不覆寫 legacy source。
 
 **新增欄位**：在設定檔中填入「CREW 工作區」區段：
 
@@ -302,7 +322,7 @@ Bug Workflow 設定完成！
 已設定的專案對應：
   • 範例機關-ORG01P2401 → ORG01P2401/sample-app
 
-設定檔位置：~/.claude-company/bug-workflow-config.md
+設定檔位置：{BUG_CONFIG_WRITE_PATH}
 
 現在可以使用：
   /bug-start <問題簡述>     — 建立 Bug 條目
@@ -318,7 +338,7 @@ Bug Workflow 設定完成！
 
 - 想一鍵完成 bug + feature 全部設定 → 用 /crew-init
 - 只設定 feature 側 → 用 /plan-setup
-- 初始化程式專案 / git repo / CLAUDE.md → 用內建 /init 或 git
+- 初始化程式專案 / git repo / 專案指令 → Codex 建立 `AGENTS.md`；Claude Code 可用 `/init`；Git 初始化照常用 git
 - 註冊專案到 Notion 專案庫 → 用 /project-add
 
 ---

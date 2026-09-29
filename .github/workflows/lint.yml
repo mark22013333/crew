@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 檢查 plugin.json / marketplace.json / README.md 三處版本一致
+      - name: 檢查 Claude/portable plugin.json / marketplace.json / README.md 四處版本一致
         run: bash scripts/bump-version.sh --check
 
   plugin-manifest:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: 檢查 skills 陣列／hooks／marketplace source 與實際檔案相符
+      - name: 檢查 Claude/portable manifest、hooks、Claude/Codex marketplace 與實際檔案相符
         run: python3 scripts/lint-plugin-manifest.py
 
   skill-md-lint:
@@ -68,6 +68,61 @@ jobs:
           python-version: '3.11'
       - name: 檢查結構化 model 標示與 model-policy.md 角色分工（strict，違規阻擋）
         run: python3 scripts/lint-agent-model.py --strict
+
+  state-lifecycle:
+    name: State lifecycle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 Feature/Bug type-aware lifecycle
+        run: python3 scripts/lint-state-lifecycle.py
+
+  approval-gates:
+    name: Approval gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 gate schema、transition hard block 與舊 state 相容
+        run: python3 scripts/lint-approval-gates.py
+
+  config-resolver:
+    name: Config resolver
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 portable config contract / legacy fallback
+        run: python3 scripts/lint-config-resolver.py
+
+  model-routing:
+    name: Model routing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 NONE/FAST/STANDARD/DEEP 與 escalation
+        run: python3 scripts/lint-model-routing.py
+
+  host-portability:
+    name: Host portability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 阻擋 active workflow 重新引入 Claude-specific orchestration
+        run: python3 scripts/lint-host-portability.py --strict
 
   skill-contract:
     name: SKILL.md 內容契約

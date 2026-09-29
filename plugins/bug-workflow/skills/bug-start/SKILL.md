@@ -1,18 +1,18 @@
 ---
 name: bug-start
-description: 在 Notion 任務追蹤工具建立 Bug 條目並填入標準化模板（僅建條目，不含 .spec/ 目錄與 Git branch）。當使用者提到 /bug-start、「建立 bug 條目」、「記錄 bug 到 Notion」、「bug 通報」時觸發此 Skill。
+description: 在 Notion 任務追蹤工具建立 Bug 條目並建立最小 .spec/{slug}/state.json（不建立 plan.md、不建立新 Git branch）。當使用者提到 /bug-start、「建立 bug 條目」、「記錄 bug 到 Notion」、「bug 通報」時觸發此 Skill。
 argument-hint: "<問題簡述> [環境] [優先順序]"
 ---
 
-# Bug Start — 建立 Bug 條目與標準化文件
+# Bug Start — 建立 Bug 條目與最小 Runtime State
 
-在 Notion「任務追蹤工具」資料庫建立一筆 Bug 條目，自動填入標準化頁面模板，並關聯對應專案。
+在 Notion「任務追蹤工具」資料庫建立一筆 Bug 條目，自動填入標準化頁面模板並關聯對應專案；同時建立最小 `.spec/{slug}/state.json` 作為 Bug lifecycle 的 runtime 斷點。**不建立 `plan.md`、不建立新 Git branch。**
 
 ---
 
 ## 流程
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
 ### 1. 解析使用者輸入
 
@@ -70,6 +70,18 @@ git remote get-url origin 2>/dev/null || echo ""
 /bug-start SSO登入找不到使用者 正式 高
 ```
 
+### 3.5 產生 runtime slug
+
+沿用 `/plan-start` 的 slug 規則，從問題簡述產生可重現的英文 slug：
+
+- 中文 → 翻譯為簡短英文
+- 已經是英文 → 轉為 kebab-case
+- 確認 `.spec/{slug}/` 不存在；若存在則加數字後綴
+- 🔴 不使用 Notion page ID 當 slug
+- 🔴 不使用 `crew-state.py init --force` 覆蓋既有任務
+
+這個 slug 只用於最小 runtime state；本 skill **不建立 `plan.md` 或新 branch**。
+
 ### 4. 偵測負責人
 
 在建立 Notion 條目前，自動偵測負責人以填入「負責人」（people 類型）欄位：
@@ -103,6 +115,50 @@ git remote get-url origin 2>/dev/null || echo ""
 | 修復分支 | Git branch 名稱（若有） |
 | 專案資料庫 | 關聯的專案頁面 URL |
 | 負責人 | 「偵測負責人」一節偵測到的 Notion 使用者（若有） |
+
+### 5.5 建立最小 Bug Runtime State
+
+Notion 條目建立後（若 Notion 暫時失敗則 page id 留空），依 `../../references/host-capabilities.md` 的 `plugin_root` 解析 CREW plugin root，然後建立 Bug state。
+
+先取得當前 Git 資訊；不在 Git repo 時留空：
+
+```bash
+CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+CURRENT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
+```
+
+再執行：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" init \
+  --slug {slug} \
+  --name "{問題簡述}" \
+  --type bug \
+  ${CURRENT_BRANCH:+--branch "$CURRENT_BRANCH"} \
+  ${CURRENT_COMMIT:+--commit "$CURRENT_COMMIT"} \
+  ${NOTION_PAGE_ID:+--notion-page-id "$NOTION_PAGE_ID"}
+```
+
+成功後必須立即驗證：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase start
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" next --slug {slug} --format json
+```
+
+exit gate：
+
+- `state.json.type == "bug"`
+- `phase == "start"`
+- `steps` 只有 `start / investigate / fix / close`
+- `next.command == "/bug-investigate"`
+
+任一不成立 → **不要繼續寫初始證據或宣稱 Bug 已建立完成**；依錯誤訊息修正後重跑。
+
+> `init` exit 1 且提示 state 已存在 → 視為 slug collision，回到 3.5 產生數字後綴；**不得使用 `--force`**。
+>
+> Notion API 失敗不阻擋本地 state 建立：省略 `--notion-page-id`，並在回傳結果提示稍後補同步。
 
 ### 6. 填入頁面模板
 
@@ -205,13 +261,14 @@ git remote get-url origin 2>/dev/null || echo ""
 ### 10. 回傳結果
 
 向使用者回傳：
-- Notion 頁面連結
+- Notion 頁面連結（若 Notion 暫時失敗則明確標示未同步）
+- 本地 runtime state：`.spec/{slug}/state.json`
 - 建立的條目摘要（任務名稱、專案、環境、優先順序）
 - 關聯結果（若「自動關聯來源 Feature」成功）：「已關聯來源 Feature：{Feature 標題}」
 - 修復分支（若「偵測來源 Feature Branch」調整過）：「修復分支：{branch}（來自關聯 Feature）」
 - 提示後續可用指令：
   ```
-  Bug 條目已建立！後續可使用：
+  Bug 條目與 runtime state 已建立！crew-state.py next：
   • /bug-investigate     — 開始調查根因（推薦下一步）
   • /bug-update <內容>  — 補充調查資訊（Log、SQL、判斷等）
   • /bug-fix             — 確認根因後修復
@@ -222,10 +279,11 @@ git remote get-url origin 2>/dev/null || echo ""
 
 ## 何時不用
 
-start 組 —— 本 skill 只建 Notion bug 條目；需完整入口（Notion + .spec/ + branch）用 `/plan-start`。
+start 組 —— 本 skill 建立 Notion Bug + **最小 state.json**；需要完整規劃產物（plan.md）或新 Git branch 時才用 `/plan-start`。
 
-- 需同時建 .spec/ 目錄 + Git branch → 使用 `/plan-start`（type=bug）
-- 條目已建、要開始修 → 使用 `/bug-fix`
+- 需同時建立 `plan.md` + 新 Git branch → 使用 `/plan-start`（type=bug）
+- Bug state/條目已存在、要開始調查 → 使用 `/bug-investigate`
+- 根因已確認、要開始修 → 使用 `/bug-fix`
 - 補充既有 bug 資訊 → 使用 `/bug-update`
 - 建立 feature 新任務 → 使用 `/plan-start`
 
@@ -249,7 +307,7 @@ start 組 —— 本 skill 只建 Notion bug 條目；需完整入口（Notion +
 - **設定檔不存在**：提示使用者先執行 `/bug-setup` 完成初始設定
 - **不在 Git repo 中**：跳過分支與專案自動偵測，修復分支留空；進入互動式選擇專案；「偵測來源 Feature Branch」跳過
 - **使用者未指定專案**：列出進行中的專案供選擇；若只有一個專案則自動選定
-- **Notion API 失敗**：顯示錯誤訊息，建議使用者手動在 Notion 建立
+- **Notion API 失敗**：仍建立本地 `state.json`（`notion.page_id` 留空），顯示錯誤訊息並提示稍後補同步；不要因此讓 Bug lifecycle 沒有 runtime state
 - **「相關任務」欄位不存在**（舊版資料庫）：「自動關聯來源 Feature」的 patch-page 會失敗，靜默跳過並提示使用者執行 `/bug-setup` 更新 schema
 - **專案無任何 Feature 條目**：「自動關聯來源 Feature」的 query 結果為空，跳過關聯
 - **Bug 標題全是停詞**（如「錯誤修復」）：關鍵字擷取為空，跳過「自動關聯來源 Feature」

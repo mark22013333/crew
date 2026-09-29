@@ -12,7 +12,22 @@
 2. **當前分支是 feature/hotfix 分支**（非 DEV/PRD）：不匹配專案設定中的 `dev_branch`、`uat_branch`、`prod_branch`
 3. **能取得 DEV 分支名稱**：從 feature-workflow 的 `projects/{repo-id}.md` 讀取 `dev_branch` 欄位
 
-> `dev_branch` 取得路徑：先嘗試 `~/.claude-company/feature-workflow/projects/{repo-id}.md`，再嘗試 `~/.claude/feature-workflow/projects/{repo-id}.md`。
+> `dev_branch` 取得方式：先沿用 `/project-add` 規則由 Git remote 解析 `{repo-id}`，再執行：
+>
+> ```bash
+> CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+> python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+>   --key feature/project \
+>   --repo-id "{repo-id}" \
+>   --mode read \
+>   --format json
+> ```
+>
+> - `representation=hierarchical` → 從 project frontmatter 讀 `dev_branch`
+> - `representation=legacy_monolith` → 沿用舊設定表格 parser，以 repo-id 找專案列
+> - `source=missing` 或沒有 `dev_branch` → 視為條件 3 不成立，使用下方簡化提示
+>
+> Consumer 不得自行拼 Host-specific project config path。
 
 ---
 

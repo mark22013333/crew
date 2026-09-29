@@ -1,12 +1,12 @@
 ---
 name: plan-review
-description: 以 Agent Teams 3 人並行審查 .spec 任務的程式碼（邏輯/品質/效能）並交叉審查，報告全文在對話輸出、摘要一行進 plan.md。當使用者提到 /plan-review、「Agent Teams 程式碼審查」、「plan-review 審查」時觸發此 Skill。
+description: 以 3 個 reviewer 角色審查 .spec 任務的程式碼（邏輯/品質/效能），Host 支援時可平行、否則序列。當使用者提到 /plan-review、「CREW 程式碼審查」、「plan-review 審查」時觸發此 Skill。
 argument-hint: "[--quick]"
 ---
 
-# plan-review — Agent Teams 程式碼審查
+# plan-review — 多角色程式碼審查
 
-以 **Agent Teams** leader-delegate 模式，3 位 Reviewer 並行審查程式碼，完成後**互相分享發現並交叉審查**，Leader 彙整報告。
+依 `../../references/host-capabilities.md` 以 3 位 Reviewer 的 role contract 審查程式碼；有 `parallel_delegate` 時可平行，否則序列。第一輪完成後由 Leader 整理發現，再進行交叉審查與彙整。
 
 > **報告不落檔**：完整報告在**對話輸出**（要當下看、當下修的東西，存成檔案只會變成沒人再讀的漂移來源）。
 > 落檔的只有兩樣：`plan.md`「檢查報告摘要」節的**一行**摘要，與 `state.json` 的 `results.review`。
@@ -15,25 +15,15 @@ argument-hint: "[--quick]"
 
 ## 前置條件
 
-### 環境變數
+### Host capability
 
-必須啟用 Agent Teams 實驗功能（同 plan-build，擇一設定）：
+載入 `../../references/host-capabilities.md`。完整審查優先使用 `parallel_delegate`，但平行能力只是最佳化：
 
-**方式 A**：加入 shell profile（`~/.zshrc` 或 `~/.bashrc`）
-```bash
-export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
-```
+- 有 `parallel_delegate` → 3 個 reviewer 可平行。
+- 只有一般 delegate → 3 個 reviewer 依序執行。
+- 無 subagent → 主 Agent inline 執行 3 個唯讀 role。
 
-**方式 B**：加入 settings.json 的 `env` 區塊
-```json
-{
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  }
-}
-```
-
-> ⚠️ 未設定時，建立 Agent Team 的指令會**靜默失敗**（不報錯但不產出 Reviewer 結果），難以 debug，務必在此先確認已設定。
+不得因某家 Host 的 Team 功能或環境變數未啟用而阻擋審查。
 
 ### 程式碼
 
@@ -42,7 +32,7 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 > 💡 plan-review 從 .spec/ 和程式碼檔案讀取所有輸入，不依賴對話歷史。
 >    若剛執行完 /plan-build，建議先 /clear 再執行，確保有足夠 context 空間。
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查 CLAUDE.md 是否存在。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）檢查專案指令是否存在。
 
 ---
 
@@ -105,14 +95,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 ### 4. 確認執行計畫
 
 ```
-即將啟動 Agent Teams 程式碼審查：
+即將啟動 CREW 多角色程式碼審查：
 
 📁 審查範圍：N 個檔案（git diff + git status）
 🔍 錨點 pre-check：{全部有效 / ⚠️ N 筆需注意 / 本次未檢查（原因）}
 📊 Reviewer 配置：
-  • Reviewer 1 — 邏輯正確性（model: sonnet）
-  • Reviewer 2 — 程式碼品質（model: sonnet）
-  • Reviewer 3 — 效能審查（model: opus）
+  • Reviewer 1 — 邏輯正確性（task: routine_review + profile: STANDARD）
+  • Reviewer 2 — 程式碼品質（task: routine_review + profile: STANDARD）
+  • Reviewer 3 — 效能審查（task: performance_review + profile: DEEP）
 
 確認開始？[Y/n]
 ```
@@ -121,19 +111,33 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 
 完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）。
 
-- 三位 Reviewer 都用 **Agent tool 具名 spawn**，模型以結構化 `model` 參數傳入（`sonnet` / `sonnet` / `opus`），🔴 不可只在 prompt 寫「使用 Opus 模型」。
-- 一般邏輯檢查、規格符合度、程式碼風格與品質 → `sonnet`；效能敏感（含交易、並行、大量資料）→ `opus`。
-- **小變更例外**：變更範圍小、且不涉及安全、交易、並行或效能敏感區域時，三位可全部用 `sonnet`，或直接建議使用者改跑 `/plan-review --quick`。採用例外時要在上面的確認畫面標明實際模型與理由。
-- 安全審查不在本 skill 範圍 → 由 `/plan-security`（`model: opus`）負責。
+先以 Router 取得兩種 Reviewer mapping：
 
-### 5. 啟動 Agent Teams
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task routine_review --risk medium --complexity medium \
+  --host portable --format json
 
-#### 完整審查（Agent Teams）
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task performance_review --risk high --complexity high \
+  --host portable --format json
+```
 
-用 **Agent tool 逐一具名 spawn** 3 個 Reviewer（一個角色一次呼叫，各自帶結構化 `model`）：
-- **Reviewer 1：邏輯正確性**（`model: sonnet`）— 讀取 plan.md（`AC-n` ＋ `D-n`）、R0 的錨點 pre-check 結果與變更檔案，檢查 API 參數驗證、業務邏輯、查詢條件、例外處理、邊界條件、回傳格式，並逐條對照 `AC-n` 是否真的有對應實作
-- **Reviewer 2：程式碼品質**（`model: sonnet`）— 比對專案既有檔案風格，檢查命名規範、package 結構、Lombok、註解、error handling、edge case
-- **Reviewer 3：效能審查**（`model: opus`）— 讀取 `deploy.sql`（索引、約束）與變更檔案，檢查 N+1、分頁、索引、迴圈內 DB 呼叫、快取、連線池
+- 三位 Reviewer 都用 `delegate_readonly`；Host 支援時可包進 `parallel_delegate`，但**每個 reviewer 子工作單元都要各自帶 routing**。
+- Reviewer 1 / 2：routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: medium`。
+- Reviewer 3：routing=`task: performance_review`、`profile: DEEP`、`risk: high`、`complexity: high`。
+- Host adapter 做不到 per-worker model/reasoning 時，保留 reviewer scope 與 profile 目標並回報 `routing_degraded=true`，不得假裝已套用。
+- **小變更例外**：變更範圍小、且不涉及安全、交易、並行或效能敏感區域時，可直接建議使用者跑 `/plan-review --quick`；quick 仍是單一 `routine_review + STANDARD` reviewer。
+- 安全審查不在本 skill 範圍 → 由 `/plan-security` 的 `security_review + DEEP` 路徑負責。
+
+### 5. 啟動多角色審查
+
+#### 完整審查（parallel_delegate 優先）
+
+建立 3 個 `delegate_readonly` role；Host 支援時包成一次 `parallel_delegate`，否則依序執行：
+- **Reviewer 1：邏輯正確性** — routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: medium`；讀取 plan.md（`AC-n` ＋ `D-n`）、R0 的錨點 pre-check 結果與變更檔案，檢查 API 參數驗證、業務邏輯、查詢條件、例外處理、邊界條件、回傳格式，並逐條對照 `AC-n` 是否真的有對應實作
+- **Reviewer 2：程式碼品質** — routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: medium`；比對專案既有檔案風格，檢查命名規範、package 結構、Lombok、註解、error handling、edge case
+- **Reviewer 3：效能審查** — routing=`task: performance_review`、`profile: DEEP`、`risk: high`、`complexity: high`；讀取 `deploy.sql`（索引、約束）與變更檔案，檢查 N+1、分頁、索引、迴圈內 DB 呼叫、快取、連線池
 
 三位 Reviewer 完成後互相分享發現、交叉審查，Lead 只負責協調（delegate mode，不自己寫 code）彙整產出 Review Report，全程繁體中文。
 
@@ -141,8 +145,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 
 #### 快速審查（--quick，Subagent）
 
-使用 Agent tool 啟動單一 subagent（model: sonnet），只做邏輯正確性審查
-（呼叫時必須實際傳入 `{"model": "sonnet"}`；`--quick` 針對小型變更，唯讀不改程式碼）：
+使用 `delegate_readonly`（role=`logic-reviewer`），只做邏輯正確性審查，
+routing=`task: routine_review`、`profile: STANDARD`、`risk: medium`、`complexity: low`。
+`--quick` 針對小型變更，唯讀不改程式碼；Host adapter 依 Router mapping 套用實際模型／reasoning：
 
 ```
 你是資深程式碼審查員。
@@ -157,7 +162,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 {檔案清單及內容}
 
 ## 專案上下文
-{CLAUDE.md 內容}
+{project_instructions 內容}
 
 ## 任務
 對以上程式碼進行快速審查，聚焦於：
@@ -264,7 +269,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 ## 何時不用
 
-分工邊界：本 skill 專責 CREW `.spec` 任務的 Agent Teams 多角色交叉審查，其餘審查需求請改用下列指令。
+分工邊界：本 skill 專責 CREW `.spec` 任務的多角色交叉審查，其餘審查需求請改用下列指令。
 
 - 一般 diff code review → 內建 `/code-review` 或 `codex`
 - Java 最佳實務審查 → 個人 `java-code-review`
@@ -289,7 +294,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 - **無程式碼可審查**：提示先執行 `/plan-build` 或 commit 程式碼
 - **plan.md 只有骨架（尚未 `/plan`）**：仍可審查，但在報告開頭標「無驗收條件可對照，本次只做程式碼層面審查」
 - **`check-spec-drift.py` 回 exit 3**：R0 標「本次未檢查」＋原文的「修法：」，不阻擋、不改判為漂移
-- **Agent Teams 未啟用**：顯示設定指引，或建議用 `--quick` 模式
+- **Host 無 parallel capability**：自動序列執行 3 個 reviewer；若使用者明確要省成本才建議 `--quick`
 - **交叉審查發現嚴重問題**：提供選項：修正後重新審查 / 忽略繼續 / 終止
 - **Reviewer 失敗**：提供選項：重試 / 跳過該 Reviewer / 終止
-- **--quick 模式**：不建立 Agent Teams，只用 Subagent
+- **--quick 模式**：只執行一個 `delegate_readonly` reviewer（role=`logic-reviewer`，`task: routine_review` + `profile: STANDARD`）

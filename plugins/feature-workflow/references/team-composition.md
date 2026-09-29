@@ -36,7 +36,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 | frontend-only | 前端工程師 | Subagent |
 | api-only | 後端 + API 工程師 | 2 人 Team 或 2 個 Subagent |
 | db-only | DB 工程師（需 DB MCP）| Subagent |
-| full | 走 Step 3 完整判斷 | Agent Teams |
+| full | 走 Step 3 完整判斷 | `parallel_delegate` 優先，否則序列 |
 
 #### bugfix（修復）
 預設：後端工程師（Subagent）
@@ -94,7 +94,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
   - FRONTEND_REQUIRED = false
   - NEW_API = false
 
-需要調整嗎？（如需完整 Agent Teams，輸入配置）[Y/n]
+需要調整嗎？（如需完整多角色配置，輸入角色調整）[Y/n]
 ```
 
 ## 模型配置
@@ -109,9 +109,9 @@ reference `model-policy.md`：
 
 規則：
 
-- 兩者都用 **Agent tool 具名 spawn**，模型以結構化參數傳入（`model: sonnet` / `model: opus`），不寫在 prompt 文字裡。
+- 探索使用 `delegate_readonly`、實作使用 `delegate_write`；模型目標以結構化參數傳入（`model: sonnet` / `model: opus`），不寫在 prompt 文字裡。
 - 探索先做、實作後做；同一個 agent 不能中途換模型，所以**探索與實作必然是不同 agent**。
-- 不論團隊是 1 人（Subagent 模式，實作者 `model: opus`）或 5 人（Agent Teams 模式），這張表都一樣適用。
+- 不論只有 1 個實作角色或 5 個角色，這張表都一樣適用；Host 有 `parallel_delegate` 時平行，否則序列。
 
 ---
 

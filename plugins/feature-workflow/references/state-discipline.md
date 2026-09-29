@@ -9,19 +9,38 @@
 ## 唯一寫者：`crew-state.py`
 
 流程狀態的唯一權威是 `.spec/{slug}/state.json`，唯一寫者是
-`${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py`。**不要手寫或手改這個 JSON。**
+透過 `host-capabilities.md` 的 `plugin_root` 解析後執行 `scripts/crew-state.py`。**不要手寫或手改這個 JSON。**
 
 理由有三，缺一不可：
 
 1. **手寫會寫錯** —— 欄位名拼錯、列舉值用了未定義的字串、時間格式不一致，
    這些錯誤不會當場報錯，會在幾天後 `/plan-next` 判位錯誤時才爆出來。
-2. **併發會寫壞** —— Agent Teams 有多個成員同時在跑。script 用 `flock` 加鎖、
+2. **併發會寫壞** —— `parallel_delegate` 可能有多個 worker 同時在跑。script 用 `flock` 加鎖、
    `os.replace()` 原子寫入；手寫沒有這層保護，兩個成員同時寫就是一個半毀的 JSON。
 3. **狀態要能被機器讀** —— `/plan-next`、`/plan-status` 與 SessionStart hook
    都直接讀這個檔做判斷。它是資料，不是給人看的文件。
 
 給人看的東西（決策與理由、被否決的方案、取捨）寫在 `plan.md` 的「決策紀錄」章節，
 不要塞進 state.json。
+
+---
+
+## Type-aware lifecycle（schema v2）
+
+`crew-state.py` 共用同一份 runtime，但 **Feature 與 Bug 不共用同一條 phase/steps 鏈**：
+
+```text
+feature: start → spec → db → arch → build → security → verify → review → close
+bug:     start → investigate → fix → close
+```
+
+- `state.json.steps` 只保留該 `type` 的有效步驟；Bug 不再出現假的 `spec/db/arch/security/review`。
+- `next` 必須先看 `type` 再決定下一個 Skill；`type=bug` 不得回 `/plan spec`、`/plan-build` 等 Feature 指令。
+- Bug 的編譯、測試、迴歸測試屬於 `fix` 階段的工作單元／證據，不為了套 Feature 模型而另外偽造 `verify/review` phase。
+- UAT 仍是獨立 Approval Gate：Bug `fix=done` 後進 `/bug-close` 做 Human UAT；若 UAT rejected，`next` 回 `/bug-fix`。
+- CLI 會拒絕跨 type 的 step/phase，例如 Bug 寫 `step=spec` 或 Feature 寫 `step=investigate`。
+
+舊 `schema_version=1` state 由 normalize 升到 v2：Feature 保留原 lifecycle；Bug 保留 `start/close`，新增 `investigate/fix`，並可依 `work_unit.skill=bug-investigate|bug-fix` 修正 phase。舊 Feature step 不會被冒充成 Bug 進度。
 
 ---
 
@@ -42,7 +61,7 @@
 
 | skill | 一個工作單元 = |
 |-------|---------------|
-| plan-build | **一個檔案**。由 Agent Teams **leader 在 worker 回報後寫入**；worker 不碰 state.json（避免多成員同寫） |
+| plan-build | **一個檔案**。由協調者在 role/worker 回報後寫入；worker 不碰 state.json（避免多執行單元同寫） |
 | plan-review | **一位審查員的報告** |
 | plan-security | **一個掃描層**（Layer 1 靜態規則／Layer 2 上下文感知／Layer 3 對抗性思維） |
 | plan-verify | **一條驗收條件**（`plan.md` 的 `AC-n`） |

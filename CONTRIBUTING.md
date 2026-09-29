@@ -17,9 +17,11 @@
 
 升版時**必須完成以下所有步驟**，缺一不可：
 
-### 1. 修改版號（兩個地方）
+### 1. 修改版號（四個地方）
 
 - `plugins/{plugin}/.claude-plugin/plugin.json` 的 `"version"` 欄位 — **這是 `claude plugin update` 判斷是否有新版的依據**
+- `plugins/{plugin}/plugin.json` 的 `"version"` 欄位 — Agent Plugins portable canonical manifest
+- `.claude-plugin/marketplace.json` 對應 plugin 的 `"version"` 欄位
 - `plugins/{plugin}/README.md` 第一行的 `` `vX.Y.Z` `` 標記
 
 > **易錯點**：只改 README 不改 plugin.json，會導致 update 認為「已是最新」不會重新安裝。
@@ -95,12 +97,12 @@ gh release create {plugin}-v{X.Y.Z} --title "{plugin} v{X.Y.Z} — {一句話}" 
 `.github/workflows/lint.yml` 用 `python-version: '3.11'`，本機請用對應版本（例 `/opt/homebrew/bin/python3.11`）：
 
 ```bash
-bash scripts/bump-version.sh --check      # 版本一致性（plugin.json / marketplace.json / README 三處）
-python3.11 scripts/lint-plugin-manifest.py # plugin.json skills 陣列／hooks／marketplace source 與實際檔案相符
+bash scripts/bump-version.sh --check      # 版本一致性（Claude + portable plugin.json / marketplace / README 四處）
+python3.11 scripts/lint-plugin-manifest.py # Claude/portable manifest、hooks、Claude/Codex marketplace 與實際檔案相符
 python3.11 scripts/lint-skills.py         # SKILL.md frontmatter 與行數
 python3.11 scripts/check-shared-refs.py   # 共用 reference sha256 防漂移
 python3.11 scripts/lint-changelog.py      # CHANGELOG 版本／日期排序
-python3.11 scripts/lint-agent-model.py --strict   # 模型分工政策（違規阻擋）
+python3.11 scripts/lint-agent-model.py --strict   # 模型分工政策（違規阻擋）\npython3.11 scripts/lint-model-routing.py     # NONE/FAST/STANDARD/DEEP routing smoke test\npython3.11 scripts/lint-config-resolver.py    # portable config logical key / legacy fallback smoke test\npython3.11 scripts/lint-host-portability.py --strict # Host-specific orchestration 防回歸
 python3.11 scripts/lint-skill-contract.py # 觸發詞與內部連結
 python3.11 scripts/lint-readme-sync.py    # README 指令表同步
 python3.11 scripts/lint-state-writers.py --strict  # 狀態單一寫者防回歸（違規阻擋）
@@ -132,6 +134,8 @@ bash scripts/bump-version.sh --check   # 印出兩個 plugin 的當前版號
 
 ```
 company-marketplace/
+├── .agents/plugins/      # Codex repo marketplace
+├── .claude-plugin/       # Claude Code marketplace
 ├── .github/workflows/    # CI lint（版本一致性、manifest 宣告一致性、SKILL.md 格式、共用 ref 漂移）
 ├── .gitignore
 ├── CHANGELOG.md          # 所有 Plugin 的變更紀錄（/crew-upgrade 讀取）
@@ -140,10 +144,12 @@ company-marketplace/
 ├── scripts/              # 版本同步、lint
 └── plugins/
     ├── bug-workflow/
+    │   ├── plugin.json   # Portable Agent Plugins manifest
     │   ├── README.md     # Bug Workflow 詳細文件
     │   ├── references/   # 共用 reference（與 feature-workflow 同步，CI 防漂移）
     │   └── skills/       # 各 Skill 的 SKILL.md
     └── feature-workflow/
+        ├── plugin.json   # Portable Agent Plugins manifest
         ├── README.md     # Feature Workflow 詳細文件
         ├── references/   # 共用 reference + 專屬 reference
         └── skills/       # 各 Skill 的 SKILL.md
@@ -192,6 +198,9 @@ git add -f .spec/{slug}/
 - `notion-backend.md`
 - `handoff-discipline.md`
 - `model-policy.md`
+- `host-capabilities.md`
+- `model-routing.json`
+- `config-contract.md`
 
 **單一權威來源（C9）**：`plugins/bug-workflow/references/` 那份是唯一權威，
 **只改這份**；`feature-workflow` 那份一律視為同步產物，不要直接編輯。
@@ -203,7 +212,7 @@ git add -f .spec/{slug}/
 ./scripts/sync-shared-refs.sh --check  # push 前檢查是否一致（不修改）
 ```
 
-除 reference 外，**共用 script**（`scripts/crew-state.py`，權威同樣在 bug-workflow）
+除 reference 外，**共用 script**（`scripts/crew-state.py`、`scripts/crew-model-route.py`、`scripts/crew-config.py`，權威同樣在 bug-workflow）
 也走這支腳本同步；目標目錄不存在會自動建立。
 
 > **兩者嚴格度不同**：`sync-shared-refs.sh --check` 在「權威份存在但同步副本缺失」時

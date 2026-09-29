@@ -27,7 +27,7 @@ description: CREW bug 修復紀律 —— 根因確認才能改（鐵律）、�
 - 已使用 `/bug-start` 建立 Bug 條目（Notion 有「進行中」的 🐞 錯誤）
 - 修復程式碼已 commit 或即將 commit
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
 ---
 
@@ -35,6 +35,7 @@ description: CREW bug 修復紀律 —— 根因確認才能改（鐵律）、�
 
 ```
 /bug-fix                  # 標準修復流程
+/bug-fix --resume         # 從 state.json 的修復工作單元斷點續跑
 /bug-fix --skip-test      # 跳過迴歸測試（僅限無法測試的場景）
 /bug-fix --verify-only    # 只驗證（已修復，只要驗證 + 產出測試）
 ```
@@ -46,6 +47,50 @@ description: CREW bug 修復紀律 —— 根因確認才能改（鐵律）、�
 ### 1. 定位目標 Bug
 
 與 `/bug-update` 相同邏輯：參照 plugin 根目錄 `references/locate-bug.md`（相對 SKILL.md 為 `../../references/`）。
+
+#### 1.1 綁定 Bug Runtime State（必須）
+
+定位 Notion Bug 後，取得該頁面的 page ID，使用 `crew-state.py list --all --format json`
+找出 `state.notion.page_id == 目前 Bug page id` 的 `{slug}`。
+
+- 若本輪沿用 `/bug-investigate` 的同一任務，直接使用其 slug。
+- 找到多筆 → **BLOCK**，不得猜測。
+- 找不到 → **BLOCK**，提示先用 `/bug-start` 建立／補齊最小 runtime state；不得自行 `init --force`。
+- 必須確認 `type=bug` 且 `steps.investigate.status == done`；否則回 `/bug-investigate`。
+
+解析 plugin root：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+```
+
+正常開始（非 `--resume`）時，先讓任何上一輪 UAT 決策失效，再進入 fix：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status pending --by crew \
+  --reason "bug fix revised; fresh human acceptance required"
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+  --step fix --status in_progress
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  --skill bug-fix --done 0 --total 3 --label "步驟" \
+  --remaining "1. 根因確認與修復範圍鎖定" \
+  --remaining "2. 程式碼修改" \
+  --remaining "3. 迴歸測試與驗證"
+```
+
+使用 `--resume` 時**不要重設 UAT、fix status 或 done/total**。先讀：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" next --slug {slug} --format json
+```
+
+只有 `next.command == "/bug-fix --resume"` 才依
+`work_unit.remaining / evidence / ambiguities` 與 Notion 修復紀錄從斷點續跑。
+
+> 🔴 正常修復途中不得 clear work unit。只有第 3 個工作單元完成後才能清除並把 `fix=done`。
 
 ### 2. 分支檢查
 
@@ -92,18 +137,30 @@ description: CREW bug 修復紀律 —— 根因確認才能改（鐵律）、�
 鐵律：沒有根因確認，不能開始修復。
 ```
 
-### 4. 修復建議與實作（唯讀 sonnet → 實作者 opus）
+根因確認與修復範圍鎖定完成後，立即寫第 1 個工作單元：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  --skill bug-fix --done 1 --total 3 --label "步驟" \
+  --evidence "根因已確認：{一行根因摘要}" \
+  --remaining "2. 程式碼修改" \
+  --remaining "3. 迴歸測試與驗證"
+```
+
+### 4. 修復建議與實作（唯讀 FAST → 實作者 DEEP）
 
 > **模型分工（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
 >
-> | 階段 | 工作 | model |
-> |------|------|-------|
-> | 4a 定位（唯讀） | 讀取已確認根因、定位相關檔案、搜尋相似修正模式、尋找既有測試範本 | `sonnet` |
-> | 4b 實作 | 決定修正策略、修改正式程式碼、處理跨模組影響、建立必要的迴歸測試 | `opus` |
-> | 5 驗證整理 | 分析編譯與測試輸出、整理驗證結果、更新 `.spec/` 或 Notion 紀錄 | `sonnet` |
+> | 階段 | 工作 | routing / model |
+> |------|------|-----------------|
+> | 4a 定位（唯讀） | 讀取已確認根因、定位相關檔案、搜尋相似修正模式、尋找既有測試範本 | `task: repository_search` + `profile: FAST` |
+> | 4b 實作 | 決定修正策略、修改正式程式碼、處理跨模組影響、建立必要的迴歸測試 | `task: high_risk_implementation` + `profile: DEEP` |
+> | 5 驗證執行 | 編譯／測試指令與 pass/fail 判定 | `profile: NONE`（deterministic tooling） |
+> | 5 驗證整理（唯讀） | 大量編譯／測試輸出摘要、整理結果、更新 `.spec/` 或 Notion 紀錄 | `task: test_output_summary` + `profile: FAST` |
 >
-> - 4a 派 subagent 時實際傳入 `{"model": "sonnet"}`；4b **正式修改 Agent 必須實際傳入** `{"model": "opus"}`。
-> - 同一個 agent 的模型 spawn 後不能換 → 4a 與 4b **必須是兩個 agent**，不是同一個 agent「先探索再實作」。
+> - 4a 依 `../../references/host-capabilities.md` 使用 `delegate_readonly`，routing=`task: repository_search`、`profile: FAST`、`risk: low`、`complexity: low`；執行前由 `crew-model-route.py` 取得 Host mapping。
+> - 4b **正式修改 Agent 必須維持 DEEP**：routing=`task: high_risk_implementation`、`profile: DEEP`、`risk: high`、`complexity: high`；實際模型／reasoning 由 Router + Host adapter 決定。
+> - 4a 與 4b **必須是兩個工作單元**，不是同一個 agent「先探索再實作」。
 > - 4b 的實作者只吃 4a 的交接（相關檔案、呼叫關係、風格／測試範本、已確認限制、測試方式），🔴 不重新全域掃描 repository。
 > - 🔴 沒有根因確認（步驟 3 BLOCK）不得進入 4b。🔴 最小 diff：只動與根因直接相關的程式碼。
 
@@ -121,8 +178,31 @@ AI 根據 Notion 頁面的根因分析，產出修復建議：
 ⚠️ 最小 diff 原則：只修改與根因直接相關的程式碼
 ```
 
-使用者確認方向後自行修復，或請 AI 修復 —— 由 AI 修復時，用 **Agent tool** 啟動實作者 subagent
-並實際傳入 `{"model": "opus"}`，prompt 附上 4a 的交接內容與最小 diff 要求。
+使用者確認方向後自行修復，或請 AI 修復 —— 由 AI 修復時，先取得可寫角色的 Router mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task high_risk_implementation --risk high --complexity high \
+  --host portable --format json
+```
+
+再依 `../../references/host-capabilities.md` 使用 **`delegate_write`**，role=`bug-fix-implementer`，
+routing=`task: high_risk_implementation`、`profile: DEEP`、`risk: high`、`complexity: high`，
+輸入 4a 的交接內容與最小 diff scope。Host adapter 必須確認 mapping 是否真的套用；
+若無 per-worker model/reasoning，保留 write scope 與 DEEP 目標並回報 `routing_degraded=true`，不得假裝成功。
+Host 無獨立 worker 時可由主 Agent inline 實作，但不得放寬可寫範圍與驗證要求。
+
+程式碼修改完成、diff 已確認只包含本次 Bug 修復後，立即寫第 2 個工作單元：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  --skill bug-fix --done 2 --total 3 --label "步驟" \
+  --evidence "修復程式碼完成：{檔案/commit/diff 摘要}" \
+  --remaining "3. 迴歸測試與驗證"
+```
+
+`--verify-only` 不代表可以省略這個單元；若修復程式碼在進入本 skill 前已完成，
+則把第 2 單元記成「既有修復 diff 已確認」，附 commit/diff 證據，不得假裝本輪有重新修改。
 
 ### 5. 修復後驗證
 
@@ -141,7 +221,7 @@ AI 根據 Notion 頁面的根因分析，產出修復建議：
 
 #### 5.2 迴歸測試產出
 
-AI 根據根因分析和修復 diff，產出 1 個迴歸測試：
+若需要 AI **新增或修改迴歸測試程式碼**，這屬可寫工作，必須沿用 4b 的 `delegate_write`，routing=`task: high_risk_implementation`、`profile: DEEP`、`risk: high`、`complexity: high`；不得交給 FAST 驗證整理角色，也不得自行指定 provider model。AI 根據根因分析和修復 diff 產出 1 個迴歸測試：
 
 ```
 迴歸測試需滿足：
@@ -193,6 +273,26 @@ curl -s "http://localhost:8080/api/xxx" -H "Cookie: <cookie>" | head -50
 
 檢查 HTTP 狀態碼 + 回應 body。
 
+#### 5.5 Runtime 驗證工作單元
+
+第 3 個工作單元代表「迴歸測試與驗證已完成」，不是單純跑過一條指令。
+
+可視為完成的情況：
+
+- 編譯／必要測試通過，且迴歸測試 PASS；或
+- `--skip-test` 符合本文件允許的場景，且原因已寫入 Notion / evidence；或
+- 迴歸測試依既有規則重試後仍 WARN，但已留下明確失敗證據與風險，不再假裝 PASS。
+
+任一必要驗證尚未執行，或還在等修正 → **不要**把 done 寫成 3。
+
+驗證結論落地後：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  --skill bug-fix --done 3 --total 3 --label "步驟" \
+  --evidence "驗證完成：compile={PASS|WARN} regression={PASS|WARN|SKIPPED} {關鍵證據}"
+```
+
 ### 6. 驗證結果寫入 Notion
 
 更新 Notion 頁面「驗證」區塊：
@@ -211,6 +311,38 @@ curl -s "http://localhost:8080/api/xxx" -H "Cookie: <cookie>" | head -50
 - [ ] 通報者確認問題已解決
 ```
 
+### 6.5 Runtime 收尾
+
+只有以下條件全部成立才可以完成 fix：
+
+1. work unit 1/3：根因與修復範圍已確認
+2. work unit 2/3：修復 diff／既有修復 commit 已確認
+3. work unit 3/3：迴歸測試與必要驗證已完成，PASS/WARN/SKIPPED 的理由有證據
+4. Notion「驗證」區塊已更新，不把 WARN 寫成 PASS
+
+然後依序：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} --clear
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+  --step fix --status done
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
+  --expect-phase fix
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" next --slug {slug} --format json
+```
+
+exit gate：
+
+- `steps.fix.status == done`
+- `work_unit.skill == null`
+- `gates.uat.status == pending`
+- `next.command == "/bug-close"`
+
+任一不成立 → 不得宣稱「Bug 修復驗證完成」。
+
 ### 7. 回傳結果
 
 ```
@@ -228,7 +360,25 @@ Bug 修復驗證完成！
 
 **分支引導**（若當前在 feature branch 且不是 DEV/PRD 分支）：
 
-讀取 feature-workflow 的 `projects/{repo-id}.md` 取得 `dev_branch`。若取得成功，額外顯示：
+先沿用 `/project-add` 的 Git remote 規則取得 `{repo-id}`，再用 portable config resolver 解析 project config：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{repo-id}" \
+  --mode read \
+  --format json
+```
+
+讀取 resolver 回傳的 `path / source / representation`：
+
+- `source=missing` → 視為 `dev_branch` 未設定，走下方通用提示；不阻擋修復完成。
+- `representation=hierarchical` → 從 project 檔 frontmatter 讀 `dev_branch`。
+- `representation=legacy_monolith` → 沿用既有舊設定表格 parser，以 `{repo-id}` 找專案列並讀 `dev_branch`（若舊格式沒有此欄位則視為未設定）。
+- consumer **不得自行拼任何 Host-specific project config 路徑**。
+
+若取得 `dev_branch`，額外顯示：
 
 ```
 🔀 分支引導：
@@ -264,7 +414,7 @@ Bug 修復驗證完成！
 - **迴歸測試風格匹配**：產出的測試檔案要與專案現有測試使用相同的框架（JUnit 5 / TestNG）、assertion library（AssertJ / Hamcrest）、命名風格（`should_xxx_when_yyy` / `testXxxWhenYyy`）。先搜尋 `src/test` 目錄中的現有測試作為範本。
 - **--skip-test 的使用場景**：僅限以下情況：環境問題（如無法在本地跑測試）、設定類修復（如改 properties 檔）、純 SQL 修復（如改 DB 資料）。其他場景不應跳過。
 - **gstack browse 可用性**：不是所有環境都有安裝 gstack。先偵測 `$HOME/.claude/skills/gstack/browse/dist/browse` 是否存在且可執行，再決定是否進行 UI 驗證。
-- **dev_branch 取得路徑**：分支引導需要讀取 feature-workflow 的 `projects/{repo-id}.md`，但 bug-fix 是 bug-workflow 的 skill。需跨 plugin 讀取設定：先嘗試 `~/.claude-company/feature-workflow/projects/{repo-id}.md`，再嘗試 `~/.claude/feature-workflow/projects/{repo-id}.md`。讀取失敗時顯示通用提示。
+- **dev_branch 取得路徑**：bug-fix 是 bug-workflow skill，但跨 plugin project config 一律經 `crew-config.py resolve --key feature/project --mode read`；hierarchical 讀 frontmatter，`legacy_monolith` 走舊 parser。Resolver missing 或 `dev_branch` 空白時顯示通用提示。
 
 ---
 
@@ -277,7 +427,7 @@ Bug 修復驗證完成！
 - **迴歸測試無法產出**：某些修復（如純設定變更）難以寫自動化測試，標記為 WARN 並在 Notion 說明原因
 - **gstack 不可用**：跳過 UI 驗證，在 Notion 標記「UI 驗證：⏭️ 跳過（gstack 不可用）」
 - **API 驗證服務未啟動**：跳過 API 驗證，在 Notion 標記「API 驗證：⏭️ 跳過（服務未啟動）」
-- **--verify-only 模式**：跳過『修復建議與實作』一節，直接從『修復後驗證』一節開始。此模式不修改正式程式碼，**預設 `model: "sonnet"`**（只跑編譯／測試、分析輸出、寫紀錄）；只有驗證失敗、且使用者同意繼續修正時，才啟動 `{"model": "opus"}` 的實作者
+- **--verify-only 模式**：跳過實際改碼，但 runtime 仍維持 3 個工作單元；第 2 單元改記「既有修復 diff/commit 已確認」，不能直接跳成 done=3。編譯／測試執行本身是 `profile: NONE`；需要摘要大量輸出或整理紀錄時用 `task: test_output_summary` + `profile: FAST`。若驗證失敗且使用者同意修改程式碼，才進 `task: high_risk_implementation` + `profile: DEEP` 的 `delegate_write` 實作者。
 - **diff 過大（> 500 行）**：提示使用者確認是否所有變更都與 bug 修復相關，遵循最小 diff 原則；其他改善（如 code style、重構旁邊的邏輯）應在另一個 commit 完成，否則 revert 時會連帶
 - **Bug 無「修復分支」欄位**：『分支檢查』一節跳過
 - **feature-workflow 未安裝或未設定**：分支引導顯示通用提示，不阻擋流程

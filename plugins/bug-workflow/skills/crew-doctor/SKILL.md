@@ -1,6 +1,6 @@
 ---
 name: crew-doctor
-description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配依賴（Node/Git/Notion MCP/Agent Teams/瀏覽器 MCP/config/專案註冊/CLAUDE.md），列出綠黃紅燈與修法。當使用者提到 /crew-doctor、「CREW 環境健診」、「CREW 為什麼不能用」時觸發此 Skill。
+description: CREW 環境健診 —— 一次性檢查必要與選配依賴（Node/Git/Notion/委派能力/瀏覽器工具/config/專案指令），列出綠黃紅燈與修法。當使用者提到 /crew-doctor、「CREW 環境健診」、「CREW 為什麼不能用」時觸發此 Skill。
 ---
 
 # crew-doctor — CREW 環境健診
@@ -13,6 +13,7 @@ description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配
 ## 紀律護欄
 
 > 紀律護欄：`../../references/discipline-preamble.md`（通用紀律）＋ `../../references/anti-rationalizations.md`「crew-doctor 專用」＋ `../../references/boundaries.md`「crew-doctor」段。
+> CREW-owned config/project 的實體 root、fallback 與 representation 以 `../../references/config-contract.md` + `scripts/crew-config.py` 為權威；doctor 只做 read-only 診斷，不自行建立 config storage。
 
 ---
 
@@ -34,18 +35,18 @@ description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配
 |---|------|---------|-----------|
 | 1 | Node.js ≥ 18 | `node --version` | 對應 OS 安裝指令 |
 | 2 | Git | `git --version` | 對應 OS 安裝指令 |
-| 3 | Notion MCP | `claude mcp list` 含 notion 或 notion-local | `claude plugin install notion` |
-| 4 | Agent Teams 啟用 | `$CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | 加入 `~/.claude/settings.json` 的 env |
-| 5 | CLAUDE.md 在當前專案 | `ls CLAUDE.md` | `/init` |
-| 6 | bug-workflow 設定檔 | `~/.claude-company/bug-workflow-config.md` | `/bug-setup` |
-| 7 | feature-workflow 設定 | `~/.claude-company/feature-workflow/config.md` | `/plan-setup` |
-| 8 | 專案註冊 | `~/.claude-company/feature-workflow/projects/{repo-id}.md` | `/project-add` |
+| 3 | Notion 能力 | 依 `host-capabilities.md` 的 `tool_probe(tool_kind=notion)` | 提示目前 Host 的 Notion plugin/MCP 安裝方式 |
+| 4 | 委派能力 | 探測 `delegate_readonly` / `parallel_delegate` 可用層級 | 無平行能力可序列執行，不視為 BLOCK |
+| 5 | 專案指令 | `test -f AGENTS.md || test -f CLAUDE.md` | Codex 建立 `AGENTS.md`；Claude Code 可用 `/init` |
+| 6 | bug-workflow 設定檔 | `bug/config --mode read` resolver：`source != missing` | `/bug-setup` |
+| 7 | feature-workflow 設定 | `feature/config --mode read` resolver：`source != missing` | `/plan-setup` |
+| 8 | 專案註冊 | `feature/project --repo-id {repo-id} --mode read` + `representation` | `/project-add` |
 
 ### 🟡 強烈建議（3 項，影響核心功能）
 
 | # | 項目 | 檢查方式 | 缺失時影響 |
 |---|------|---------|-----------|
-| 9 | Playwright MCP | `claude mcp list` 含 playwright | plan-verify 降級或無法執行 |
+| 9 | Playwright 能力 | `tool_probe(tool_kind=browser, preferred_names=[playwright])` | plan-verify 依能力降級 |
 | 10 | Maven / Gradle | `which mvn` 或 `which gradle` | plan-build E4 編譯驗證跳過 |
 | 11 | CREW hooks 已載入 | 見下方「#11 CREW hooks 已載入」 | 開 session 時不會提醒未結案任務，中斷的任務容易被遺忘（`plan-close` 沒做到） |
 
@@ -53,8 +54,8 @@ description: CREW 環境健診 —— 一次性檢查 CREW 所有必要與選配
 
 | # | 項目 | 檢查方式 | 缺失時影響 |
 |---|------|---------|-----------|
-| 12 | chrome-devtools MCP | `claude mcp list` 含 chrome-devtools | plan-verify `--deep` 不可用 |
-| 13 | DBHub MCP | `claude mcp list` 含 dbhub | DB 直連功能不可用，plan-build DB 工程師退場 |
+| 12 | chrome-devtools 能力 | `tool_probe(tool_kind=browser, preferred_names=[chrome-devtools])` | plan-verify `--deep` 不可用 |
+| 13 | DB 工具 | `tool_probe(tool_kind=database, preferred_names=[dbhub])` | DB 直連功能不可用，plan-build DB 工程師退場 |
 | 14 | .NET SDK ≥ 8 | `dotnet --version` | Word 報告降級為 python-docx 排版 |
 | 15 | python-docx | `python3 -c "import docx"` | 完全無 Word 報告能力（需先裝 .NET 或 docx） |
 | 16 | v1 舊結構任務 | 當前專案有 `.spec/*/` 含 `README.md` 但無 `plan.md` 的目錄 | 這些任務走相容模式；過渡期到期後不再支援 → 提示 `/plan-status --migrate {slug}`，並指向 `feature-workflow/references/legacy-v1.md`（**過渡期檢查項，到期連同該檔一併移除**） |
@@ -112,6 +113,38 @@ OS 決定缺失提示的指令（例如 `brew install node` vs `winget install N
 依序執行，每項通過或失敗都立即顯示在輸出中。
 紅燈項目**不阻擋**後續檢查（要把完整圖像給使用者）。
 
+#6–#8 的 config/project 診斷統一走 portable resolver，不自行猜測 Host path：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+BUG_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format json)"
+
+FEATURE_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode read \
+  --format json)"
+
+PROJECT_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{repo-id}" \
+  --mode read \
+  --format json)"
+```
+
+判定規則：
+
+- **#6 bug-workflow 設定**：`BUG_CONFIG_JSON.source != missing` 即通過；legacy fallback 仍算可讀。
+- **#7 feature-workflow 設定**：`FEATURE_CONFIG_JSON.source != missing` 即通過；legacy fallback 仍算可讀。
+- **#8 專案註冊**：
+  - `source=missing` → 紅燈，提示 `/project-add`。
+  - `representation=hierarchical` → 通過。
+  - `representation=legacy_monolith` → 使用既有 monolith parser 檢查 `repo-id` 對應列；找到才通過。
+- doctor 不搬移、不寫回 legacy source；config/project 的建立與修復分別交給 `/bug-setup`、`/plan-setup`、`/project-add`。
+
 ### 3. 跑強烈建議（#9-11）與選配（#12-16）
 
 執行後標示為 🟡 警告或 🔵 選配。
@@ -148,19 +181,26 @@ CREW 環境健診摘要
 
 ### 6. `--fix` 模式
 
-對下列項目嘗試自動修復：
+只對 doctor 明確擁有、且不涉及 CREW config storage ownership 的項目嘗試自動修復：
 
 | 項目 | 修法 |
 |------|------|
-| ~/.claude-company/feature-workflow/ 缺失 | `mkdir -p` |
-| ~/.claude-company/feature-workflow/projects/ 缺失 | `mkdir -p` |
-| ~/.claude-company/feature-workflow/stacks/ 缺失 | `mkdir -p` |
-| CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS 未設 | 寫入 `~/.claude/settings.json` 的 env（先備份原檔） |
+| 無 parallel delegation | 不需修復；CREW 自動序列執行。若使用者想啟用 Host 的平行能力，再提供該 Host 專屬指引 |
+
+**config/project 缺失不由 doctor 直接 mkdir 或寫檔**：
+
+| 診斷失敗 | 修復入口 |
+|----------|----------|
+| #6 `bug/config` missing | `/bug-setup` |
+| #7 `feature/config` missing | `/plan-setup` |
+| #8 `feature/project` missing / monolith 無 repo row | `/project-add` |
+
+上述 Skill 會依 resolver canonical write contract 決定目的地；doctor 不建立 Host-specific 或 portable config directory。
 
 **不會自動修復**（仍要使用者操作）：
 - MCP 安裝（要 `claude plugin/mcp` 指令）
 - Notion 授權（互動式 OAuth）
-- CLAUDE.md 建立（要 `/init`）
+- 專案指令建立（Codex：`AGENTS.md`；Claude Code：可用 `/init` 建立 `CLAUDE.md`）
 - Notion 資料庫建立（要 `/bug-setup` 互動建立）
 
 `--fix` 修了什麼會明確列出，並建議再跑一次 `/crew-doctor` 確認。
@@ -190,11 +230,11 @@ CREW 環境健診摘要
    ❌ Notion MCP 未安裝
       → 修法：claude plugin install notion
       → 安裝後重啟 Claude Code
-   ✅ Agent Teams 啟用（settings.json）
-   ✅ CLAUDE.md 存在於 /Users/cheng/IdeaProjects/MyProject
-   ✅ bug-workflow-config.md 存在
-   ✅ feature-workflow/config.md 存在
-   ❌ 專案未註冊（找不到 projects/{repo-id}.md）
+   ✅ 委派能力：parallel_delegate 可用
+   ✅ 專案指令存在：AGENTS.md
+   ✅ bug-workflow 設定可讀（bug/config）
+   ✅ feature-workflow 設定可讀（feature/config）
+   ❌ 專案未註冊（feature/project missing）
       → 修法：/project-add
 
 🟡 強烈建議（3）
@@ -230,8 +270,8 @@ CREW 環境健診摘要
 
 ## Gotchas
 
-- **`claude mcp list` 輸出格式**：不同版本可能變動，需用 grep / awk 適配
-- **跨平台路徑**：Windows 用 `%USERPROFILE%`、Unix 用 `$HOME`
+- **工具探測不要綁 CLI 輸出格式**：一律依 `host-capabilities.md` 的 `tool_probe`，以 session 真正可呼叫能力為準
+- **跨平台 config path**：CREW-owned config/project 不自行拼 `%USERPROFILE%` / `$HOME` 路徑；一律讀 resolver 結果
 - **Notion API 速率限制**：#17-18 試查若被 throttle，標示為 ⚠️ 不算失敗
 - **`--fix` 改 settings.json 風險**：先 cp settings.json.bak，失敗能還原
 - **MCP 未啟用 vs 未安裝**：`claude plugin list` 顯示 `enabled` 才算可用

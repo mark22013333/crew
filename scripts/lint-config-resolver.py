@@ -1,0 +1,402 @@
+#!/usr/bin/env python3
+"""Deterministic smoke tests for the CREW portable config resolver."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+RESOLVER = REPO / "plugins" / "bug-workflow" / "scripts" / "crew-config.py"
+BUG_SETUP_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-setup" / "SKILL.md"
+PROJECT_ADD_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
+CREW_INIT_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "crew-init" / "SKILL.md"
+CREW_DOCTOR_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "crew-doctor" / "SKILL.md"
+BUG_CLOSE_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
+EVIDENCE_COLLECTION = REPO / "plugins" / "bug-workflow" / "references" / "evidence-collection.md"
+LEARNINGS_SCHEMA = REPO / "plugins" / "bug-workflow" / "references" / "learnings-schema.md"
+BUG_FIX_SKILL = REPO / "plugins" / "bug-workflow" / "skills" / "bug-fix" / "SKILL.md"
+MERGE_GUIDE = REPO / "plugins" / "bug-workflow" / "references" / "merge-guide.md"
+PLAN_CLOSE_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-close" / "SKILL.md"
+PLAN_START_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-start" / "SKILL.md"
+PLAN_DEPLOY_CONFIRM_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-deploy-confirm" / "SKILL.md"
+PLAN_STACK_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-stack" / "SKILL.md"
+PLAN_SETUP_SKILL = REPO / "plugins" / "feature-workflow" / "skills" / "plan-setup" / "SKILL.md"
+BUG_PREREQUISITES = REPO / "plugins" / "bug-workflow" / "references" / "prerequisites.md"
+FEATURE_PREREQUISITES = REPO / "plugins" / "feature-workflow" / "references" / "prerequisites.md"
+BUG_CONFIG_TEMPLATE = REPO / "plugins" / "bug-workflow" / "references" / "config.template.md"
+FEATURE_CONFIG_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "config.template.md"
+FEATURE_CONFIG_RESOLVER_REF = REPO / "plugins" / "feature-workflow" / "references" / "config-resolver.md"
+
+
+def run(env: dict[str, str], *args: str, expect: int = 0) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(
+        [sys.executable, str(RESOLVER), "resolve", *args],
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+    if proc.returncode != expect:
+        raise AssertionError(
+            f"{' '.join(args)} => {proc.returncode}, expected {expect}\n"
+            f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        )
+    return proc
+
+
+def data(env: dict[str, str], *args: str) -> dict:
+    return json.loads(run(env, *args, "--format", "json").stdout)
+
+
+def touch(path: Path, text: str = "x") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def main() -> int:
+    try:
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            home = base / "home"
+            xdg = base / "xdg"
+            home.mkdir()
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            env["XDG_CONFIG_HOME"] = str(xdg)
+            env.pop("CREW_CONFIG_HOME", None)
+
+            missing = data(env, "--key", "feature/config", "--mode", "read")
+            expected_feature = xdg / "crew" / "feature" / "config.md"
+            assert missing["source"] == "missing"
+            assert Path(missing["path"]) == expected_feature
+            assert not expected_feature.exists()
+            print("✅ missing read returns canonical path without creating files")
+
+            write = data(env, "--key", "feature/config", "--mode", "write")
+            assert Path(write["path"]) == expected_feature
+            assert write["source"] == "portable"
+            assert not expected_feature.exists()
+            print("✅ write resolution is side-effect free and always canonical")
+
+            legacy_feature = home / ".claude" / "feature-workflow" / "config.md"
+            touch(legacy_feature)
+            resolved = data(env, "--key", "feature/config", "--mode", "read")
+            assert Path(resolved["path"]) == legacy_feature
+            assert resolved["source"] == "legacy"
+            assert resolved["representation"] == "hierarchical"
+
+            touch(expected_feature)
+            preferred = data(env, "--key", "feature/config", "--mode", "read")
+            assert Path(preferred["path"]) == expected_feature
+            assert preferred["source"] == "portable"
+            print("✅ portable config wins over legacy fallback")
+
+            project = data(
+                env,
+                "--key", "feature/project",
+                "--repo-id", "github.com/org/repo.git",
+                "--mode", "write",
+            )
+            assert Path(project["path"]).name == "github.com--org--repo.md"
+            assert Path(project["path"]).parent == xdg / "crew" / "feature" / "projects"
+
+            retired_monolith = home / ".claude-company" / "feature-workflow-config.md"
+            touch(retired_monolith)
+            monolith = home / ".claude" / "feature-workflow-config.md"
+            touch(monolith)
+            project_read = data(
+                env,
+                "--key", "feature/project",
+                "--repo-id", "ORG01P2401/PushAPIService",
+                "--mode", "read",
+            )
+            assert Path(project_read["path"]) == monolith
+            assert project_read["representation"] == "legacy_monolith"
+            print("✅ feature project supports hierarchical and monolith legacy representations")
+
+            retired_bug_config = home / ".claude-company" / "bug-workflow-config.md"
+            touch(retired_bug_config)
+            bug_legacy = home / ".claude" / "bug-workflow-config.md"
+            touch(bug_legacy)
+            bug_config = data(env, "--key", "bug/config", "--mode", "read")
+            assert Path(bug_config["path"]) == bug_legacy
+            assert bug_config["legacy"] is True
+
+            retired_learning = home / ".claude-company" / "bug-workflow" / "learnings" / "retired-only.jsonl"
+            touch(retired_learning)
+            ignored = data(
+                env,
+                "--key", "bug/learning",
+                "--project-slug", "retired-only",
+                "--mode", "read",
+            )
+            assert ignored["source"] == "missing"
+            assert ".claude-company" not in ignored["path"]
+            print("✅ retired ~/.claude-company paths are ignored")
+
+            learning = data(
+                env,
+                "--key", "bug/learning",
+                "--project-slug", "github.com-org-repo",
+                "--mode", "write",
+            )
+            assert Path(learning["path"]) == xdg / "crew" / "bug" / "learnings" / "github.com-org-repo.jsonl"
+            print("✅ bug config/learnings resolve through portable contract")
+
+            override = base / "custom-crew"
+            env["CREW_CONFIG_HOME"] = str(override)
+            explicit = data(env, "--key", "feature/stack", "--stack-id", "spring-boot-jpa", "--mode", "write")
+            assert Path(explicit["root"]) == override
+            assert Path(explicit["path"]) == override / "feature" / "stacks" / "spring-boot-jpa.md"
+            print("✅ CREW_CONFIG_HOME overrides XDG/default root")
+
+            bad = run(
+                env,
+                "--key", "bug/learning",
+                "--project-slug", "../escape",
+                "--mode", "write",
+                expect=2,
+            )
+            assert "不得包含路徑分隔符" in bad.stderr
+            print("✅ unsafe path traversal input is rejected")
+
+        crew_doctor_text = CREW_DOCTOR_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in crew_doctor_text
+        assert "--key bug/config" in crew_doctor_text
+        assert "--key feature/config" in crew_doctor_text
+        assert "--key feature/project" in crew_doctor_text
+        assert "--repo-id" in crew_doctor_text
+        assert crew_doctor_text.count("--mode read") >= 3
+        assert crew_doctor_text.count("--format json") >= 3
+        assert "source=missing" in crew_doctor_text
+        assert "representation=hierarchical" in crew_doctor_text
+        assert "representation=legacy_monolith" in crew_doctor_text
+        assert "config-contract.md" in crew_doctor_text
+        assert "/bug-setup" in crew_doctor_text
+        assert "/plan-setup" in crew_doctor_text
+        assert "/project-add" in crew_doctor_text
+        assert ".claude-company" not in crew_doctor_text
+        assert "~/.claude/feature-workflow/" not in crew_doctor_text
+        assert "feature-workflow/projects/ 缺失" not in crew_doctor_text
+        assert "feature-workflow/stacks/ 缺失" not in crew_doctor_text
+        print("✅ crew-doctor diagnoses config/project state through portable resolver without owning storage repair")
+
+        crew_init_text = CREW_INIT_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in crew_init_text
+        assert "--key bug/config" in crew_init_text
+        assert "--key feature/config" in crew_init_text
+        assert "--key feature/project" in crew_init_text
+        assert "--repo-id" in crew_init_text
+        assert crew_init_text.count("--mode read") >= 3
+        assert crew_init_text.count("--format json") >= 3
+        assert "source=missing" in crew_init_text
+        assert "representation=hierarchical" in crew_init_text
+        assert "representation=legacy_monolith" in crew_init_text
+        assert "config-contract.md" in crew_init_text
+        assert "--mode write" in crew_init_text  # mentions delegated setup write contract only; crew-init does not invoke it
+        assert ".claude-company" not in crew_init_text
+        assert "~/.claude" not in crew_init_text
+        print("✅ crew-init detects setup/project state through portable resolver")
+
+        project_add_text = PROJECT_ADD_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in project_add_text
+        assert "--key bug/config" in project_add_text
+        assert "--key feature/config" in project_add_text
+        assert project_add_text.count("--key feature/project") >= 2
+        assert project_add_text.count("--mode read") >= 3
+        assert "--mode write" in project_add_text
+        assert project_add_text.count("--format json") >= 3
+        assert "--format path" in project_add_text
+        assert "representation=hierarchical" in project_add_text
+        assert "representation=legacy_monolith" in project_add_text
+        assert "PROJECT_CONFIG_READ_JSON" in project_add_text
+        assert "PROJECT_CONFIG_WRITE_PATH" in project_add_text
+        assert 'mkdir -p "$(dirname "$PROJECT_CONFIG_WRITE_PATH")"' in project_add_text
+        assert "config-contract.md" in project_add_text
+        assert ".claude-company" not in project_add_text
+        assert "~/.claude" not in project_add_text
+        print("✅ project-add reads workflow config and writes project mapping through portable resolver")
+
+        bug_setup_text = BUG_SETUP_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in bug_setup_text
+        assert "--key bug/config" in bug_setup_text
+        assert "--mode read" in bug_setup_text
+        assert "--mode write" in bug_setup_text
+        assert bug_setup_text.count("--format path") >= 2
+        assert "BUG_CONFIG_READ_PATH" in bug_setup_text
+        assert "BUG_CONFIG_WRITE_PATH" in bug_setup_text
+        assert '[ -f "$BUG_CONFIG_READ_PATH" ]' in bug_setup_text
+        assert 'mkdir -p "$(dirname "$BUG_CONFIG_WRITE_PATH")"' in bug_setup_text
+        assert "config-contract.md" in bug_setup_text
+        assert ".claude-company" not in bug_setup_text
+        assert "~/.claude" not in bug_setup_text
+        print("✅ bug-setup reads existing config and writes canonical config through portable resolver")
+
+        bug_close_text = BUG_CLOSE_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in bug_close_text
+        assert "--key bug/learning" in bug_close_text
+        assert "--mode write" in bug_close_text
+        assert "--format path" in bug_close_text
+        assert 'mkdir -p "$(dirname "${LEARNING_FILE}")"' in bug_close_text
+        assert "~/.claude/bug-workflow/learnings" not in bug_close_text
+        assert "~/.claude-company/bug-workflow/learnings" not in bug_close_text
+        print("✅ bug-close writes learnings through portable config resolver")
+
+        evidence_text = EVIDENCE_COLLECTION.read_text(encoding="utf-8")
+        schema_text = LEARNINGS_SCHEMA.read_text(encoding="utf-8")
+        for ref_text in (evidence_text, schema_text):
+            assert "crew-config.py" in ref_text
+            assert "--key bug/learning" in ref_text
+            assert "--mode read" in ref_text
+            assert "--format path" in ref_text
+            assert ".claude-company" not in ref_text
+            assert "~/.claude/bug-workflow/learnings" not in ref_text
+        assert "[ -f \"$LEARN_FILE\" ]" in evidence_text
+        assert "bug/learning --project-slug {project-slug}" in schema_text
+        print("✅ bug learning reads resolve through portable contract")
+
+        bug_fix_text = BUG_FIX_SKILL.read_text(encoding="utf-8")
+        merge_guide_text = MERGE_GUIDE.read_text(encoding="utf-8")
+        for consumer_text in (bug_fix_text, merge_guide_text):
+            assert "crew-config.py" in consumer_text
+            assert "--key feature/project" in consumer_text
+            assert "--repo-id" in consumer_text
+            assert "--mode read" in consumer_text
+            assert "--format json" in consumer_text
+            assert "representation=hierarchical" in consumer_text
+            assert "representation=legacy_monolith" in consumer_text
+            assert ".claude-company/feature-workflow/projects" not in consumer_text
+            assert "~/.claude/feature-workflow/projects" not in consumer_text
+        print("✅ dev_branch consumers resolve feature project config portably")
+
+        plan_close_text = PLAN_CLOSE_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_close_text
+        assert "--key bug/config" in plan_close_text
+        assert "--mode read" in plan_close_text
+        assert "--format path" in plan_close_text
+        assert '[ -f "$BUG_CONFIG_FILE" ]' in plan_close_text
+        assert ".claude-company/bug-workflow-config.md" not in plan_close_text
+        assert "~/.claude/bug-workflow-config.md" not in plan_close_text
+        print("✅ plan-close reads bug config through portable resolver")
+
+        plan_start_text = PLAN_START_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_start_text
+        assert "--key bug/config" in plan_start_text
+        assert "--mode read" in plan_start_text
+        assert "--format path" in plan_start_text
+        assert '[ -f "$BUG_CONFIG_FILE" ]' in plan_start_text
+        assert ".claude-company/bug-workflow-config.md" not in plan_start_text
+        assert "~/.claude/bug-workflow-config.md" not in plan_start_text
+        print("✅ plan-start reads bug config through portable resolver")
+
+        plan_deploy_confirm_text = PLAN_DEPLOY_CONFIRM_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_deploy_confirm_text
+        assert "--key feature/config" in plan_deploy_confirm_text
+        assert "--mode read" in plan_deploy_confirm_text
+        assert "--format path" in plan_deploy_confirm_text
+        assert "config-contract.md" in plan_deploy_confirm_text
+        assert "~/.claude/feature-workflow/config.md" not in plan_deploy_confirm_text
+        assert ".claude-company" not in plan_deploy_confirm_text
+        print("✅ plan-deploy-confirm reads feature config through portable resolver")
+
+        plan_setup_text = PLAN_SETUP_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_setup_text
+        assert "--key feature/config" in plan_setup_text
+        assert "--key bug/config" in plan_setup_text
+        assert plan_setup_text.count("--mode read") >= 2
+        assert "--mode write" in plan_setup_text
+        assert plan_setup_text.count("--format json") >= 2
+        assert "--format path" in plan_setup_text
+        assert "FEATURE_CONFIG_READ_JSON" in plan_setup_text
+        assert "FEATURE_CONFIG_WRITE_PATH" in plan_setup_text
+        assert "FEATURE_CONFIG_DIR" in plan_setup_text
+        assert "representation=hierarchical" in plan_setup_text
+        assert "representation=legacy_monolith" in plan_setup_text
+        assert "config-contract.md" in plan_setup_text
+        assert 'mkdir -p "$FEATURE_CONFIG_DIR/stacks"' in plan_setup_text
+        assert "stacks/_builtin.md" in plan_setup_text
+        assert "/project-add" in plan_setup_text
+        assert ".claude-company" not in plan_setup_text
+        assert "~/.claude/feature-workflow" not in plan_setup_text
+        assert "~/.claude/bug-workflow" not in plan_setup_text
+        print("✅ plan-setup main config layer reads/writes through portable resolver while preserving bundle semantics")
+
+        plan_stack_text = PLAN_STACK_SKILL.read_text(encoding="utf-8")
+        assert "crew-config.py" in plan_stack_text
+        assert "--key feature/stack" in plan_stack_text
+        assert "--stack-id" in plan_stack_text
+        assert "--mode write" in plan_stack_text
+        assert "--format path" in plan_stack_text
+        assert "config-contract.md" in plan_stack_text
+        assert "~/.claude/feature-workflow" not in plan_stack_text
+        assert ".claude-company" not in plan_stack_text
+        print("✅ plan-stack describes feature stack storage through portable resolver")
+
+        bug_prereq_text = BUG_PREREQUISITES.read_text(encoding="utf-8")
+        feature_prereq_text = FEATURE_PREREQUISITES.read_text(encoding="utf-8")
+        assert bug_prereq_text == feature_prereq_text
+        prereq_text = bug_prereq_text
+        assert "crew-config.py" in prereq_text
+        assert "--key bug/config" in prereq_text
+        assert "--key feature/config" in prereq_text
+        assert "--key feature/project" in prereq_text
+        assert "--repo-id" in prereq_text
+        assert prereq_text.count("--mode read") >= 3
+        assert prereq_text.count("--format json") >= 3
+        assert "representation=hierarchical" in prereq_text
+        assert "representation=legacy_monolith" in prereq_text
+        for retired_path in (
+            ".claude-company/bug-workflow-config.md",
+            "~/.claude/bug-workflow-config.md",
+            "~/.claude/feature-workflow/config.md",
+            ".claude-company/feature-workflow-config.md",
+            "~/.claude/feature-workflow-config.md",
+        ):
+            assert retired_path not in prereq_text
+        print("✅ shared prerequisites resolve workflow/project config portably")
+
+        bug_template_text = BUG_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+        feature_template_text = FEATURE_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+        assert "bug/config" in bug_template_text
+        assert "crew-config.py" in bug_template_text
+        assert "config-contract.md" in bug_template_text
+        assert "feature/config" in feature_template_text
+        assert "feature/stack" in feature_template_text
+        assert "feature/project" in feature_template_text
+        assert "portable-config-root" in feature_template_text
+        assert "crew-config.py" in feature_template_text
+        assert "config-contract.md" in feature_template_text
+        for template_text in (bug_template_text, feature_template_text):
+            assert ".claude-company" not in template_text
+            assert "~/.claude" not in template_text
+        print("✅ config templates describe logical storage instead of Host paths")
+
+        feature_config_resolver_text = FEATURE_CONFIG_RESOLVER_REF.read_text(encoding="utf-8")
+        assert "crew-config.py" in feature_config_resolver_text
+        assert "config-contract.md" in feature_config_resolver_text
+        assert "feature/config" in feature_config_resolver_text
+        assert "feature/project" in feature_config_resolver_text
+        assert "feature/stack" in feature_config_resolver_text
+        assert feature_config_resolver_text.count("--mode read") >= 3
+        assert "--mode write" in feature_config_resolver_text
+        assert "representation=hierarchical" in feature_config_resolver_text
+        assert "representation=legacy_monolith" in feature_config_resolver_text
+        assert "stacks/_builtin.md" in feature_config_resolver_text
+        assert "## 漸進式載入" in feature_config_resolver_text
+        assert ".claude-company" not in feature_config_resolver_text
+        assert "~/.claude" not in feature_config_resolver_text
+        print("✅ feature config resolver reference delegates storage/fallback to portable contract")
+
+        print("✅ portable config resolver smoke tests passed")
+        return 0
+    except (AssertionError, KeyError, json.JSONDecodeError) as exc:
+        print(f"❌ {exc}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

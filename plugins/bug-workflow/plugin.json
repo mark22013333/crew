@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bug-workflow",
+  "version": "4.0.1",
+  "description": "Bug 工作流 — 涵蓋建立、調查、修復、驗證、結案與知識沉澱。",
+  "author": {
+    "name": "Cheng"
+  },
+  "repository": "https://github.com/mark22013333/crew",
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "bug",
+    "workflow",
+    "debugging",
+    "bug-tracking",
+    "knowledge-base"
+  ]
+}

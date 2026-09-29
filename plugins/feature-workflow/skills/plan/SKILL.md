@@ -58,13 +58,23 @@ argument-hint: "[spec|db|arch]"
 
 #### 1-1. 派工
 
-使用 **Agent tool** 啟動 subagent（`{"model": "sonnet"}`，agent：`feature-spec-analyst`）。
+先取得 requirement analysis 的 Router mapping：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task requirement_analysis --risk medium --complexity medium \
+  --host portable --format json
+```
+
+再依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-spec-analyst`），
+routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`complexity: medium`。
 
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
-> - 呼叫 Agent tool 時**必須實際傳入** `{"model": "sonnet"}`；只在 prompt 裡描述模型名稱不算，不保證生效。
+> - Capability request 必須實際帶上述結構化 routing；Host 若無法精準指定 worker model/reasoning，依 `host-capabilities.md` 回報 `routing_degraded=true`，不得假裝已套用。
 > - 本 pass 只做需求分析、程式碼探索與規格判斷；🔴 禁止修改正式程式碼。
-> - 🔴 禁止自動啟動 `/plan-build`（或任何實作階段 skill）、禁止建立 Agent Team、禁止要求 Dynamic Workflow。
-> - 🔴 不得因需求文件多或內容長就自行升級 Opus；範圍過大就分節產出。
+> - 🔴 禁止自動啟動 `/plan-build`（或任何實作階段 skill）、禁止啟動實作委派、禁止要求 Host-specific Dynamic Workflow。
+> - 🔴 不得只因需求文件多或內容長就自行升級 DEEP；範圍過大就分節產出。只有 risk/complexity/sensitive policy 真正升級時才依 Router 結果調整。
 > - 規格確認迴圈（1-3）照原樣執行，不可略過。
 
 **輸入**：`.spec/{slug}/plan.md` 現有內容 ＋ 步驟 0 載入的專案上下文 ＋ 使用者在指令中補充的需求。
@@ -105,14 +115,38 @@ argument-hint: "[spec|db|arch]"
   • 若確認沒問題，我會繼續下一個 pass
 ```
 
-使用者提出修改 → 只 Edit 受影響的那幾行（不重寫整節）→ 摘要本次修改 → 再問一次。
+使用者提出修改 → **先讓既有 requirement approval 失效**（若原本已 approved/waived），再只 Edit 受影響的那幾行（不重寫整節）→ 摘要本次修改 → 再問一次：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name requirement --status pending --by crew \
+  --reason "spec revised; human re-approval required"
+```
+
 使用者回「沒問題／OK／確認／可以了」才算通過。
+
+> 🔴 **Approval Gate 硬規則**：
+> - 只有使用者在**本次確認迴圈中明確表示核准**，才可以把 requirement gate 設為 approved。
+> - 沉默、Enter、沒有提出修改、前一輪曾經核准，都**不等於本次核准**。
+> - Agent 不得自行 approve，不得因為「規格看起來合理」代替使用者決策。
+> - spec 任何實質修訂都要重新核准；不得沿用舊 approval。
 
 #### 1-4. 收尾
 
+只有在 1-3 已取得使用者明確核准後，依序執行：
+
 ```bash
+# 先完成 spec；runtime 規定 source step 完成後才能批准 requirement gate
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --step spec --status done --phase spec
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase spec
+
+# 這一行代表「人類剛剛明確核准」，Agent 不得自行觸發
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name requirement --status approved --by human \
+  --reason "user explicitly approved current spec"
+
+# exit gate：requirement 未 approved/waived 就視為 spec pass 尚未安全收尾
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
+  --expect-phase spec --require-gate requirement
 ```
 
 ---
@@ -131,9 +165,21 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --step d
 
 #### 2-2. 派工
 
-使用 **Agent tool** 啟動 subagent（`{"model": "opus"}`，agent：`feature-db-designer`）。表結構、索引、約束與交易一致性屬複雜架構決策，🔴 不得因為「只產一個 SQL 檔」而降為 sonnet。
+先取得 schema design 的 Router mapping：
 
-**輸入**：plan.md 現有內容（目標／驗收條件／決策紀錄）＋ 專案 CLAUDE.md 的 DB 類型 ＋ `~/.claude/rules/database.md`（若存在）＋ 既有 Entity／Mapper 的命名慣例。
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task schema_design --risk high --complexity high \
+  --sensitive schema_migration,transaction \
+  --host portable --format json
+```
+
+再依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-db-designer`），
+routing=`task: schema_design`、`profile: DEEP`、`risk: high`、`complexity: high`、
+sensitive=`schema_migration,transaction`。表結構、索引、約束與交易一致性屬高風險設計，
+🔴 不得因為「只產一個 SQL 檔」而主動降級 profile；Host adapter 必須回報 mapping 是否實際套用。
+
+**輸入**：plan.md 現有內容（目標／驗收條件／決策紀錄）＋ `project_instructions` 取得的 DB 類型 ＋ Host 可用的 DB 規則（Claude adapter 可額外讀取 `~/.claude/rules/database.md`）＋ 既有 Entity／Mapper 的命名慣例。
 
 **要求 subagent 產出**：
 
@@ -165,7 +211,18 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 #### 3-1. 派工
 
-使用 **Agent tool** 啟動 subagent（`{"model": "opus"}`，agent：`feature-backend-designer`）。分層決策與設計模式選擇屬複雜架構決策，🔴 不得降為 sonnet。
+先取得 architecture 的 Router mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task architecture --risk high --complexity high \
+  --host portable --format json
+```
+
+再依 `../../references/host-capabilities.md` 呼叫 **`delegate_readonly`**（role=`feature-backend-designer`），
+routing=`task: architecture`、`profile: DEEP`、`risk: high`、`complexity: high`。
+分層決策、介面切割、依賴方向與設計模式選擇屬複雜架構決策，🔴 不得主動降低 profile；
+Host adapter 必須回報 Router mapping 是否實際套用。
 
 **輸入**：plan.md 現有內容 ＋ `deploy.sql`（若有）＋ 專案 package 結構與 1-2 條既有呼叫鏈。
 
@@ -180,13 +237,65 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 🔴 回傳中不得出現 Mermaid 圖、完整類別清單、介面方法簽章 —— 那些在 `/plan-build` 產碼後就是程式碼事實，用 `[map]` 錨點指過去。
 
-#### 3-2. 寫入與收尾
+#### 3-2. 寫入
 
-Leader 逐條 Edit 插入後：
+在對 plan.md 做任何**實質架構修訂之前**，先讓既有 architecture approval 失效：
 
 ```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name architecture --status pending --by crew \
+  --reason "architecture revised; human re-approval required"
+```
+
+然後 Leader 逐條 Edit 插入 `crew:dec` / `crew:risk` / `crew:map`。
+
+> 若本次只是重跑但沒有任何實質架構變更，不需要為了形式重設 gate；只要 plan.md 的架構內容有改，就必須 reset pending。
+
+#### 3-3. 架構確認迴圈（必須執行）
+
+摘要本次架構決策給使用者，至少包含：
+
+- 分層／模組落點
+- 主要依賴方向與介面切割
+- 與既有慣例不同的地方及理由
+- 已知取捨與風險
+
+然後詢問：
+
+```text
+架構決策已寫入 .spec/{slug}/plan.md。
+
+請確認是否需要調整？
+  • 直接告訴我要修改的部分，我會只 Edit 對應條目
+  • 若確認沒問題，我會核准 architecture gate，之後才能進 /plan-build
+```
+
+使用者提出修改 → 保持 `architecture=pending` → 只 Edit 受影響條目 → 摘要修改 → 再問一次。
+
+使用者在**本輪**明確回「沒問題／OK／確認／可以了」才算通過。
+
+> 🔴 **Architecture Approval Gate 硬規則**：
+> - 只有使用者本輪明確核准，才可以把 architecture gate 設為 approved。
+> - 沉默、Enter、沒有再提出修改、requirement 已核准，都**不等於架構核准**。
+> - Agent 不得自行 approve，也不得用「符合既有架構」取代人的決策。
+> - 架構任何實質修訂都必須回到 `pending` 並重新取得核准。
+
+#### 3-4. 收尾
+
+只有 3-3 已取得使用者明確核准後，依序執行：
+
+```bash
+# 先完成 arch；runtime 規定 source step 完成後才能批准 architecture gate
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --step arch --status done --phase arch
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase arch
+
+# 這一行代表「人類剛剛明確核准」，Agent 不得自行觸發
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name architecture --status approved --by human \
+  --reason "user explicitly approved current architecture"
+
+# exit gate：architecture 未 approved/waived 就不能安全進 build
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
+  --expect-phase arch --require-gate architecture
 ```
 
 ---
@@ -195,7 +304,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 | # | 檢查項目 | 驗證方式 | 失敗處理 |
 |---|---------|---------|---------|
-| E0 | 狀態已更新 | 該 pass 的 `crew-state.py validate --expect-phase {spec\|db\|arch}` exit 0 | 依訊息修正後重跑；仍失敗 → `crew-state.py rebuild --slug {slug}` |
+| E0 | 狀態已更新 | spec：`validate --expect-phase spec --require-gate requirement`；db：`validate --expect-phase db`；arch：`validate --expect-phase arch --require-gate architecture` | 依訊息修正後重跑；仍失敗 → `crew-state.py rebuild --slug {slug}` |
 | E1 | 六個錨點註解仍各只出現一次 | `grep -c 'crew:goal\|crew:ac\|crew:dec\|crew:risk\|crew:map\|crew:rep' .spec/{slug}/plan.md` 為 6 | 表示有人整段取代了骨架 → 用 `git diff` 找回被吃掉的條目再補 |
 | E2 | plan.md 未超篇幅 | `wc -l .spec/{slug}/plan.md` ≤ 100 | 壓縮既有條目或 supersede，🔴 不得另開檔案 |
 | E3 | 沒有抄寫程式碼事實 | plan.md 內無 `CREATE TABLE`／方法簽章／API 端點表 | 刪掉抄寫段，改成 `@code:` / `@sql:` 錨點 |
@@ -216,8 +325,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
   • 指路錨點 {k} 個
 
 後續可使用：
-  • /plan-build  — Agent Teams 產生程式碼
-  • /plan-review — Agent Teams 審查
+  • /plan-build  — 多角色協作產生程式碼
+  • /plan-review — 多角色程式碼審查
   • /plan-next   — 不確定下一步時問它
 ```
 
@@ -237,7 +346,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
 
 - **「取代整段」是這份文件最大的風險**：三個 pass 共用決策紀錄／風險／指路三節。任何一個 pass 用整節取代，都會靜默吃掉別的 pass 寫的條目，而 lint 與測試都抓不到。收工前用 `git diff -U0 .spec/{slug}/plan.md | grep '^-'` 確認刪除行數為 0（修訂 goal／ac 除外）。
 - **錨點註解不可美化**：`<!-- crew:dec  append-only -->` 的空白數量都是插入點比對的一部分，不要重新對齊或翻譯。
-- **單跑不等於可以跳過確認**：`/plan spec` 一樣要跑完規格確認迴圈；`/plan db`、`/plan arch` 一樣要在寫入後摘要給使用者看。
+- **單跑不等於可以跳過確認**：`/plan spec` 必須完成 requirement confirmation；`/plan arch` 必須完成 architecture confirmation；`/plan db` 寫入後仍要摘要結果，但沒有獨立人類 approval gate。
 - **DB_REQUIRED=false 要留痕**：跳過 db pass 時務必寫 `--status skipped --reason`，否則下游只會看到「沒有 deploy.sql」而必須用猜的。
-- **subagent 的 model 參數**：prompt 中寫模型名稱只是自然語言指示，不保證生效；必須在 Agent tool 的 `model` 參數實際傳入，政策見 `references/model-policy.md`。
+- **委派的 routing 目標**：prompt 中只寫「用強模型」不算；capability request 必須帶結構化 `task/profile/risk/complexity`，實際模型／reasoning 由 Router + Host adapter 對映，降級必須明示 `routing_degraded=true`。
 - **plan.md 不是需求垃圾桶**：使用者貼的長需求原文不要整段收進來 —— 萃取成目標／驗收條件／決策，原文留在 Notion 頁面。

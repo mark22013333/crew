@@ -20,21 +20,21 @@
 
 ## 模型配置（硬性）
 
-完整政策見共用 reference `model-policy.md`。本檔所有角色的模型都必須以 **Agent tool 的結構化 `model` 參數**傳入，
+完整政策見共用 reference `model-policy.md` 與 `host-capabilities.md`。本檔所有角色的模型目標都必須以 capability request 的結構化 `model` 欄位傳入，
 不可只寫在 prompt 文字裡：
 
 | 角色 | model | 可改正式程式碼 |
 |------|-------|----------------|
-| 探索官（scout） | `sonnet` | ✗ |
+| 探索官（scout） | `FAST`（Router；Claude→haiku / Codex→low reasoning） | ✗ |
 | DB／後端／API／前端／測試工程師 | `opus` | ✓ |
 
 同一個 agent 的模型 spawn 後不能更換 —— 探索與實作**必須是兩個 agent**。
 
 ---
 
-## 探索官模式（唯讀，model: sonnet）
+## 探索官模式（唯讀，profile: FAST）
 
-步驟 5 由 Leader 用 **Agent tool** 啟動，呼叫時實際傳入 `{"model": "sonnet"}`：
+步驟 5 由 Leader 使用 `delegate_readonly`，role=`explorer`，routing=`task: repository_search`、`profile: FAST`、`risk: low`、`complexity: low`。先由 `crew-model-route.py` 取得 Host mapping，再啟動 worker：
 
 ```
 你是唯讀探索官，負責為後續的實作者準備精簡脈絡。你不寫任何程式碼。
@@ -73,7 +73,7 @@
 
 ## Subagent 模式（僅後端，model: opus）
 
-若 `FRONTEND_REQUIRED = false` 或 `--backend-only`，使用 **Agent tool** 啟動 subagent，
+若 `FRONTEND_REQUIRED = false` 或 `--backend-only`，使用單一 `delegate_write`，
 呼叫時實際傳入 `{"model": "opus"}`：
 
 ```
@@ -86,7 +86,7 @@
 {deploy.sql 全文（表、欄位、索引、約束）；DB_REQUIRED=false 時填「無 DB 變更」}
 
 ## 專案上下文
-{CLAUDE.md 內容}
+{project_instructions 內容}
 
 ## 技術棧
 {技術棧 ID 和定義}
@@ -118,17 +118,17 @@
 
 ---
 
-## Agent Teams 模式（多角色，每個 model: opus）
+## 多角色模式（parallel_delegate 優先，每個 model: opus）
 
-用 **Agent tool 逐一具名 spawn**：一個角色一次呼叫，`name` 給角色名，每次都實際傳入
+建立多個 `delegate_write` 工作單元：一個 role 一次 capability request，每次都實際帶
 `{"model": "opus"}`；teammate 之間用 SendMessage 通報進度與 API 契約。
 
-> 🔴 **不要**把下面整段當成一句自然語言丟出去要求「建立一個 Agent Team……使用 Opus 模型」——
+> 🔴 **不要**把下面整段當成一句自然語言丟出去要求「建立整隊並使用 Opus」——
 > 那樣模型只是敘述、不是參數，不保證生效（見 `model-policy.md`）。
 
 ```
 依步驟 3 判斷結果 spawn {N} 個角色，開發 {功能名稱} 功能。
-每個角色 = 一次 Agent tool 呼叫，帶 name 與 {"model": "opus"}：
+每個角色 = 一次 `delegate_write`，帶 role 與 `model: opus`：
 
 {若 DB_MCP_AVAILABLE = true，包含以下成員：}
 【成員 0：DB 工程師】DB Engineer
@@ -153,7 +153,7 @@
 - 使用繁體中文
 
 【成員 1：後端工程師】Backend Engineer
-- 讀取專案 CLAUDE.md 了解架構慣例
+- 讀取 `project_instructions` 了解架構慣例
 - 讀取產物：
   * .spec/{slug}/plan.md（決策紀錄 `[arch]` 條目＝分層與介面切割的取捨；指路錨點＝落點）
   * .spec/{slug}/deploy.sql（表結構事實來源）
@@ -245,7 +245,7 @@
 
 ### 若 DBHub 已安裝
 
-- Agent Teams 模式：加入「成員 0：DB 工程師」（`model: opus`），成為最先開始的成員
+- 多角色模式：加入「角色 0：DB 工程師」（`model: opus`），成為最先執行的工作單元
 - Subagent 模式（`model: opus`）：在後端工程師提示詞中嵌入 `{db_mcp_instruction}`：
 ```
 專案已安裝 DB MCP（DBHub），你可以直接查詢資料庫：
@@ -259,5 +259,5 @@
 
 ### 若 DBHub 未安裝
 
-- Agent Teams 模式：不加入 DB 工程師，維持原有成員配置
+- 多角色模式：不加入 DB 工程師，維持原有角色配置
 - Subagent 模式（`model: opus`）：`{db_mcp_instruction}` 替換為空字串

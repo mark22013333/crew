@@ -17,7 +17,7 @@
 | # | AI 的內心獨白 | 為什麼不行 |
 |---|-------------|-----------|
 | B1 | 「plan.md 的決策紀錄沒有 `[arch]` 條目，我先自己補一條再繼續 build」 | arch pass 未完成是 hard block（`state.json` 的 `steps.arch` 既非 `done` 也非 `skipped`）。自動補寫的架構決策沒有經過使用者審閱，錯誤的分層與介面判斷會傳遞給所有 Teammate，錯誤被放大 5 倍。載體從 arch.md 換成 plan.md 的決策紀錄，這條門檻沒有變鬆。 |
-| B2 | 「只有 3 個檔案要改，開 Agent Teams 太重了，我自己寫比較快」 | Leader 自己寫 code 會跟 Teammate 產出衝突（寫同一個檔案）。即使只有 3 個檔案，Subagent 模式（單一具名 subagent，`model: opus`）仍然是正確的選擇。 |
+| B2 | 「只有 3 個檔案要改，多角色委派太重了，我就忽略角色契約直接亂寫」 | 角色契約不能省。Host 有 worker 時用 `delegate_write` 隔離；Host 降級 inline 時也必須逐一 role 執行、守 allowed scope 與驗證，不能把降級當成取消規格。 |
 | B3 | 「plan.md 有點長，我只讀『指路』節的錨點就好」 | 「指路」只說程式碼在哪，「目標與範圍」「驗收條件」說做什麼、「決策紀錄」說為什麼這樣做。跳過後兩者意味著 Teammate 不知道業務規則、驗證邏輯、錯誤處理策略，產出的 Service Impl 會全是空 TODO。plan.md 全檔 ≤100 行，沒有「太長」這回事。 |
 | B4 | 「掃描現有範本太慢，我直接根據技術棧定義產生」 | 技術棧定義只有框架和 ORM 類型，沒有 package 結構、import 順序、annotation 風格、命名慣例。跳過範本掃描的產出需要大量手動修正。 |
 | B5 | 「Teammate prompt 已經夠長了，不需要再塞技術棧定義」 | 沒有技術棧定義的 Teammate 會用 Spring Boot 的預設風格，對 Spring MVC 4.x 專案會產出完全錯誤的程式碼（annotation 不同、配置方式不同）。 |
@@ -58,7 +58,7 @@
 |---|-------------|-----------|
 | D1 | 「demo 是本地展示，目錄名不用加 `demo-` 前綴也看得出來」 | 前綴是 demo 產物的唯一辨識標記。沒有它，`/plan-status`、`/plan-next`、SessionStart 開場提醒都會把 demo 和真實任務混在一起，使用者評估完後找不到自己真正的任務。 |
 | D2 | 「用使用者現有真實任務的 plan.md 當範例比較真實」 | plan-demo 只能用內建假想範例。混用真實任務資料會外洩使用者業務邏輯，且範例引用的 Notion/DB 資料與 `@code:` 錨點在未連線／不同 repo 的環境下並不存在。 |
-| D3 | 「demo 反正不寫 Notion，順手跑一下 Agent Teams 讓範例更完整」 | plan-demo 存在的意義就是「零依賴」。一旦呼叫 Agent Teams 或 DB MCP，就違反「5 分鐘無設定體驗」的核心承諾。 |
+| D3 | 「demo 反正不寫 Notion，順手跑一下多角色委派讓範例更完整」 | plan-demo 存在的意義就是「零依賴」。一旦呼叫多角色委派或 DB 工具，就違反「5 分鐘無設定體驗」的核心承諾。 |
 | D4 | 「.spec/demo-{slug}/ 已存在，直接覆寫沒差」 | 使用者可能保留舊 demo 做對照，必須先詢問是否覆寫，不能預設覆寫掉既有產物。 |
 
 ## plan-deploy-confirm 專用

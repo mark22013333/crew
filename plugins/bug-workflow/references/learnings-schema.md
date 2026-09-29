@@ -2,14 +2,23 @@
 
 ## 儲存位置
 
-```
-~/.claude-company/bug-workflow/learnings/
+Learning storage 使用 portable logical key：
+
+`bug/learning --project-slug {project-slug}`
+
+Canonical path 由 `scripts/crew-config.py` 依 `references/config-contract.md` 決定；
+consumer 不應自行拼 Host-specific 實體路徑。
+
+概念結構：
+
+```text
+{portable-config-root}/bug/learnings/
 ├── {project-slug-1}.jsonl    # 專案 A 的學習
 ├── {project-slug-2}.jsonl    # 專案 B 的學習
 └── ...
 ```
 
-project-slug 來自 Git Repo 識別碼（`/` 替換為 `-`）。
+`project-slug` 來自 Git Repo 識別碼（`/` 替換為 `-`），並必須符合 resolver 的安全單一檔名規則。
 
 ## JSONL 格式
 
@@ -50,9 +59,17 @@ project-slug 來自 Git Repo 識別碼（`/` 替換為 `-`）。
 ### 基本搜尋
 
 ```bash
-LEARN_FILE="$HOME/.claude-company/bug-workflow/learnings/{project-slug}.jsonl"
-grep -i "<keyword>" "$LEARN_FILE" | tail -10
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+LEARN_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/learning \
+  --project-slug "{project-slug}" \
+  --mode read \
+  --format path)"
+
+[ -f "$LEARN_FILE" ] && grep -i "<keyword>" "$LEARN_FILE" | tail -10
 ```
+
+Read resolution 順序由 `config-contract.md` 定義；reference 不直接依賴 Host-specific storage path。
 
 ### 進階搜尋（AI 執行）
 
@@ -76,7 +93,7 @@ done
 
 | Skill | 何時寫入 | 條件 |
 |-------|---------|------|
-| bug-close | 步驟 6.5 | AI 判斷有學習價值 |
+| bug-close | 學習捕捉步驟 | AI 判斷有學習價值；以 `bug/learning --mode write` 寫 portable canonical path |
 | bug-investigate | Phase 4 根因確認後 | 根因涉及非顯而易見的知識 |
 
 ## 容量管理

@@ -24,10 +24,21 @@ git status --short
 
 ### 學習搜尋
 
+先用 portable config resolver 解析本專案的 learning read path：
+
 ```bash
-LEARN_FILE="$HOME/.claude-company/bug-workflow/learnings/{project-slug}.jsonl"
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+LEARN_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/learning \
+  --project-slug "{project-slug}" \
+  --mode read \
+  --format path)"
+
 [ -f "$LEARN_FILE" ] && grep -i "<keywords>" "$LEARN_FILE" | tail -3
 ```
+
+`--mode read` 會先找 portable canonical file，再依 `config-contract.md` 使用現役 Host fallback；
+全部不存在時回 canonical missing path，因此既有 `[ -f ... ]` 會自然靜默跳過。
 
 若有匹配 → 寫入「調查過程 > 歷史學習」，格式：「{insight}（confidence {N}/10，{date}）」。
 

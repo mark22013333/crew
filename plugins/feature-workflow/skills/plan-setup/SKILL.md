@@ -18,35 +18,60 @@ description: feature-workflow 首次設定引導 —— 自動偵測 Notion 資�
 
 ## 流程
 
-### 1. 決定設定目錄位置並檢查是否已存在
+### 1. 透過 portable resolver 檢查既有 Feature 設定並決定 canonical 寫入位置
 
-> **設定解析邏輯**：詳見 plugin 根目錄 `references/config-resolver.md`（相對 SKILL.md 為 `../../references/`）。
+> **設定解析邏輯**：詳見 plugin 根目錄 `references/config-resolver.md` 與 `references/config-contract.md`（相對 SKILL.md 為 `../../references/`）。
 
-**設定目錄路徑規則**：
+不要自行選擇 Host-specific 設定目錄。Feature 主設定的 read source 與 canonical write destination 都由 `feature/config` logical key 決定：
 
-1. 檢查 `~/.claude/feature-workflow/config.md`（新階層式格式）
-2. 若不存在 → 檢查舊格式（向下相容）：
-   - `~/.claude-company/feature-workflow-config.md`（舊單一檔案，向下相容）
-   - `~/.claude/feature-workflow-config.md`（舊單一檔案，向下相容）
-   - 若找到舊格式 → 提示遷移（見「舊格式遷移」段落）
-3. 若全部不存在 → 統一使用 `~/.claude/feature-workflow/`（若使用者已有 `~/.claude-company/feature-workflow/`，提示手動執行 `mv ~/.claude-company/feature-workflow ~/.claude/feature-workflow` 遷移，不自動搬），**不詢問使用者選擇路徑**，直接建立
-4. 若新格式已存在 → 詢問使用者要「重新設定」還是「更新專案對應」
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
-**`/plan-setup --migrate`**：強制從舊格式遷移到新階層式目錄，遷移步驟見 plugin 根目錄 `references/config-resolver.md`（相對 SKILL.md 為 `../../references/`）「舊格式遷移」段落。
+FEATURE_CONFIG_READ_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode read \
+  --format json)"
+
+FEATURE_CONFIG_WRITE_PATH="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode write \
+  --format path)"
+
+FEATURE_CONFIG_DIR="$(dirname "$FEATURE_CONFIG_WRITE_PATH")"
+```
+
+依 `FEATURE_CONFIG_READ_JSON` 判斷：
+
+- `source=missing` → 視為首次設定，直接進入後續流程；不詢問使用者選 storage path。
+- `source != missing` → 既有設定可讀，詢問使用者要「重新設定」還是「更新專案對應」。
+- `representation=hierarchical` → 依既有 config.md parser 讀取 resolver 回傳的 `path`。
+- `representation=legacy_monolith` → 沿用舊單一設定檔 parser；可提示 `/plan-setup --migrate`，但 legacy source 只作讀取來源，不直接覆寫或搬移。
+
+所有本次 Feature **主設定**的新建／重新設定輸出一律寫 `FEATURE_CONFIG_WRITE_PATH`；resolver 本身無副作用，寫入前由 Skill 建立 parent directory。
+
+`/plan-setup --migrate` 的 compatibility / migration ownership 依 `config-resolver.md`「舊格式相容與遷移」與 `config-contract.md`；本批不改內建／自訂 stack bundle 與 project mapping 的既有建立語意。
 
 ### 2. 檢查並匯入 bug-workflow 共用 ID
 
-檢查 bug-workflow 設定檔是否存在：
-- `~/.claude-company/` 目錄存在 → 檢查 `~/.claude-company/bug-workflow-config.md`
-- 否則 → 檢查 `~/.claude/bug-workflow-config.md`
+Bug workflow 主設定同樣透過 portable resolver 讀取，不自行判斷實體路徑：
 
-若找到 bug-workflow 設定檔：
-1. 擷取「任務追蹤工具」Data Source ID → 直接匯入
-2. 擷取「專案資料庫」Data Source ID → 直接匯入
-3. 擷取「專案對應」表 → 作為基礎，後續補充技術棧欄位
-4. 向使用者顯示匯入結果
+```bash
+BUG_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format json)"
+```
 
-若未找到 → 進入「偵測 Notion 資料庫」一節完整設定。
+若 `BUG_CONFIG_JSON.source != missing`：
+
+1. 從 resolver 回傳的 `path` 讀取 Bug 設定。
+2. 擷取「任務追蹤工具」Data Source ID → 直接匯入。
+3. 擷取「專案資料庫」Data Source ID → 直接匯入。
+4. 擷取「CREW 工作區」metadata（若存在）供後續功能設計庫 parent 判斷使用。
+5. 若既有 Bug 設定仍含舊「專案對應」表，保持既有相容讀取語意；project mapping 的建立／更新仍由 Step 4 的 `/project-add` 負責，本批不改其 storage contract。
+6. 向使用者顯示匯入結果。
+
+若 `source=missing` → 進入「偵測 Notion 資料庫」一節完整設定。
 
 ### 3. 偵測 Notion 資料庫
 
@@ -127,7 +152,7 @@ description: feature-workflow 首次設定引導 —— 自動偵測 Notion 資�
 
 ### 6. Chrome DevTools MCP 安裝（選用）
 
-先檢查本機是否已安裝對應 MCP（例如 `claude mcp list` 或既有設定可見 `chrome-devtools`）；若已偵測到則直接跳過本步驟，不重複詢問安裝。
+先依 `../../references/host-capabilities.md` 的 `tool_probe` 檢查目前 session 是否已有對應瀏覽器能力（如 `chrome-devtools`）；已可用就直接跳過，不依賴特定 Host CLI 清單。
 
 若尚未安裝，且使用者計畫使用 `/plan-verify` 驗收驗證，詢問是否安裝：
 
@@ -141,16 +166,19 @@ description: feature-workflow 首次設定引導 —— 自動偵測 Notion 資�
 
 ### 7. 產出設定目錄
 
-以 plugin 根目錄 `references/config.template.md`（相對 SKILL.md 為 `../../references/`）為模板，建立**階層式目錄結構**：
+以 plugin 根目錄 `references/config.template.md`（相對 SKILL.md 為 `../../references/`）為模板。主設定固定寫入 Step 1 的 canonical `FEATURE_CONFIG_WRITE_PATH`；其 parent directory 為 `FEATURE_CONFIG_DIR`。
+
+先建立既有階層式 bundle 所需目錄（本批不改 stacks/projects 的建立語意）：
 
 ```bash
-mkdir -p {設定目錄}/stacks
-mkdir -p {設定目錄}/projects
+mkdir -p "$FEATURE_CONFIG_DIR"
+mkdir -p "$FEATURE_CONFIG_DIR/stacks"
+mkdir -p "$FEATURE_CONFIG_DIR/projects"
 ```
 
 #### 7-1. 建立 config.md
 
-填入偵測到的 Notion IDs、工作區資訊、欄位對照。
+填入偵測到的 Notion IDs、工作區資訊、欄位對照，寫入 `FEATURE_CONFIG_WRITE_PATH`。若 Step 1 的 read source 是 legacy path，也不得原地覆寫該 legacy source。
 
 #### 7-2. 建立 stacks/_builtin.md
 
@@ -167,10 +195,11 @@ mkdir -p {設定目錄}/projects
 ```
 Workflow 設定完成！
 
-設定目錄：~/.claude/feature-workflow/
+主設定檔：{FEATURE_CONFIG_WRITE_PATH}
+設定目錄：{FEATURE_CONFIG_DIR}
   ├── config.md          — Notion IDs + 欄位對照
-  ├── stacks/_builtin.md — 內建技術棧
-  └── projects/          — 專案對應（{N} 個）
+  ├── stacks/_builtin.md — 內建技術棧（既有 bundle 語意）
+  └── projects/          — 專案對應（既有流程）
 
 開始使用：
   /plan-start <功能簡述>   — 建立任務
@@ -189,7 +218,7 @@ Workflow 設定完成！
 
 - 一鍵完成 bug + feature 全部設定 → 建議改用 `/crew-init`
 - 只設定 bug 側 → 建議改用 `/bug-setup`
-- 初始化程式專案 / CLAUDE.md → 建議改用內建 `/init`
+- 初始化程式專案 / 專案指令 → Codex 建立 `AGENTS.md`；Claude Code 可用內建 `/init`
 - 註冊專案 → 建議改用 `/project-add`
 - 自訂技術棧 → 建議改用 `/plan-stack`
 

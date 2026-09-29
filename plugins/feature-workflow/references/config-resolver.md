@@ -1,55 +1,59 @@
-# 設定解析器 — 階層式設定目錄
+# 設定解析器 — Portable logical config
 
-所有 plan-* Skill 統一使用此文件定義的解析邏輯載入設定。
-
----
-
-## 目錄結構
-
-```
-~/.claude/feature-workflow/             # 統一位置
-├── config.md                           # 主索引（Notion IDs、工作區、欄位對照）
-├── stacks/                             # 技術棧定義
-│   ├── _builtin.md                     # 內建技術棧總表（唯讀參考）
-│   ├── spring-mvc-jpa.md               # 自訂技術棧（每個獨立檔案）
-│   └── ...
-└── projects/                           # 專案對應（每個專案一個檔案）
-    ├── ORG01P2401--sample-app.md
-    ├── ORG01P2401--PushAPIService.md
-    └── ...
-```
+所有 plan-* Skill 統一使用本文件定義的漸進式載入語意。
+CREW-owned Feature 設定的實體 storage root、read/write path 與 legacy fallback，權威一律是 `references/config-contract.md` 與 `scripts/crew-config.py`；本文件不重複宣告 Host-specific 實體路徑。
 
 ---
 
-## 解析優先順序
+## 邏輯目錄結構
 
-使用 `~/.claude/feature-workflow/config.md`（統一位置）：
-
-1. `~/.claude/feature-workflow/config.md`
-
-若不存在，**向下相容檢查舊格式**：
-
-2. `~/.claude-company/feature-workflow-config.md`（舊單一檔案）
-3. `~/.claude/feature-workflow-config.md`（舊單一檔案）
-
-若找到舊格式 → 提示使用者執行 `/plan-setup --migrate` 遷移。遷移前仍可正常讀取舊格式。
-
-若全部不存在 → 提示使用者先執行 `/plan-setup`。
-
-### 從 `~/.claude-company/` 遷移到 `~/.claude/`
-
-舊版（2026-05 前）優先使用 `~/.claude-company/feature-workflow/`。新版統一改用 `~/.claude/feature-workflow/`。若 plan-* skill 偵測到舊路徑存在但新路徑不存在，會提示：
-
-```
-⚠️  偵測到舊版 config 路徑 ~/.claude-company/feature-workflow/，新版統一改用 ~/.claude/feature-workflow/。
-
-建議手動執行：
-  mv ~/.claude-company/feature-workflow ~/.claude/feature-workflow
-
-執行完成後重跑 plan-* skill。
+```text
+{portable-config-root}/feature/
+├── config.md                           ← feature/config
+├── stacks/
+│   ├── _builtin.md                    ← 內建技術棧總表（唯讀參考）
+│   └── {custom-id}.md                 ← feature/stack --stack-id {custom-id}
+└── projects/
+    └── {sanitized-repo-id}.md         ← feature/project --repo-id {repo-id}
 ```
 
-不會自動 `mv`，避免破壞使用者既有 setup。
+`{portable-config-root}` 由 `config-contract.md` 的 canonical root 規則決定。Skill 不自行拼接或猜測 Host-specific path。
+
+---
+
+## Resolver contract
+
+讀取 Feature 設定時，先透過共用 resolver 取得 path / representation：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/config \
+  --mode read \
+  --format json
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/project \
+  --repo-id "{repo-id}" \
+  --mode read \
+  --format json
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key feature/stack \
+  --stack-id "{stack-id}" \
+  --mode read \
+  --format json
+```
+
+解析 resolver 結果時：
+
+- `source=missing` → 依既有 Skill 邊界提示先完成對應 setup / registration，不自行 fallback。
+- `representation=hierarchical` → 直接依本文件的 config / project / stack 格式解析 resolver 回傳的 `path`。
+- `representation=legacy_monolith` → 僅 `feature/project` / `feature/stack` 可能出現；caller 必須沿用舊單一設定檔 parser 擷取對應區塊，不得把 monolith 當成獨立 project/stack 檔。
+- 實際 legacy fallback candidate 與優先順序只在 `config-contract.md` 定義，本文件不維護第二份清單。
+
+需要建立或更新 CREW-owned Feature 設定時，使用相同 logical key 搭配 `--mode write` 取得 canonical portable path。Resolver 本身不建立目錄、不搬檔、不修改使用者檔案。
 
 ---
 
@@ -214,30 +218,29 @@ scaffold: Entity + Repository + DB Service + Domain Service + Controller + DTO
 
 ---
 
-## 舊格式遷移
+## 舊格式相容與遷移
 
-### 觸發條件
+### Read compatibility
 
-執行 `/plan-setup --migrate` 或 `/plan-setup` 偵測到舊格式時自動提議。
+向下相容由 `crew-config.py --mode read` 統一負責：
 
-### 遷移步驟
+- `feature/config`：resolver 回傳可讀的設定 path。
+- `feature/project` / `feature/stack`：resolver 同時回傳 `representation`。
+- `representation=legacy_monolith` 時，沿用既有單一設定檔 parser；不得自行推導或搬移實體路徑。
+- `source=missing` 時才提示執行對應 setup / registration。
 
-1. 讀取舊 `feature-workflow-config.md`
-2. 建立 `feature-workflow/` 目錄結構
-3. 擷取 Notion IDs + 工作區 + 欄位對照 → 寫入 `config.md`
-4. 擷取內建技術棧表 → 寫入 `stacks/_builtin.md`
-5. 擷取自訂技術棧（`#### {id}` 區塊）→ 各寫入 `stacks/{id}.md`
-6. 擷取專案對應表各列 → 各寫入 `projects/{sanitized-id}.md`
-7. 將舊檔案重新命名為 `feature-workflow-config.md.bak`
-8. 顯示遷移結果
+### Migration ownership
 
-### 向下相容
+舊單一設定格式的實際拆分、備份與寫檔屬 setup/admin 流程；本 reference 只定義 portable destination contract，不直接執行遷移。
 
-遷移前，所有 Skill 遇到舊格式時仍可正常讀取（回退到原有解析邏輯）。僅在控制台顯示一次提示：
+`/plan-setup --migrate` 若進行格式遷移，目的地必須透過 resolver 的 write contract 取得：
 
-```
-💡 偵測到舊版設定檔格式。建議執行 /plan-setup --migrate 遷移到階層式目錄結構。
-```
+1. 主設定 → `feature/config --mode write`
+2. 各專案對應 → `feature/project --repo-id {repo-id} --mode write`
+3. 各自訂技術棧 → `feature/stack --stack-id {id} --mode write`
+4. 內建技術棧仍維持 `stacks/_builtin.md` 的既有 bundle/parser 語意
+
+實際 legacy source、canonical root 與 fallback 規則以 `config-contract.md` 為準，不在本文件重複定義。
 
 ---
 

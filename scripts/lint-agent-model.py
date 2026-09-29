@@ -4,21 +4,22 @@
 政策來源：plugins/*/references/model-policy.md（共用 reference，兩 plugin sha256 一致）
 起點 gotcha（plan-common.md「共用 Gotchas」）：
   「prompt 中寫『使用 Opus 模型』只是自然語言指示，不保證生效。
-   必須在 Agent tool 的 `model` 參數實際設定 `"opus"`。」
+   Capability request 必須帶結構化 `model: opus`；Host adapter 不得假裝已套用。」
 
 七項檢查（對應 model-policy.md）：
-  1. STRUCTURED  — Agent 呼叫描述附近必須有結構化 model 標示（原有規則，保留）
+  1. STRUCTURED  — 委派 capability／舊式 Agent 呼叫附近必須有結構化 model 或 profile 標示
   2. AGENT_FM    — agents/*.md frontmatter 必須宣告 model，且已知 agent 的值需符合政策
                    （規格分析 agent 不得 opus；正式實作 agent 不得 sonnet）
-  3. ROLE_POLICY — 各 skill 的角色模型對照（plan-spec 只准 sonnet、bug-investigate 預設
-                   sonnet、bug-fix 需有 opus 實作者、plan-review --quick 需 sonnet…）
+  3. ROLE_POLICY — 核心 plan / build / review / bug skills 必須以 NONE/FAST/STANDARD/DEEP + task routing 描述，禁止 active Skill 直接綁 provider model。
   4. NL_MODEL    — 禁止用自然語言「使用 Opus 模型」指定模型（除了明確在講「這樣不行」的句子）
   5. VAGUE       — 禁止「視情況使用模型」這類沒有具體參數的含糊措辭
   6. 掃描範圍含 references/ 與 agents/，不只 SKILL.md（自然語言模板也會被實際送出去）
   7. 優先檢查結構化宣告：`model: "opus"` / `{"model": "sonnet"}` / `model=opus` 才算數
 
-無法靜態確認 runtime 真的傳了參數（skill 只是「描述 Claude 該怎麼呼叫」），
-因此本 lint 的契約是：**指令文字必須明確要求傳入結構化 model 參數**。
+無法靜態確認 Host runtime 是否真的套用了模型目標，
+因此本 lint 的契約是：**指令文字必須以 capability request 明確帶結構化 model 或 profile 目標**。
+Claude adapter 可精準轉成 Agent/subagent model 參數；其他 Host 若無此能力，應依
+host-capabilities.md 回報 routing degraded，而不是假裝成功。
 
 用法：
   python3 scripts/lint-agent-model.py            # advisory：列出問題但 return 0
@@ -42,10 +43,13 @@ AGENT_GLOB = "plugins/*/agents/*.md"
 WINDOW = 250
 VALID_MODELS = ("opus", "sonnet", "haiku")
 
-# --- 1. Agent 呼叫描述 -------------------------------------------------------
+# --- 1. 委派 capability／舊式 Agent 呼叫描述 -------------------------------
+# 只把「真的在呼叫 delegate」視為 call site。單純在說明 parallel_delegate、
+# 降級策略或 capability 名稱，不應被要求附近硬塞一個 model。
 AGENT_CALL_RE = re.compile(
-    r"(?:啟動\s*(?:唯讀\s*|實作者\s*)?subagent"
-    r"|啟動\s*Agent\s*Teams"
+    r"(?:capability\s*:\s*(?:delegate_readonly|delegate_write)"
+    r"|(?:使用|呼叫|執行|建立)[^\n]{0,120}(?:delegate_readonly|delegate_write)"
+    r"|啟動\s*(?:唯讀\s*|實作者\s*)?subagent"
     r"|使用\s*Agent\s*tool"
     r"|Agent\s*tool\s*啟動"
     r"|具名\s*spawn"
@@ -58,6 +62,16 @@ AGENT_CALL_RE = re.compile(
 #   model: opus        model=opus        {"model": "opus"}
 STRUCTURED_RE = re.compile(
     r"model[\"']?\s*[:=]\s*[\"'`]?(opus|sonnet|haiku)",
+    re.IGNORECASE,
+)
+
+PROFILE_RE = re.compile(
+    r"profile[\"']?\s*[:=]\s*[\"'`]?(NONE|FAST|STANDARD|DEEP)",
+    re.IGNORECASE,
+)
+
+TASK_RE = re.compile(
+    r"task[\"']?\s*[:=]\s*[\"'`]?(deterministic|state_transition|schema_validation|git_diff|repository_search|evidence_collection|log_summary|test_output_summary|classification|requirement_analysis|routine_review|routine_implementation|unit_test_generation|debugging|architecture|schema_design|security_review|performance_review|deep_investigation|high_risk_implementation)",
     re.IGNORECASE,
 )
 
@@ -87,30 +101,34 @@ AGENT_MODEL_POLICY = {
 # require: 檔案中必須出現的結構化模型；forbid: 全檔禁止出現的結構化模型
 # section_rules: (段落標題關鍵字, require, forbid) — 段落 = 該標題到下一個同級或更高級標題
 ROLE_POLICY = {
-    "plan-spec": {
-        "require": ["sonnet"],
-        "forbid": ["opus"],
-        "why": "規格分析階段（讀需求／探索程式碼／產出 spec.md）固定 Sonnet",
+    "plan": {
+        "require_profiles": ["STANDARD", "DEEP"],
+        "require_tasks": ["requirement_analysis", "schema_design", "architecture"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "plan 已完成 provider-neutral routing：spec=requirement_analysis+STANDARD；db=schema_design+DEEP；arch=architecture+DEEP",
     },
     "plan-build": {
-        "require": ["sonnet", "opus"],
-        "why": "唯讀探索官 sonnet + 正式實作角色 opus，兩者都必須明確標示",
+        "require_profiles": ["FAST", "DEEP"],
+        "require_tasks": ["repository_search", "high_risk_implementation"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "plan-build 已完成 provider-neutral routing：探索官 repository_search + FAST；所有正式寫入 high_risk_implementation + DEEP",
     },
     "plan-review": {
-        "require": ["sonnet", "opus"],
-        "section_rules": [
-            ("快速審查", ["sonnet"], ["opus"], "--quick 為小型變更的單一唯讀審查，應為 Sonnet"),
-        ],
-        "why": "邏輯／品質 Reviewer sonnet + 效能 Reviewer opus",
+        "require_profiles": ["STANDARD", "DEEP"],
+        "require_tasks": ["routine_review", "performance_review"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "plan-review 已完成 provider-neutral routing：邏輯/品質與 quick 使用 routine_review + STANDARD；效能使用 performance_review + DEEP",
     },
     "bug-investigate": {
-        "require": ["sonnet"],
-        "opus_only_in_sections": ["升級"],
-        "why": "bug-investigate 預設 Sonnet；Opus 只允許出現在條件式升級段落",
+        "require_profiles": ["FAST", "STANDARD", "DEEP"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "bug-investigate 已完成 provider-neutral routing：證據 FAST、一般 debugging STANDARD、條件式深度調查 DEEP",
     },
     "bug-fix": {
-        "require": ["sonnet", "opus"],
-        "why": "定位／驗證整理 sonnet + 正式修改實作者 opus",
+        "require_profiles": ["FAST", "NONE", "DEEP"],
+        "require_tasks": ["repository_search", "test_output_summary", "high_risk_implementation"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "bug-fix 已完成 provider-neutral routing：唯讀定位/整理 FAST、deterministic 驗證 NONE、正式寫入 high_risk_implementation + DEEP",
     },
 }
 
@@ -193,7 +211,7 @@ def check_structured_near_calls(text: str, path: Path) -> list[str]:
     for m in AGENT_CALL_RE.finditer(text):
         start = max(0, m.start() - WINDOW)
         end = min(len(text), m.end() + WINDOW)
-        if STRUCTURED_RE.search(text[start:end]):
+        if STRUCTURED_RE.search(text[start:end]) or PROFILE_RE.search(text[start:end]):
             continue
         line_start = text.rfind("\n", 0, m.start()) + 1
         line_end = text.find("\n", m.end())
@@ -202,7 +220,7 @@ def check_structured_near_calls(text: str, path: Path) -> list[str]:
             continue
         findings.append(
             f"{rel(path)}:{line_of(text, m.start())} [STRUCTURED] 「{m.group(0)}」附近 "
-            f"{WINDOW} 字元內未找到 `model: opus/sonnet/haiku` 結構化標示"
+            f"{WINDOW} 字元內未找到 `model: ...` 或 `profile: ...` 結構化標示"
         )
     return findings
 
@@ -218,7 +236,7 @@ def check_nl_model(text: str, path: Path) -> list[str]:
             continue  # 這行是在說明「不可以這樣做」
         findings.append(
             f"{rel(path)}:{line_of(text, m.start())} [NL_MODEL] 「{m.group(0)}」是自然語言指定，"
-            f"不保證生效；改為結構化標示（例：`spawn 參數：name=xxx、model: opus`）"
+            f"不保證生效；改為 capability 結構化標示（例：`delegate_write, role=xxx, model: opus`）"
         )
     return findings
 
@@ -274,6 +292,22 @@ def check_role_policy(path: Path, text: str) -> list[str]:
                 f"（{policy['why']}）"
             )
 
+    found_profiles = {m.group(1).upper() for m in PROFILE_RE.finditer(text)}
+    for need in policy.get("require_profiles", []):
+        if need.upper() not in found_profiles:
+            findings.append(
+                f"{rel(path)}:1 [ROLE_POLICY] 缺少 `profile: {need}` 的結構化標示"
+                f"（{policy['why']}）"
+            )
+
+    found_tasks = {m.group(1).lower() for m in TASK_RE.finditer(text)}
+    for need in policy.get("require_tasks", []):
+        if need.lower() not in found_tasks:
+            findings.append(
+                f"{rel(path)}:1 [ROLE_POLICY] 缺少 `task: {need}` 的結構化標示"
+                f"（{policy['why']}）"
+            )
+
     for banned in policy.get("forbid", []):
         for m in STRUCTURED_RE.finditer(text):
             if m.group(1).lower() == banned:
@@ -282,7 +316,7 @@ def check_role_policy(path: Path, text: str) -> list[str]:
                     f"`model: {banned}`（{policy['why']}）"
                 )
 
-    # opus 只准出現在指定段落（bug-investigate 的條件式升級）
+    # legacy policy 若需要限制 opus 只能出現在指定段落，仍保留通用檢查。
     allow_keys = policy.get("opus_only_in_sections")
     if allow_keys:
         allowed_ranges = [
@@ -341,8 +375,11 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         counts["references"] += 1
         counts["calls"] += len(AGENT_CALL_RE.findall(text))
-        findings += check_structured_near_calls(text, path)
-        findings += check_nl_model(text, path)
+        # host-capabilities.md 是 adapter 契約本身，會列出 capability 名稱與
+        # 降級範例；它不是實際派工指令，因此不套「附近必須有 model」規則。
+        if path.name != "host-capabilities.md":
+            findings += check_structured_near_calls(text, path)
+            findings += check_nl_model(text, path)
         findings += check_vague(text, path)
 
     for path in sorted(REPO.glob(AGENT_GLOB)):
@@ -357,7 +394,7 @@ def main() -> int:
 
     scope = (
         f"{counts['skills']} 個 SKILL.md、{counts['references']} 個 reference、"
-        f"{counts['agents']} 個 agent 定義、{counts['calls']} 個 Agent 呼叫"
+        f"{counts['agents']} 個 agent 定義、{counts['calls']} 個委派／Agent 呼叫"
     )
 
     if findings:

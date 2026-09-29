@@ -28,7 +28,19 @@ description: 結案前先跑文件漂移硬關卡（FAIL 擋、WARN 需明示放
 - **第 2 層**：`projects/{repo-id}.md`（專案對應、技術棧 ID）
 - **第 3 層**：`stacks/{id}.md`（技術棧定義，用於設計庫同步）
 
-Bug 類型還需 bug-workflow 設定檔（`~/.claude-company/bug-workflow-config.md` 或 `~/.claude/bug-workflow-config.md`）。
+Bug 類型還需讀取 bug-workflow 設定。不要自行判斷 Host 路徑，改用 portable config resolver：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+BUG_CONFIG_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format path)"
+```
+
+- `[ -f "$BUG_CONFIG_FILE" ]` → 讀取 Bug 知識庫等 bug-workflow 設定。
+- 檔案不存在 → 依既有邊界提示先執行 `/bug-setup`；不得自行回退到 Host-specific 實體路徑。
+- `--mode read` 的 portable/legacy fallback 由 `config-contract.md` 統一負責。
 
 ---
 
@@ -38,7 +50,7 @@ Bug 類型還需 bug-workflow 設定檔（`~/.claude-company/bug-workflow-config
 - 已完成規劃和開發（`.spec/{slug}/plan.md` 各節有內容）
 - 程式碼已 commit
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定目錄 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
 ---
 
@@ -85,7 +97,7 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 
 > 若 `prod_branch` 未設定（舊專案），回退邏輯：先取 `origin/HEAD` 指向的分支，若無則依序嘗試 `production` → `master` → `main`。
 
-根據 CLAUDE.md 的架構描述，產出分層變更摘要。
+根據 `project_instructions` 的架構描述，產出分層變更摘要。
 
 ### 4. 智慧判斷目標狀態
 
@@ -94,9 +106,60 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 - 含「測試」、「QA」→ `測試中`
 - 無法判斷 → 詢問，預設 `測試中`
 
-### 5. 漂移硬關卡（唯一硬關卡，🔴 不可跳過）
+### 4.5 Human UAT Gate（Runtime hard block）
 
-**必須在 `git add -f` 與任何 Notion 呼叫之前執行。** 這是全流程唯一會擋下結案的檢查。
+本節只適用 v2 `state.json` 任務；v1 任務依 `../../references/legacy-v1.md` 相容模式執行，不呼叫 `crew-state.py`。
+
+完整契約見 `../../references/uat-gate.md`。為了避免沿用前一次結案嘗試的 stale approval，**每次進入本節先重設本輪 UAT**：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status pending --by crew \
+  --reason "plan-close requires fresh human acceptance for current delivery"
+```
+
+接著顯示 `results.verify`、`results.review`、主要交付結果與已知風險，向使用者明確詢問：
+
+```text
+機器驗證與程式碼審查已完成，現在進入 Human UAT。
+
+你是否接受目前交付結果並允許此 Feature 結案？
+  • 「接受／OK／確認／可以」→ 記錄 uat=approved，繼續結案
+  • 告訴我要調整的地方 → 記錄 uat=rejected，停止本次 plan-close
+```
+
+只有使用者在**本輪**明確表示接受，才可以執行：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status approved --by human \
+  --reason "user explicitly accepted current feature delivery"
+```
+
+若使用者不接受或提出修改：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+  --name uat --status rejected --by human \
+  --reason "user requested additional feature changes"
+```
+
+然後**立即停止本次結案**，不得執行漂移蓋章、Notion 結案同步或 `close=done`。
+
+若使用者明確要求 waive UAT，可寫 `status=waived`，但必須提供具體 reason；Agent 不得主動建議 waiver。
+
+> 🔴 `results.verify.status=PASS`、`steps.review=done`、`/plan-verify --manual` 都只是證據，不是 Human UAT。
+> 🔴 `TRANSITION_GATES["close"] = ["uat"]` 已啟用；即使 Skill 流程被誤改，runtime 仍會在 UAT 未通過時拒絕 `close=done`。
+
+UAT 通過後先做 exit check：
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
+```
+
+### 5. 漂移硬關卡（文件硬關卡，🔴 不可跳過）
+
+**必須在 `git add -f` 與任何 Notion 呼叫之前執行。** Human UAT 與文件漂移現在都是正式硬關卡：UAT 管「人是否接受」，漂移管「文件是否可信」。
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
@@ -347,7 +410,7 @@ Bug 頁面用的是 `/plan-start` 的 Bug 模板（🔴 問題描述 / 🔍 調�
 
 ### 9. 結案狀態（唯一權威 state.json）
 
-Notion 同步完成後寫回狀態，**不手寫任何欄位**：
+Notion 同步完成後寫回狀態，**不手寫任何欄位**。`close=done` 受 runtime UAT hard gate 保護，若 gate 不是 `approved` / `waived`，這一步必須失敗：
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
@@ -385,7 +448,7 @@ Notion API 呼叫統計：{N} 次（fetch: 1, update: 2, create: 1{, 關聯更�
 
 後續事項：
   📋 測試驗證：在 Notion 頁面勾選驗證項目
-  🔀 Git 合併：{根據 CLAUDE.md Git Flow 產出合併建議}
+  🔀 Git 合併：{根據 project_instructions 的 Git Flow 產出合併建議}
 ```
 
 ---
@@ -409,7 +472,7 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 - **exit 3 不是漂移**：環境問題代表「這次沒檢查成」。把它說成「有漂移」或「檢查通過」都是假資訊，一律原文照登 script 的「修法：」那行，並且**不蓋章**。
 - **蓋章是承諾，不是儀式**：`verified_at_commit` 只有 `/plan-drift` 與本 skill 能寫，且必須在檢查真的通過之後。這個欄位一旦被隨手蓋，整套漂移偵測就失去意義（下次 D6 的比較基準也會錯）。
 - **一次 update_content 的大小限制**：Notion API request body 約 2MB 上限。v2 只同步 plan.md（≤100 行）＋ deploy.sql，通常遠低於上限；`deploy.sql` 特別大時才需分批呼叫 `update_content`。
-- **Bug 類型需讀取兩個設定檔**：知識庫 ID（Bug 知識庫）在 bug-workflow 設定檔中，只讀 feature-workflow 設定檔會靜默跳過知識庫同步。Bug 類型結案時，兩個 workflow 的設定檔都要讀取。
+- **Bug 類型需讀取兩個設定來源**：知識庫 ID（Bug 知識庫）在 `bug/config` logical key 中；只讀 feature-workflow 設定會靜默跳過知識庫同步。Bug 類型結案時，feature 設定照既有流程載入，bug 設定一律經 `crew-config.py resolve --key bug/config --mode read`。
 - **提交 .spec/ 用 `git add -f`，但要逐檔指定**：`plan-start` 在 `.gitignore` 忽略整個 `.spec/`，而 Git 無法用 `!.spec/{slug}/` 反向取消對「已排除目錄」的忽略（re-include 對已被排除目錄下的內容無效），故必須用 `-f`；力求不改動 `.gitignore`，避免規則順序踩坑。但 `-f` 對整個目錄會連 `.cache/`、`screenshots/`、`evidence/` 一起強制加入 —— 只逐檔加 `plan.md` / `deploy.sql` / `state.json`。強制加入後檔案即成 tracked，後續修改 Git 會正常追蹤。
 - **Notion 呼叫次數統計**：基本情況 3-5 次，但 Bug 有來源 feature 時會多 2 次（fetch + update 關聯 Feature 頁面），實際可達 7 次。回傳結果的統計數字要如實反映。
 
@@ -426,4 +489,4 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 - **知識庫 ID 為空**：跳過知識庫同步
 - **來源 feature 的 Notion 頁面不存在**：跳過關聯更新，提示使用者
 - **Notion API 失敗**：顯示已完成和失敗的步驟，建議用 `/plan-sync` 重試（此時 git commit 與蓋章已完成，不需重跑漂移檢查）
-- **CLAUDE.md 無 Git Flow 描述**：使用通用提示
+- **project_instructions 無 Git Flow 描述**：使用通用提示

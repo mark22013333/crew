@@ -19,7 +19,19 @@ argument-hint: "<任務簡述> [選項]"
 - **第 1 層**：`config.md`（Notion IDs）
 - **第 2 層**：`projects/{repo-id}.md`（專案對應、技術棧 ID）
 
-Bug 類型還需檢查 bug-workflow 設定檔（`~/.claude-company/bug-workflow-config.md` 或 `~/.claude/bug-workflow-config.md`）。
+Bug 類型還需讀取 bug-workflow 設定。不要自行判斷 Host 路徑，改用 portable config resolver：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+BUG_CONFIG_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve \
+  --key bug/config \
+  --mode read \
+  --format path)"
+```
+
+- `[ -f "$BUG_CONFIG_FILE" ]` → 讀取 Bug 任務所需的 bug-workflow 設定。
+- 檔案不存在 → 提示使用者先執行 `/bug-setup`；不得自行 fallback 到 Host-specific 實體路徑。
+- `--mode read` 的 portable/legacy fallback 由 `config-contract.md` 統一負責。
 
 若設定目錄不存在，提示使用者先執行 `/plan-setup` 或 `/bug-setup`。
 
@@ -27,7 +39,7 @@ Bug 類型還需檢查 bug-workflow 設定檔（`~/.claude-company/bug-workflow-
 
 ## 流程
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定目錄 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
 ### 1. 解析使用者輸入
 
@@ -413,7 +425,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" init \
 後續可使用：
   • /plan                  — 完整規劃（spec → db → arch 三個 pass 寫進 plan.md）
   • /plan spec|db|arch     — 只跑其中一個 pass
-  • /plan-build            — Agent Teams 產生程式碼
+  • /plan-build            — 多角色協作產生程式碼
   • /plan-next             — 不確定下一步時問它
   • /plan-status           — 查看所有任務狀態
   • /plan-close            — 結案並同步 Notion

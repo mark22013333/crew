@@ -27,7 +27,7 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 - 已使用 `/bug-start` 建立 Bug 條目（Notion 有「進行中」的 🐞 錯誤）
 - 或使用者直接描述 bug 症狀（此時先執行 /bug-start 再進入調查）
 
-> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（CLAUDE.md + 設定檔 + 專案註冊）。
+> **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
 ---
 
@@ -49,16 +49,52 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 
 若使用 `--resume`：讀取已有的「調查過程」區塊，從中斷點繼續。
 
-### 2. Phase 1：證據收集（自動，派唯讀 subagent，model: sonnet）
+#### 1.1 綁定 Bug Runtime State（必須）
+
+定位 Notion Bug 後，取得該頁面的 page ID，然後用 `crew-state.py list --all --format json` 找出
+`state.notion.page_id == 目前 Bug page id` 的 `{slug}`。若本輪是由 `/bug-start` 剛建立，直接沿用它回傳的 slug。
+
+- 找到多筆 → **BLOCK**，不得猜測，列出 slug 讓使用者決定。
+- 找不到 → **BLOCK**，提示先用 `/bug-start` 建立／補齊最小 runtime state；不得自行 `init --force` 建第二份任務。
+- 找到後先確認 `type=bug`，且 `next` 不得回任何 `/plan-*` 指令。
+
+解析 plugin root：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+```
+
+正常開始（非 `--resume`）時，先寫入調查階段與第一個可恢復工作單元：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+  --step investigate --status in_progress
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  --skill bug-investigate --done 0 --total 1 --label "假說" \
+  --remaining "建立並驗證第一個可驗證根因假說"
+```
+
+使用 `--resume` 時**不要重設 done/total**；先讀：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" next --slug {slug} --format json
+```
+
+若 `next.command` 是 `/bug-investigate --resume`，依 `work_unit.remaining / evidence / ambiguities` 與 Notion 調查紀錄接續；不得從 Phase 1 全部重做。
+
+> 🔴 在 `investigate=done` 前，`work_unit` 必須保留可恢復斷點。正常收工才 `unit --clear`。
+
+### 2. Phase 1：證據收集（自動，唯讀，profile: FAST）
 
 AI 根據 bug 描述自動收集初始證據，不需使用者介入。
 
 > **模型與邊界（硬性規則）**——完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）：
-> - 2.1–2.5 的證據收集用 **Agent tool 啟動唯讀 subagent**，呼叫時**必須實際傳入** `{"model": "sonnet"}`；只在 prompt 寫「請使用 Sonnet」不算。
+> - 2.1–2.5 的證據收集依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，routing=`task: evidence_collection`、`profile: FAST`、`risk: low`、`complexity: low`；執行前用 `crew-model-route.py` 取得 Host mapping。Host 無 subagent 時可 inline 執行，但仍是唯讀。
 > - 互不依賴的收集項（log／Git 歷史／環境狀態／知識庫與學習搜尋）可在同一則訊息並行派出，回報只給結論與 `檔案:行號`，不貼大段原文。
 > - 🔴 `/bug-investigate` **全程不修改正式程式碼**；只寫 Notion 調查紀錄、`.spec/` 與 `state.json`。
 > - 🔴 沒有根因確認，不得進入修正（不自動觸發 `/bug-fix`）。
-> - 🔴 不得因第一次假說失敗就升級 Opus（升級條件見 4.4）。
+> - 🔴 Phase 1 只負責蒐證，不做深度根因推理；後續只有符合 4.4 升級條件時才可進 DEEP。
 > - 🔴 不自動啟動 Dynamic Workflow、不依賴 `/effort ultracode`；沒有它本 skill 也要能跑完。
 
 #### 2.1 錯誤 Log 搜集
@@ -125,11 +161,12 @@ git diff HEAD~5..HEAD -- <affected-file>
 （接續共用區塊：環境狀態／歷史參考／歷史學習，見 references/evidence-collection.md）
 ```
 
-### 3. Phase 2：模式比對（model: sonnet）
+### 3. Phase 2：模式比對（profile: STANDARD）
 
 AI 根據收集到的證據，比對已知 bug 模式表（plugin 根目錄 `references/bug-patterns.md`，相對 SKILL.md 為 `../../references/`）。
 
-> 模式比對、相關程式碼搜尋與關鍵方法閱讀屬唯讀工作：由主對話直接做，或派 subagent 時實際傳入 `{"model": "sonnet"}`。
+> 模式比對、跨檔語意閱讀與一般假說推理屬正常工程 debugging：routing=`task: debugging`、`profile: STANDARD`、`risk: medium`、`complexity: medium`。
+> 執行前用 `crew-model-route.py` 取得 Host mapping；需要委派時依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，role=`bug-investigator`，並把上述 routing 結構化傳入。Host 無 subagent 時可 inline 執行，但仍遵守 STANDARD profile 與唯讀邊界。
 
 讀取 plugin 根目錄 `references/bug-patterns.md`（相對 SKILL.md 為 `../../references/`）的 7 種模式定義，將證據中的症狀逐一比對：
 
@@ -211,6 +248,22 @@ curl -s "http://localhost:8080/api/xxx" -H "Authorization: Bearer <token>"
 **新線索**：refresh 呼叫的 API endpoint 回傳 HTTP 401 時沒有 retry 邏輯
 ```
 
+同一個假說的結果一落地，就**立即**更新 runtime 工作單元，不等整批調查結束。
+
+若假說 #N 被否定，並已建立下一個假說 #N+1：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  --skill bug-investigate --done {N} --total {N+1} --label "假說" \
+  --evidence "假說 #{N} 已否定：{一行證據}" \
+  --remaining "假說 #{N+1}：{下一個可驗證假說}"
+```
+
+這樣若此刻中斷，`crew-state.py next` 必須回 `/bug-investigate --resume`。
+
+若某假說看似確認、但第 7 節仍有可能推翻根因的釐清問題，**先不要把該假說單元標成完成**；
+把問題寫入 `--ambiguity` / `--remaining`，等釐清後再完成該單元。
+
 #### 4.4 3-Strike 升級規則
 
 若連續 3 次假說都被否定：
@@ -228,26 +281,26 @@ curl -s "http://localhost:8080/api/xxx" -H "Authorization: Bearer <token>"
   • 可能需要在測試環境重現
   • 或請熟悉此模組的同事協助
 
-要繼續調查（Sonnet）、升級深度根因推理（Opus）、還是暫停？
+要繼續標準調查、升級深度根因推理，還是暫停？
 ```
 
-- 使用者選擇**繼續** → 重置計數器，維持 `model: "sonnet"` 繼續調查。
-- 使用者選擇**暫停** → 記錄當前進度到 Notion，結束。
-- 使用者選擇**升級** → 依下方「升級 Opus 深度推理」執行。
+- 使用者選擇**繼續** → 重置計數器，維持 `profile: STANDARD` + `task: debugging` 繼續調查。
+- 使用者選擇**暫停** → 記錄當前進度到 Notion，並把下一個待查方向留在 `work_unit.remaining`；**不要**把 investigate 標成 done、不要 clear work_unit。此時 `next` 應維持 `/bug-investigate --resume`。
+- 使用者選擇**升級** → 依下方「升級 DEEP 深度推理」執行。
 
-#### 4.5 升級 Opus 深度推理（條件式）
+#### 4.5 升級 DEEP 深度推理（條件式）
 
 完整政策見 plugin 根目錄 `references/model-policy.md`（相對 SKILL.md 為 `../../references/`）。
-預設一律 `model: "sonnet"`，🔴 **不得因第一次假說被否定就升級**。只有符合下列任一條件才允許升級：
+預設維持 `profile: STANDARD`；🔴 **不得因第一次假說被否定就升級**。只有符合下列任一條件才允許升級：
 
 - 連續三個可驗證假說都被證據否定（即 4.4 的 3-Strike）
 - 問題跨越三個以上模組
 - 涉及複雜並行、交易一致性、記憶體或分散式狀態
 - 多份證據互相矛盾
-- 一般 Sonnet 調查無法收斂
+- 一般 STANDARD 調查無法收斂
 - 使用者明確要求深度分析
 
-升級前，Sonnet 必須先整理下列交接（寫入 Notion「調查過程」並附在派工 prompt 內）：
+升級前，STANDARD 調查角色必須先整理下列交接（寫入 Notion「調查過程」並附在派工 prompt 內）：
 
 ```markdown
 ## 深度調查交接
@@ -268,8 +321,18 @@ curl -s "http://localhost:8080/api/xxx" -H "Authorization: Bearer <token>"
 - ...
 ```
 
-派工規則：用 **Agent tool** 啟動 subagent 並實際傳入 `{"model": "opus"}`；Opus **只針對「尚未解答的問題」推理**，
-🔴 不得重做全部證據收集，🔴 不得修改正式程式碼（本 skill 仍是唯讀調查）。
+派工前先用 Router 取得深度 mapping：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task deep_investigation --risk high --complexity high \
+  --host portable --format json
+```
+
+派工規則：依 `../../references/host-capabilities.md` 使用 **`delegate_readonly`**，role=`deep-investigator`，
+routing=`task: deep_investigation`、`profile: DEEP`、`risk: high`、`complexity: high`。
+Host adapter 必須依 Router mapping 套用可用的模型／reasoning；做不到 per-worker routing 時回報 `routing_degraded=true`，不得假裝已套用。
+DEEP 角色 **只針對「尚未解答的問題」推理**，🔴 不得重做全部證據收集，🔴 不得修改正式程式碼（本 skill 仍是唯讀調查）。
 
 ### 5. Phase 4：根因確認
 
@@ -354,6 +417,45 @@ curl -s "http://localhost:8080/api/xxx" -H "Authorization: Bearer <token>"
 
 然後進入回傳結果。
 
+### 7.5 Runtime 收尾（只有根因正式確認後）
+
+只有符合以下全部條件才可把 `investigate` 標成完成：
+
+1. 根因已由證據確認，不是「最可能」或尚待驗證的假說
+2. 根因分析已寫入 Notion
+3. 調查報告已寫入 Notion
+4. 第 7 節若有關鍵釐清問題，已得到答案且不再可能推翻根因
+
+先把最後一個假說單元標成完成，再清除 work unit：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  --skill bug-investigate --done {N} --total {N} --label "假說" \
+  --evidence "假說 #{N} 已確認根因：{一行證據}"
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} --clear
+```
+
+最後才寫 step：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+  --step investigate --status done
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
+  --expect-phase investigate
+
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" next --slug {slug} --format json
+```
+
+exit gate：
+
+- `steps.investigate.status == done`
+- `work_unit.skill == null`
+- `next.command == "/bug-fix"`
+
+任一不成立 → 不得在回傳結果中宣稱「根因調查完成」。
+
 ### 8. 回傳結果
 
 ```
@@ -380,6 +482,10 @@ Bug 調查完成！
 ```
 
 **根因未確認（3-Strike 暫停後）→ 建議擴大調查：**
+
+回傳前先確認 `crew-state.py next --slug {slug} --format json` 的 command 為
+`/bug-investigate --resume`；若不是，先修正 work_unit 斷點。
+
 ```
 建議後續：
   • /bug-investigate --resume — 繼續調查（有新線索時）

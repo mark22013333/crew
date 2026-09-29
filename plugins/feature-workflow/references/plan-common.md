@@ -121,9 +121,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --format json
 
 ## 讀取專案上下文
 
-### 專案 CLAUDE.md
+### 專案指令
 
-讀取 `pwd` 下最近的 CLAUDE.md（向上搜尋），取得技術棧、架構模式、分層規則、命名慣例。
+依共用 `host-capabilities.md` 的 `project_instructions` 讀取 `AGENTS.md`／`CLAUDE.md`，取得技術棧、架構模式、分層規則、命名慣例。
 
 ### 技術棧資訊
 
@@ -150,7 +150,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --format json
 ## 共用 Gotchas
 
 - **`D-1 [spec] 範圍判斷` 條目是 plan-build 的入口**：`FRONTEND_REQUIRED` 和 `DB_REQUIRED` 的值直接決定 plan-build 的團隊組成。格式錯誤（如用中文「是/否」而非 `true/false`）會 fallback 到預設值。它是決策紀錄的第一條，**不可刪除**；要改判斷用 supersede（`D-n [階段] 取代 D-1：…`）。
-- **Agent subagent 的 model 參數**：prompt 中寫「使用 Opus 模型」只是自然語言指示，不保證生效。必須在 Agent tool 的 `model` 參數實際設定 `"opus"`。**哪個角色該用哪個模型、以及探索／實作如何拆分，一律以共用 reference `model-policy.md` 為準**（本檔不重複那份政策）。
+- **委派的 model 目標**：prompt 中只寫「使用 Opus」不算。Capability request 必須帶結構化 `model`；Host 工具對映與安全降級見 `host-capabilities.md`，角色模型政策見 `model-policy.md`。
 - **plan.md 沒有 `.bak` 回退**：舊流程「覆蓋前備份 `{file}.bak`」已不適用 —— plan.md 只能增量 Edit，寫壞了要靠 `git diff` 或 `git checkout` 回退，不是靠備份檔。
 - **重跑某個 pass 不等於重寫該節**：重跑時先讀既有條目，只補新的或用 supersede 修正；把同一件事再寫一條新的 `D-n` 是可接受的，把舊條目刪掉不是。
 - **`.spec/` 預設在 `.gitignore` 內**：要進版控由 `/plan-close` 以 `git add -f` 處理，其他 skill 不要擅自改 `.gitignore` 規則。
