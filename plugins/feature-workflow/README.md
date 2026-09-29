@@ -264,9 +264,33 @@ flowchart LR
 
 ## `/plan-verify`
 
-`/plan-verify` 產出 machine/browser evidence，而不是 Human UAT 本身。可依環境使用：
+`/plan-verify` 產出 machine/browser evidence，而不是 Human UAT 本身。
 
-- Browser 驗收
+<!-- crew:diagram plan-verify-flow -->
+```mermaid
+flowchart TD
+    AC["plan.md AC-n"] --> Plan["build verification plan"]
+    Plan --> Adapter{"verification adapter"}
+    Adapter --> Browser["browser capability<br/>Playwright preferred"]
+    Adapter --> API["API-only"]
+    Adapter --> E2E["E2E mapping"]
+    Browser --> Evidence["screenshots / evidence"]
+    API --> Evidence
+    E2E --> Evidence
+    Evidence --> Result["state.json results.verify"]
+    Result --> Status{"PASS / WARN / FAIL"}
+    Status -- "FAIL" --> Build["/plan-build"]
+    Status -- "WARN" --> Recheck["/plan-verify --recheck"]
+    Status -- "PASS" --> Review["/plan-review"]
+    Review --> Close["/plan-close"]
+    Close --> UAT{"Human UAT"}
+    UAT -- "rejected" --> Build
+    UAT -- "approved / waived" --> Done["close"]
+```
+
+可依環境使用：
+
+- Browser 驗收（Playwright preferred；chrome-devtools / local CDP fallback）
 - API-only
 - recheck
 - Excel report
@@ -274,6 +298,10 @@ flowchart LR
 - E2E runner
 
 外部 browser/DB 工具以 `tool_probe` 判斷目前 Host 是否真的可呼叫；不能用某一家 CLI listing 代替 capability probe。
+
+Project verify memory canonical storage 是 `.crew/verify-memory.md`；舊 `.claude/verify-memory.md` 只在 canonical 不存在時相容讀取。驗證結果仍以 `state.json.results.verify` 為唯一 machine truth。
+
+流程邊界：`verify PASS` → `/plan-review` → `/plan-close`；**Human UAT 在 `/plan-close` 內取得**，不是 `/plan-verify` 的副作用。
 
 ---
 
@@ -315,6 +343,7 @@ Removal eligibility：
 - [Portable Config Contract](references/config-contract.md)
 - [Config Resolver](references/config-resolver.md)
 - [UAT Gate](references/uat-gate.md)
+- [Verify Memory Contract](references/verify-memory.md)
 
 ## 授權
 

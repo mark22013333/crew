@@ -6,7 +6,7 @@ last_updated: 2026-05-15
 # SmartRobot 產品級驗證記憶（Layer 3）
 
 > 此文件存放跨專案通用的驗證經驗，由 plugin 維護者從各專案的 Layer 2 萃取。
-> 載入順序：此文件（Layer 3）→ 專案 .claude/verify-memory.md（Layer 2）→ 任務 .spec/{slug}/verify-memory.md（Layer 1）
+> 載入順序：此文件（Layer 3）→ 專案 `.crew/verify-memory.md`（Layer 2；舊 `.claude/verify-memory.md` 僅 read fallback）→ 任務 `.spec/{slug}/.cache/verify-memory.md`（Layer 1）。完整 contract 見 `references/verify-memory.md`。
 
 ## 頁面操作記憶
 
