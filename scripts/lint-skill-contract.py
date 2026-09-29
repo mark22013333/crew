@@ -28,6 +28,23 @@ TRIGGER_KEYWORD = "當使用者提到"
 LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 SKIP_PREFIXES = ("http://", "https://", "mailto:", "#")
 
+CREW_UPGRADE = REPO / "plugins" / "bug-workflow" / "skills" / "crew-upgrade" / "SKILL.md"
+CREW_UPGRADE_REQUIRED = (
+    "claude plugin marketplace update company-marketplace",
+    "claude plugin update bug-workflow@company-marketplace",
+    "claude plugin update feature-workflow@company-marketplace",
+    "codex plugin marketplace upgrade crew",
+    "codex plugin marketplace list",
+    "codex plugin list",
+    "claude plugin list",
+)
+CREW_UPGRADE_FORBIDDEN = (
+    ".claude-company",
+    "installed_plugins.json",
+    "~/.claude/plugins/marketplaces/",
+    "~/.codex/plugins/",
+)
+
 
 def parse_frontmatter(text: str) -> dict | None:
     m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
@@ -92,6 +109,28 @@ def check_internal_links(text: str, skill_path: Path) -> list[str]:
     return errors
 
 
+def check_crew_upgrade_contract() -> list[str]:
+    errors: list[str] = []
+    if not CREW_UPGRADE.is_file():
+        return [f"{CREW_UPGRADE.relative_to(REPO)} 不存在"]
+
+    text = CREW_UPGRADE.read_text(encoding="utf-8")
+    rel = CREW_UPGRADE.relative_to(REPO)
+
+    for marker in CREW_UPGRADE_REQUIRED:
+        if marker not in text:
+            errors.append(f"{rel} 缺 portable update marker：{marker}")
+
+    for marker in CREW_UPGRADE_FORBIDDEN:
+        if marker in text:
+            errors.append(f"{rel} 重新引入 Host 私有 update contract：{marker}")
+
+    if "codex plugin update " in text:
+        errors.append(f"{rel} 不得宣告不存在的 Codex plugin-specific update 子命令")
+
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     checked = 0
@@ -109,6 +148,8 @@ def main() -> int:
 
         # 2. 內部連結可達性
         errors.extend(check_internal_links(text, skill_md))
+
+    errors.extend(check_crew_upgrade_contract())
 
     for e in errors:
         print(f"❌ {e}")

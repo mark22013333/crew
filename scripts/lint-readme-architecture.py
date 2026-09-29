@@ -38,6 +38,11 @@ REQUIRED = {
         "crew-config.py",
         "codex plugin add bug-workflow@crew",
         "codex plugin add feature-workflow@crew",
+        "/crew-upgrade",
+        "claude plugin marketplace update company-marketplace",
+        "claude plugin update bug-workflow@company-marketplace",
+        "claude plugin update feature-workflow@company-marketplace",
+        "codex plugin marketplace upgrade crew",
         "2026-10-26",
     ),
     "plugins/bug-workflow/README.md": (
@@ -53,6 +58,10 @@ REQUIRED = {
         "CLAUDE.md",
         "crew-config.py",
         "Human UAT",
+        "/crew-upgrade",
+        "claude plugin marketplace update company-marketplace",
+        "claude plugin update bug-workflow@company-marketplace",
+        "codex plugin marketplace upgrade crew",
     ),
     "plugins/feature-workflow/README.md": (
         "Host Capability Contract",
@@ -66,6 +75,10 @@ REQUIRED = {
         "AGENTS.md",
         "CLAUDE.md",
         "crew-config.py",
+        "/crew-upgrade",
+        "claude plugin marketplace update company-marketplace",
+        "claude plugin update feature-workflow@company-marketplace",
+        "codex plugin marketplace upgrade crew",
         "2026-10-26",
     ),
 }

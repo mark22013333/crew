@@ -8,6 +8,25 @@
 
 ---
 
+## [bug-workflow@4.0.2] - 2026-09-29
+
+> **Portable CREW update workflow。** `/crew-upgrade` 不再讀 Host 私有 plugin cache/registry，也不再保留 `.claude-company` fallback；改由目前 Host 的公開 plugin CLI 執行更新。
+
+### Fixed
+
+- `/crew-upgrade` 改成 Host-aware：
+  - Claude Code：`claude plugin marketplace update company-marketplace` + `claude plugin update ...`
+  - Codex：`codex plugin marketplace upgrade crew` + `codex plugin list`
+- 移除對 `installed_plugins.json`、Host marketplace cache 路徑與已退休 `.claude-company` 的依賴。
+- 明確禁止發明不存在的 Codex plugin-specific update 子命令。
+
+### Changed
+
+- Root / Bug / Feature README 新增「更新既有 CREW」說明，提供 `/crew-upgrade` 與 Host-native 手動復原指令。
+- `scripts/lint-skill-contract.py` 新增 crew-upgrade portability guard；`scripts/lint-readme-architecture.py` 要求 README 持續保留更新入口。
+
+---
+
 ## [feature-workflow@5.0.2] - 2026-09-03
 
 > **移除 `plugin.json` 的 `hooks` 欄位。** 標準路徑 `hooks/hooks.json` 會被 Claude Code

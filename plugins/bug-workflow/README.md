@@ -1,4 +1,4 @@
-# Bug Workflow Plugin `v4.0.1`
+# Bug Workflow Plugin `v4.0.2`
 
 跨 Host 的 Bug lifecycle：建立狀態、蒐集證據、驗證根因、修復、回歸測試，最後由 Human UAT 決定是否結案。核心流程依賴 CREW Host Capability Contract，而不是某一家的 agent/team 工具。
 
@@ -19,6 +19,32 @@ codex plugin add bug-workflow@crew
 ```
 
 首次使用可執行 `/bug-setup`，或由 `/crew-init` 統一引導。
+
+## 更新
+
+推薦：
+
+```text
+/crew-upgrade
+/crew-upgrade --check
+```
+
+Claude Code 手動更新：
+
+```bash
+claude plugin marketplace update company-marketplace
+claude plugin update bug-workflow@company-marketplace
+claude plugin list
+```
+
+Codex 手動更新：
+
+```bash
+codex plugin marketplace upgrade crew
+codex plugin list
+```
+
+更新後開新 session。若 Codex marketplace 尚未註冊，先執行 `codex plugin marketplace add mark22013333/crew`。
 
 ---
 
