@@ -9,6 +9,28 @@ CREW 用 `.spec/`、deterministic state/runtime、可重複 Skill 與 Human appr
 - **Machine = Prove**：Git、schema、state transition、build/test、lint 等 deterministic 工作交給程式驗證。
 - **Skill = entry point，不是 brain**：狀態、路由、設定與 capability contract 由共用 runtime/reference 管理。
 
+### Portable architecture
+
+<!-- crew:diagram portable-architecture -->
+```mermaid
+flowchart TB
+    Human["Human<br/>Decide"] --> Skill["CREW Skill<br/>entry point"]
+    Host["Claude Code / Codex<br/>Host adapter"] --> Skill
+
+    Skill --> Capability["Host Capability Contract"]
+    Skill --> Routing["Model Routing<br/>NONE / FAST / STANDARD / DEEP"]
+    Skill --> State["State Discipline<br/>crew-state.py"]
+    Skill --> Config["Portable Config<br/>crew-config.py"]
+
+    Capability --> AI["AI<br/>Think / Plan / Build"]
+    Routing --> AI
+    State --> Machine["Machine<br/>Prove"]
+    Config --> Machine
+    AI --> Machine
+    Machine --> Evidence["Git / schema / build / test / lint evidence"]
+    Evidence --> Human
+```
+
 CREW 6 的四個共用 contract：
 
 | Contract | 用途 |
@@ -113,15 +135,45 @@ Resolver 讀取時可支援既有 legacy fallback；新寫入一律走 canonical
 
 ### Feature lifecycle
 
-```text
-start → spec → db → arch → build → security → verify → review → close
+<!-- crew:diagram feature-lifecycle -->
+```mermaid
+flowchart LR
+    Start["start"] --> Spec["spec"]
+    Spec --> Req{"Requirements approved?"}
+    Req -- "no" --> Spec
+    Req -- "yes" --> DB["db"]
+    DB --> Arch["arch"]
+    Arch --> ArchGate{"Architecture approved?"}
+    ArchGate -- "no" --> Arch
+    ArchGate -- "yes" --> Build["build"]
+    Build --> Security["security"]
+    Security --> Verify["verify"]
+    Verify --> Review["review"]
+    Review --> CloseCmd["/plan-close"]
+    CloseCmd --> UAT{"Human UAT"}
+    UAT -- "rejected" --> Build
+    UAT -- "accepted" --> Closed["close"]
 ```
+
+Runtime state：`start → spec → db → arch → build → security → verify → review → close`
 
 ### Bug lifecycle
 
-```text
-start → investigate → fix → close
+<!-- crew:diagram bug-lifecycle -->
+```mermaid
+flowchart LR
+    Start["start"] --> Investigate["investigate"]
+    Investigate --> Root{"Root cause confirmed?"}
+    Root -- "no" --> Investigate
+    Root -- "yes" --> Fix["fix"]
+    Fix --> Proof["build / test / regression evidence"]
+    Proof --> CloseCmd["/bug-close"]
+    CloseCmd --> UAT{"Human UAT"}
+    UAT -- "rejected" --> Fix
+    UAT -- "accepted" --> Closed["close"]
 ```
+
+Runtime state：`start → investigate → fix → close`
 
 Bug 的 build/test/回歸證據屬於 `fix` work units，不偽造 Feature 的 verify/review phase。
 
@@ -167,6 +219,17 @@ Workflow 先選能力 profile，再由 Host adapter 對映實際 provider：
 | `parallel_delegate` | 互不依賴工作平行化 | 退化成 sequential |
 | `tool_probe` | 判斷 DB/瀏覽器等外部工具 | 走 no-tool fallback |
 | `ask_user` | 取得 Human decision | 一般對話詢問 |
+
+<!-- crew:diagram capability-fallback -->
+```mermaid
+flowchart LR
+    Need["Skill 需要 capability"] --> Probe{"Host 原生能力可用？"}
+    Probe -- "yes" --> Native["Host adapter<br/>delegate / parallel / tool"]
+    Probe -- "no" --> Fallback["Portable fallback<br/>inline / sequential / no-tool"]
+    Native --> Contract["相同 role / scope / output contract"]
+    Fallback --> Contract
+    Contract --> Proof["deterministic proof"]
+```
 
 平行是效能最佳化，不是 workflow correctness 的前置條件。
 

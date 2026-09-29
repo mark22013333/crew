@@ -82,6 +82,23 @@ HISTORICAL_READMES = (
     REPO / ".spec" / "verify-word-report" / "README.md",
 )
 
+MERMAID_REQUIRED = {
+    "README.md": (
+        "portable-architecture",
+        "feature-lifecycle",
+        "bug-lifecycle",
+        "capability-fallback",
+    ),
+    "plugins/bug-workflow/README.md": (
+        "bug-lifecycle",
+    ),
+    "plugins/feature-workflow/README.md": (
+        "feature-lifecycle",
+        "plan-build-orchestration",
+        "plan-review-orchestration",
+    ),
+}
+
 LINKED_DOCS_REQUIRED = {
     REPO / "docs" / "prerequisites.md": (
         "Host Capability Contract",
@@ -106,6 +123,45 @@ LINKED_DOCS_REQUIRED = {
         "不得猜 schema",
     ),
 }
+
+
+def check_mermaid_contract(errors: list[str]) -> None:
+    marker_pattern = re.compile(
+        r"<!--\s*crew:diagram\s+([a-z0-9-]+)\s*-->\s*\n"
+        r"```mermaid\s*\n([\s\S]*?)\n```",
+        re.IGNORECASE,
+    )
+
+    for rel, required in MERMAID_REQUIRED.items():
+        path = REPO / rel
+        if not path.is_file():
+            errors.append(f"{rel} 不存在，無法檢查 Mermaid contract")
+            continue
+
+        text = path.read_text(encoding="utf-8")
+        blocks = {name: body for name, body in marker_pattern.findall(text)}
+
+        raw_mermaid_count = len(re.findall(r"```mermaid\s*\n", text))
+        if raw_mermaid_count != len(blocks):
+            errors.append(
+                f"{rel} 有未標記或重複 marker 的 Mermaid block："
+                f"fences={raw_mermaid_count}, markers={len(blocks)}"
+            )
+
+        for name in required:
+            body = blocks.get(name)
+            if body is None:
+                errors.append(f"{rel} 缺 Mermaid design contract：{name}")
+                continue
+            first = next((line.strip() for line in body.splitlines() if line.strip()), "")
+            if not re.match(r"^(?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR)\b", first):
+                errors.append(
+                    f"{rel} Mermaid {name} 必須以 flowchart/graph direction 開頭，目前：{first!r}"
+                )
+
+        extras = sorted(set(blocks) - set(required))
+        if extras:
+            errors.append(f"{rel} 有未登錄 Mermaid marker：{', '.join(extras)}")
 
 
 def github_heading_anchors(text: str) -> set[str]:
@@ -190,6 +246,7 @@ def main() -> int:
 
     check_internal_readme_links(errors)
     check_readme_commands(errors)
+    check_mermaid_contract(errors)
 
     for path in HISTORICAL_READMES:
         if not path.is_file():
