@@ -238,14 +238,41 @@ jobs:
           )
           PY
 
-          echo "=== install command capability probe ==="
-          set +e
-          codex plugin install bug-workflow@crew >"$RUNNER_TEMP/codex-plugin-install.out" 2>&1
-          rc=$?
-          set -e
-          cat "$RUNNER_TEMP/codex-plugin-install.out"
-          echo "codex_plugin_install_exit=$rc"
-          # Current official CLI documents marketplace add/list; local plugin installation
-          # is performed from the Plugins Directory. Record the capability without
-          # treating absence of a CLI install subcommand as marketplace failure.
+          echo "=== plugin add help ==="
+          codex plugin add --help
+
+          echo "=== install CREW plugins from configured marketplace ==="
+          codex plugin add bug-workflow@crew
+          codex plugin add feature-workflow@crew
+
+          echo "=== installed/available plugin list ==="
+          codex plugin list | tee "$RUNNER_TEMP/codex-plugin-list.txt"
+          grep -q "bug-workflow" "$RUNNER_TEMP/codex-plugin-list.txt"
+          grep -q "feature-workflow" "$RUNNER_TEMP/codex-plugin-list.txt"
+
+          echo "=== installed plugin cache ==="
+          find "$HOME/.codex/plugins" -maxdepth 10 -type f -name plugin.json -print | sort
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          cache = Path.home() / ".codex" / "plugins"
+          installed = set()
+          manifests = []
+          for path in cache.rglob("plugin.json"):
+              try:
+                  data = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              name = data.get("name")
+              if name in {"bug-workflow", "feature-workflow"}:
+                  installed.add(name)
+                  manifests.append(str(path))
+
+          print(f"installed_plugin_manifests={manifests}")
+          assert installed == {"bug-workflow", "feature-workflow"}, (
+              f"expected both CREW plugins installed, got {sorted(installed)}"
+          )
+          PY
 
