@@ -43,8 +43,6 @@ REQUIRED = {
         "claude plugin update bug-workflow@company-marketplace",
         "claude plugin update feature-workflow@company-marketplace",
         "codex plugin marketplace upgrade crew",
-        ".crew/verify-memory.md",
-        "Human UAT 在 `/plan-close` 內取得",
         "2026-10-26",
     ),
     "plugins/bug-workflow/README.md": (
@@ -81,6 +79,8 @@ REQUIRED = {
         "claude plugin marketplace update company-marketplace",
         "claude plugin update feature-workflow@company-marketplace",
         "codex plugin marketplace upgrade crew",
+        ".crew/verify-memory.md",
+        "Human UAT 在 `/plan-close` 內取得",
         "2026-10-26",
     ),
 }
