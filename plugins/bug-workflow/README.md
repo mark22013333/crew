@@ -24,6 +24,7 @@ codex plugin add bug-workflow@crew
 
 ## 核心流程
 
+<!-- crew:diagram bug-lifecycle -->
 ```mermaid
 flowchart LR
     A["發現問題"] --> B["/bug-investigate"]

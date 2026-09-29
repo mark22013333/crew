@@ -24,6 +24,7 @@ codex plugin add feature-workflow@crew
 
 ## Feature lifecycle
 
+<!-- crew:diagram feature-lifecycle -->
 ```mermaid
 flowchart LR
     A["/plan-start"] --> B["spec"]
@@ -168,6 +169,33 @@ Portable root：
 
 `/plan-build` 仍採「先探索、再按角色實作」的分工，但角色是 capability contract，不是某一種 Host team API：
 
+<!-- crew:diagram plan-build-orchestration -->
+```mermaid
+flowchart TD
+    Approved["Requirements + Architecture approved"] --> Explore["delegate_readonly<br/>FAST exploration"]
+    Explore --> Handoff["implementation handoff"]
+    Handoff --> Split{"Scopes independent?"}
+
+    Split -- "yes + Host supports parallel" --> Parallel["parallel_delegate"]
+    Split -- "no / unavailable" --> Sequential["sequential delegate_write"]
+
+    Parallel --> DB["DB"]
+    Parallel --> Backend["Backend"]
+    Parallel --> API["API"]
+    Parallel --> Frontend["Frontend"]
+    Parallel --> Test["Test"]
+
+    Sequential --> Roles["same roles<br/>in DAG order"]
+
+    DB --> Proof["NONE<br/>build / test / schema validation"]
+    Backend --> Proof
+    API --> Proof
+    Frontend --> Proof
+    Test --> Proof
+    Roles --> Proof
+    Proof --> State["state transition"]
+```
+
 1. 唯讀探索：找相關檔案、現有範本、介面與影響範圍。
 2. 將核准 spec + 探索 handoff 拆成 DB/backend/API/frontend/test 等必要角色。
 3. Host 能平行且 scope 互斥時可 parallel delegate。
@@ -180,6 +208,24 @@ Portable root：
 ## `/plan-review` 執行模型
 
 Review 以邏輯、品質、效能/交易/並行等角度拆開：
+
+<!-- crew:diagram plan-review-orchestration -->
+```mermaid
+flowchart LR
+    Input["changed code + approved spec"] --> Dispatch{"parallel available?"}
+    Dispatch -- "yes" --> Logic["Logic review<br/>STANDARD"]
+    Dispatch -- "yes" --> Quality["Quality review<br/>STANDARD"]
+    Dispatch -- "yes" --> Performance["Performance / transaction / concurrency<br/>DEEP"]
+    Dispatch -- "no" --> Sequential["same reviewers<br/>sequential"]
+
+    Logic --> Aggregate["aggregate findings"]
+    Quality --> Aggregate
+    Performance --> Aggregate
+    Sequential --> Aggregate
+    Aggregate --> Result{"blocking finding?"}
+    Result -- "yes" --> Build["back to /plan-build"]
+    Result -- "no" --> Close["ready for /plan-close"]
+```
 
 - 各 reviewer 預設唯讀。
 - 可平行時平行，不可平行時 sequential。
