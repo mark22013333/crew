@@ -1,38 +1,63 @@
 # Windows 使用者指南
 
-CREW 完整支援 Windows，但需注意以下環境差異。
+CREW 6 支援在 Windows 上使用，但實際 shell、sandbox、MCP 與 plugin 管理方式取決於你使用的 Host。核心 workflow 依賴的是 Host Capability Contract，不要求 Windows 使用者模擬某一家 Host 的目錄或 team API。
+
+## Host 選擇
+
+### Claude Code
+
+使用你已安裝的 Claude Code surface（CLI / IDE / desktop 整合）。Claude-specific plugin/MCP/settings 指令只屬 Claude adapter。
+
+### Codex
+
+使用目前官方支援的 Codex Windows 安裝方式或 WSL2。不同 Codex 版本的 sandbox/IDE 行為可能不同，以執行當下官方文件為準；CREW 不把 sandbox 實作細節寫進 workflow contract。
 
 ---
 
-## Claude Code 執行環境（擇一）
+## 建議工具
 
-| 方式 | 適用情境 | 說明 |
-|------|---------|------|
-| **Claude Code 桌面版**（推薦） | 一般開發 | 直接安裝，內建終端支援 |
-| **VS Code / JetBrains 擴充** | IDE 整合 | 透過 IDE 內建終端執行 |
-| **WSL2 + CLI** | 進階使用者 | Linux 環境，所有工具原生支援 |
+| 工具 | 用途 |
+|------|------|
+| Git | repo-id、diff、branch、commit |
+| Python 3 | CREW deterministic runtime scripts |
+| Node.js / npm | 只有使用 Node-based MCP / report tooling 時需要 |
+| 專案 build tool | Maven / Gradle / npm / dotnet 等依專案而定 |
 
----
+## Shell 差異
 
-## 必要工具安裝
+Windows 原生 PowerShell/CMD 與 POSIX shell 指令不同：
 
-| 工具 | Windows 安裝方式 |
-|------|-----------------|
-| Node.js | [nodejs.org](https://nodejs.org/) 下載 LTS 版，安裝時勾選 **Add to PATH** |
-| Git | [git-scm.com](https://git-scm.com/download/win) 下載，或 `winget install Git.Git` |
-| python3 | [Microsoft Store](https://apps.microsoft.com/detail/9NRWMJP3717K) 安裝，或 `winget install Python.Python.3.12` |
-| curl | Windows 10+ 內建，無需安裝 |
+- 若某個 Skill/reference 展示 `grep` / `find`，Host adapter 可用 PowerShell 等價能力或 Git Bash / WSL2。
+- 不要把 Unix command 名稱本身當 workflow contract；真正需要的是 repository search / file discovery capability。
+- Path 由 runtime/tool 正規化，不應把某個 Host home directory 當 CREW-owned config root。
 
----
+## Portable Config
 
-## 常見問題
+若希望 Windows 上有明確且穩定的 CREW config 位置，可設定：
 
-- **`npx` 找不到**：Node.js 安裝後需**重啟終端**（或重啟 Claude Code），PATH 才會生效
-- **`grep` / `find` 不可用**：Windows 原生 CMD 沒有這些指令。解法：
-  - 使用 Claude Code 桌面版（自帶 shell 環境）
-  - 或安裝 [Git for Windows](https://git-scm.com/download/win)（附帶 Git Bash，含 grep/find）
-  - 或使用 WSL2
-- **Chrome DevTools MCP 連線失敗**：確認 Chrome 啟動時有加 `--remote-debugging-port=9222` 參數
-- **路徑分隔符**：CREW 使用 `/` 路徑（Unix 風格），Claude Code 會自動處理轉換，一般不需手動調整
+```powershell
+$env:CREW_CONFIG_HOME = "$HOME\.config\crew"
+```
 
-> `/bug-setup` 和 `/plan-setup` 會自動偵測作業系統，在安裝引導中顯示對應的指令。
+未設定時仍依 portable resolver contract：
+
+1. `CREW_CONFIG_HOME`
+2. `XDG_CONFIG_HOME/crew`（若有）
+3. `~/.config/crew`
+
+這和 Claude/Codex 自己的 plugin cache、settings、rules 位置是兩回事。
+
+## Project instructions
+
+CREW 接受：
+
+- `AGENTS.md`
+- `CLAUDE.md`
+
+Codex 不需要為了 CREW 額外建立 Claude 專屬檔案；Claude Code 也可以讀既有 `AGENTS.md`。
+
+## 外部工具
+
+Browser / DB / Notion 能力以目前 Host 的實際 tool probe 為準。DBHub 的 Host-specific 安裝範例見 [dbhub.md](./dbhub.md)。
+
+> `/bug-setup`、`/plan-setup` 與 `/crew-doctor` 應以 portable resolver / capability contract 判斷環境，不自行假設 Windows 上一定存在某個 `~/.claude...` storage。

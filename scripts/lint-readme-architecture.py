@@ -4,6 +4,7 @@
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -74,9 +75,110 @@ ADR_002 = REPO / "docs" / "adr" / "002-agent-teams-leader-delegate.md"
 ADR_007 = REPO / "docs" / "adr" / "007-host-capability-portable-orchestration.md"
 DOCX_README = REPO / "plugins" / "feature-workflow" / "references" / "dotnet" / "verify-docx-cli" / "README.md"
 
+HISTORICAL_READMES = (
+    REPO / ".spec" / "bug-optimization" / "README.md",
+    REPO / ".spec" / "crew-optimization" / "README.md",
+    REPO / ".spec" / "plan-verify-evolution" / "README.md",
+    REPO / ".spec" / "verify-word-report" / "README.md",
+)
+
+LINKED_DOCS_REQUIRED = {
+    REPO / "docs" / "prerequisites.md": (
+        "Host Capability Contract",
+        "Python 3",
+        "NONE / FAST / STANDARD / DEEP",
+        "sequential fallback",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "CREW_CONFIG_HOME",
+    ),
+    REPO / "docs" / "windows.md": (
+        "Claude Code",
+        "Codex",
+        "CREW_CONFIG_HOME",
+        "AGENTS.md",
+        "CLAUDE.md",
+    ),
+    REPO / "docs" / "dbhub.md": (
+        "tool_probe",
+        "Claude Code adapter",
+        "Codex / 其他 Host",
+        "不得猜 schema",
+    ),
+}
+
+
+def github_heading_anchors(text: str) -> set[str]:
+    anchors: set[str] = set()
+    seen: dict[str, int] = {}
+    for line in text.splitlines():
+        match = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", line)
+        if not match:
+            continue
+        title = match.group(1).strip().lower()
+        slug = re.sub(r"[^\w\-\s]", "", title, flags=re.UNICODE)
+        slug = re.sub(r"\s+", "-", slug).strip("-")
+        index = seen.get(slug, 0)
+        seen[slug] = index + 1
+        anchors.add(slug if index == 0 else f"{slug}-{index}")
+    return anchors
+
+
+def check_internal_readme_links(errors: list[str]) -> None:
+    pattern = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+    for readme in sorted(REPO.rglob("README.md")):
+        text = readme.read_text(encoding="utf-8")
+        rel = readme.relative_to(REPO)
+        for raw in pattern.findall(text):
+            target = raw.strip()
+            if target.startswith(("http://", "https://", "mailto:")):
+                continue
+            if target.startswith("~"):
+                errors.append(f"{rel} 不得把 home path 寫成 Markdown link：{target}")
+                continue
+
+            path_part, sep, fragment = target.partition("#")
+            target_path = readme if not path_part else (readme.parent / path_part).resolve()
+            try:
+                target_path.relative_to(REPO.resolve())
+            except ValueError:
+                errors.append(f"{rel} link 逃出 repo：{target}")
+                continue
+
+            if path_part and not target_path.exists():
+                errors.append(f"{rel} broken internal link：{target}")
+                continue
+
+            if sep and fragment:
+                if not target_path.is_file() or target_path.suffix.lower() != ".md":
+                    errors.append(f"{rel} anchor target 不是 Markdown file：{target}")
+                    continue
+                anchors = github_heading_anchors(target_path.read_text(encoding="utf-8"))
+                requested = unquote(fragment).lower()
+                if requested not in anchors:
+                    errors.append(f"{rel} broken Markdown anchor：{target}")
+
 
 def main() -> int:
     errors: list[str] = []
+
+    check_internal_readme_links(errors)
+
+    for path in HISTORICAL_READMES:
+        if not path.is_file():
+            errors.append(f"historical README 不存在：{path.relative_to(REPO)}")
+            continue
+        if "歷史 v1 規劃 artifact" not in path.read_text(encoding="utf-8"):
+            errors.append(f"{path.relative_to(REPO)} 缺歷史 artifact banner")
+
+    for path, markers in LINKED_DOCS_REQUIRED.items():
+        if not path.is_file():
+            errors.append(f"README linked doc 不存在：{path.relative_to(REPO)}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for marker in markers:
+            if marker not in text:
+                errors.append(f"{path.relative_to(REPO)} 缺 portable-doc marker：{marker}")
 
     for path in MAIN_READMES:
         rel = str(path.relative_to(REPO))

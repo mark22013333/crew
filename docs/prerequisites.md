@@ -1,102 +1,89 @@
 # CREW 前置條件與系統需求
 
-## 完整依賴矩陣
+CREW 6 的核心流程不綁單一 Host。前置條件分成「核心必要」、「依功能需要」與「Host adapter 選配」；不要把某一家 Host 的 team/MCP CLI 當成全域必要條件。
 
-| 依賴 | 層級 | 用途 | 安裝方式 | 適用 Skill |
-|------|------|------|---------|-----------|
-| **Node.js ≥ 18** | 🔴 必要 | 所有 MCP Server 的執行環境 | [nodejs.org](https://nodejs.org/) | 全部 |
-| **Git** | 🔴 必要 | 版本控制、專案識別 | 系統內建或安裝 | 全部（14/17 skills） |
-| **Notion MCP** | 🔴 必要 | Notion 資料庫讀寫 | `claude plugin install notion`（推薦）或 notion-local | 15/17 skills |
-| **Agent Teams** | 🔴 必要 | 多人協作程式碼產生與審查 | 設定環境變數（見下方） | plan-build、plan-review |
-| **Playwright MCP** | 🟡 強烈建議 | 瀏覽器自動化驗收 | `claude mcp add playwright ...` | plan-verify、bug-fix |
-| **Maven / Gradle** | 🟡 強烈建議 | 編譯驗證 | 專案本身自帶 | plan-build、bug-fix |
-| **DBHub MCP** | 🟢 選配 | 資料庫直連（MSSQL/MySQL/PostgreSQL） | `claude mcp add dbhub ...` | plan-build、plan-review |
-| **Chrome DevTools MCP** | 🟢 選配 | Console / Network 除錯 | `claude mcp add chrome-devtools ...` | plan-verify --deep |
-| **minimax-skills Plugin** | 🟢 選配 | Word 驗收報告產出 | `claude plugin install minimax-skills` | plan-verify --word |
-| **Node.js + ExcelJS** | 🟢 選配 | Excel 驗收報告產出 | ExcelJS 自動安裝（需 Node.js） | plan-verify --excel |
-| **curl** | 🔵 標準工具 | API 測試 | 系統內建 | plan-verify、bug-fix |
-| **python3** | 🔵 標準工具 | JSON 格式化 | 系統內建或安裝 | plan-verify |
-| **grep / find** | 🔵 標準工具 | 安全掃描、日誌搜尋 | 系統內建 | plan-security、bug-investigate |
+## 核心必要
 
-> 🔴 必要 = 缺少無法運作 ｜ 🟡 強烈建議 = 核心功能受限 ｜ 🟢 選配 = 有更好 ｜ 🔵 標準工具 = macOS/Linux 內建
+| 依賴 | 用途 | 備註 |
+|------|------|------|
+| **Git** | repo-id、分支、diff、commit/evidence | 核心 workflow 需要 |
+| **Python 3** | `crew-state.py`、`crew-config.py`、`crew-model-route.py` 等 deterministic runtime | 兩個 plugin 都需要 |
+| **一個已安裝 CREW plugins 的 Host** | 執行 Skill | 目前正式驗證 Claude Code + Codex |
+| **project_instructions** | 專案規範與架構上下文 | 接受 `AGENTS.md`、`CLAUDE.md`；兩者衝突時保留歧義 |
+| **Notion capability** | 建立/同步 Notion-backed task/project | 需要 Notion 的流程才要求；純本地閱讀/部分驗證不應因它缺失而假裝其他 capability 也不可用 |
 
-> 💡 不確定環境完整性？跑 `/crew-doctor` 一次性檢查所有項目並給出修法建議。
+> 不確定環境是否完整時可跑 `/crew-doctor`。Doctor 會診斷 capability/config/project registration，但不自行建立 CREW-owned config storage。
+
+## 不再是核心必要條件
+
+### Multi-agent / Agent Teams
+
+平行 delegation 是最佳化，不是 workflow correctness 的前置：
+
+- Host 有 subagent/multi-agent → 可以平行互不衝突的工作。
+- Host 沒有 → inline / sequential fallback。
+- 不能因為某個 team env var 沒開就阻擋 `/plan-build` 或 `/plan-review`。
+
+完整規則見 [Host Capability Contract](../plugins/bug-workflow/references/host-capabilities.md)。
+
+### Provider model 名稱
+
+Workflow 只選 `NONE / FAST / STANDARD / DEEP` profile。實際 provider model / reasoning effort 由 Host adapter 決定，不要用全域環境變數把所有 worker 強制鎖成同一模型。
+
+詳見 [Model Policy](../plugins/bug-workflow/references/model-policy.md)。
+
+---
+
+## 依功能需要的工具
+
+| 工具 | 何時需要 | 沒有時 |
+|------|---------|--------|
+| **Maven / Gradle / 專案 build tool** | `/plan-build`、`/bug-fix` 驗證 | 無法完成對應 build/test proof |
+| **Browser automation capability** | UI `/plan-verify`、前端 Bug 驗證 | 改走 API/manual evidence 或明確標記不可驗證 |
+| **DB capability（例如 DBHub）** | 真實 schema/query 探索 | 走 no-DB fallback，不猜 schema |
+| **minimax-skills / .NET** | Word 報告 | 可改用其他報告路徑或跳過 |
+| **Node.js / npm** | Node-based MCP、ExcelJS、部分外部工具 | 只影響使用到它的功能；版本需求以該工具 upstream 為準 |
+| **curl / shell search tools** | API probe、機械搜尋 | 依 Host/OS 使用等價工具 |
+
+外部工具的可用性由 `tool_probe` 判斷「目前 session 是否真的可呼叫」，不要只靠某家的 CLI listing。
 
 ---
 
 ## Notion Workspace
 
-需有以下資料庫（或由 setup 引導建立）：
+Notion-backed 流程使用：
 
-- **任務追蹤工具**：Bug / 功能 生命週期管理（兩個 Plugin 共用）
-- **專案資料庫**：管理專案對應（兩個 Plugin 共用）
-- **Bug 知識庫**（選用）：Bug 精簡索引
-- **功能設計庫**（選用）：設計文件索引
+- **任務追蹤工具**：Bug / Feature lifecycle
+- **專案資料庫**：repo/project metadata
+- **Bug 知識庫**（選配）
+- **功能設計庫**（選配）
 
-詳細 Schema 與建立順序見 [notion-schema.md](./notion-schema.md)。
+詳細 schema 見 [notion-schema.md](./notion-schema.md)。
 
----
+### Claude Code adapter
 
-## Agent Teams 環境變數
+可用 Notion plugin 或 Host 支援的 MCP 設定方式。Claude CLI / settings 只屬 Claude adapter，不是 portable workflow contract。
 
-`/plan-build`（多人產碼）和 `/plan-review`（3 人審查）需要啟用 Agent Teams：
+### Codex / 其他 Host
 
-```jsonc
-// ~/.claude/settings.json
-{
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  }
-}
-```
-
-> `/plan-setup` 會自動檢查並引導設定。
-
-### ⚠️ 不要設定 CLAUDE_CODE_SUBAGENT_MODEL
-
-CREW 依角色混用模型（探索／文件用 Sonnet、正式實作與高風險判斷用 Opus，
-政策見兩 plugin 的 `references/model-policy.md`）。下列設定會**覆寫**個別 Subagent、
-Agent Teams 與 Dynamic Workflow Agent 的模型選擇，讓整套混用政策失效：
-
-```bash
-CLAUDE_CODE_SUBAGENT_MODEL=sonnet   # ❌ 全部 agent 被鎖成 Sonnet（正式實作品質下降）
-CLAUDE_CODE_SUBAGENT_MODEL=opus     # ❌ 全部 agent 被鎖成 Opus（探索與讀文件浪費 token）
-```
-
-要混用模型，請**移除**這個環境變數；若你的 Claude Code 版本支援，也可設為
-`CLAUDE_CODE_SUBAGENT_MODEL=inherit`。兩者行為若與現況不符，以官方文件與實際版本為準，
-**優先選擇直接移除**（移除等於回到各 agent 自帶 `model` 參數的預設行為，最安全）。
+使用 Host 當下可提供的 Notion/MCP capability。CREW 不要求存在 `claude mcp list` 之類特定產品命令；能實際呼叫對應工具才算 available。
 
 ---
 
-## 瀏覽器驗證工具（plan-verify / bug-fix）
+## 瀏覽器與 DB 工具
 
-`/plan-verify` 使用瀏覽器自動化工具驗證驗收條件，產出 Health Score 和截圖證據。
-`/bug-fix` 在修復前端 Bug 時也會使用瀏覽器驗證。以下工具擇一安裝即可：
-
-### 方式 A：Playwright MCP（推薦）
-
-```bash
-claude mcp add playwright --scope user -- \
-  npx @playwright/mcp@latest
-```
-
-Microsoft 維護，支援截圖、元素互動、表單填寫、頁面導航等。安裝後重啟 Claude Code。
-
-### 方式 B：chrome-devtools-mcp
-
-```bash
-claude mcp add chrome-devtools --scope user -- \
-  npx chrome-devtools-mcp@latest --autoConnect
-```
-
-Google 官方維護，可連接已登入的 Chrome session，適合需要 SSO/VPN 的內部系統。
-額外提供 console log 串流、network 請求分析、performance trace（`--deep` 模式）。
-
-> 💡 兩者可同時安裝：Playwright 負責 QA 驗收，chrome-devtools 負責除錯診斷（console/network）。
+- Browser 驗證：以目前 Host 可用的 Playwright / browser tooling 為主；沒有時走明確 fallback。
+- DB：DBHub 是選配方案，詳見 [dbhub.md](./dbhub.md)。
+- Windows / shell 差異：見 [windows.md](./windows.md)。
 
 ---
 
-## Windows 使用者
+## Portable Config
 
-CREW 完整支援 Windows，但有環境差異需注意。詳見 [windows.md](./windows.md)。
+CREW-owned config root：
+
+1. `CREW_CONFIG_HOME`
+2. `$XDG_CONFIG_HOME/crew`
+3. `~/.config/crew`
+
+Skill 透過 `plugins/*/scripts/crew-config.py` 存取 `bug/config`、`bug/learning`、`feature/config`、`feature/project`、`feature/stack`。Host marketplace、plugin cache、settings/rules 不屬此 contract。

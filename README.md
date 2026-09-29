@@ -70,7 +70,7 @@ CREW 需要 `project_instructions`，接受：
 /plan-setup
 ```
 
-CREW-owned config 不再由 README 指定某個 Host 目錄。所有 Skill 都透過 `crew-config.py` 與 logical key 存取。
+CREW-owned config 不再由 README 指定某個 Host 目錄。所有 Skill 都透過共享 `plugins/*/scripts/crew-config.py` 與 logical key 存取。
 
 Portable config root 優先序：
 
