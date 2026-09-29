@@ -1,14 +1,14 @@
 ---
 name: plan-verify
-description: 透過 Playwright MCP 操作瀏覽器逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
+description: 透過 browser/API/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
 argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 ---
 
-# plan-verify — 瀏覽器驗收驗證
+# plan-verify — 驗收條件驗證
 
-透過 **Playwright MCP** 操作瀏覽器，逐條驗證 `.spec/{slug}/plan.md`「驗收條件」節的 `AC-n`，產出 Health Score 與截圖。
+逐條驗證 `.spec/{slug}/plan.md`「驗收條件」節的 `AC-n`。UI 驗證依 Host Capability Contract 選擇 browser adapter（preferred: Playwright），也支援 API-only、E2E 與 local CDP fallback；產出 Health Score、evidence 與截圖。
 
-可選搭配 **chrome-devtools-mcp** 做 console log 和 network 除錯分析（`--deep` 模式）。
+`--deep` 可在 chrome-devtools capability 可用時追加 console / network 除錯分析。
 
 > **產物落點（三層，別搞混）**
 >
@@ -47,13 +47,15 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 
 ## 前置條件
 
-### Playwright MCP（必要，預設驗證工具）
+### Browser capability（UI 驗證時需要）
 
-> 安裝指令與說明：plugin 根目錄 `references/mcp-install.md`（相對 SKILL.md 為 `../../references/`）「Playwright MCP」段。
+Playwright 是 **preferred browser adapter**，不是 CREW workflow 的 Host-specific hard prerequisite。依 `../../references/host-capabilities.md` 使用 `tool_probe(tool_kind=browser)` 判斷目前 session 可用能力；Playwright 不可用時可退到 chrome-devtools 或 plugin 內建 local CDP adapter。
 
-### chrome-devtools-mcp（選配，--deep 模式除錯用）
+Host-specific 安裝方式與 fallback 見 `../../references/mcp-install.md`。不要在本 Skill 內硬編碼某一家 Host 的 MCP CLI。
 
-> 安裝指令與說明：plugin 根目錄 `references/mcp-install.md`（相對 SKILL.md 為 `../../references/`）「chrome-devtools-mcp」段。
+### chrome-devtools capability（選配，--deep 除錯增強）
+
+`--deep` 只有在 chrome-devtools capability 可呼叫時追加 console/network/performance 分析；不可用時只略過 deep enhancement，不影響標準 verify。
 
 ---
 
@@ -65,41 +67,50 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 
 ## 前置檢查流程
 
-執行前**依序檢查**，決定使用工具：
+執行前先解析 plugin root，再依模式決定 adapter：
 
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+[ -n "$CREW_PLUGIN_ROOT" ] || {
+  echo "無法解析 plugin root；請確認 Host adapter 提供 plugin_root capability"
+  exit 1
+}
 ```
-1. 依 `../../references/host-capabilities.md` 執行 `tool_probe(tool_kind=browser, preferred_names=[playwright])`
-   → 有 → 使用 Playwright MCP（預設）
-   → 沒有 → 繼續下一項檢查（chrome-devtools MCP 退回）
 
-2. 執行 `tool_probe(tool_kind=browser, preferred_names=[chrome-devtools])`
-   → 有 → 退回使用 chrome-devtools-mcp
-   → 沒有 → 提示安裝 Playwright MCP（推薦）
+1. `--api-only`
+   → 跳過 browser probe，只需 API/curl 能力。
 
-3. --deep 模式額外檢查 chrome-devtools-mcp 是否可用
-   → 可用 → 驗證後追加 console/network 分析
-   → 不可用 → 跳過 --deep 功能，僅提示
+2. 一般 UI verify
+   → `tool_probe(tool_kind=browser, preferred_names=[playwright])`
+   → 可用：使用 Playwright adapter。
 
-4. --api-only 模式跳過瀏覽器檢查，只需 curl 可用
+3. Playwright 不可用
+   → `tool_probe(tool_kind=browser, preferred_names=[chrome-devtools])`
+   → 可用：使用 chrome-devtools adapter。
+
+4. 兩種 browser tool 都不可用
+   → 檢查 `node --version` 是否 ≥ 22、`$CREW_PLUGIN_ROOT/scripts/cdp.mjs` 是否可讀，以及本機 Chrome 是否開啟 remote debugging。
+   → 條件成立：使用 local CDP adapter。
+   → 條件不成立：browser verification unavailable；依 `../../references/mcp-install.md` 顯示目前 Host 適用的安裝/整合指引，不要臆造另一家 Host CLI。
+
+   `--deep` 額外 probe chrome-devtools：有則追加 console/network/performance；沒有則略過 deep enhancement 並提示。
 
 5. Word 報告工具偵測（**僅 `--word` 時執行**；決定 report_engine，詳見 phases/word-report.md step 10.0c）
    → 檢查 dotnet --version 是否 ≥ 8.0
      → 有 → 檢查 MiniMaxAIDocx.Core.csproj 是否存在
-              （$MinimaxCorePath env var override 優先，否則 fallback
-               $HOME/.claude/plugins/marketplaces/minimax-skills/skills/minimax-docx/scripts/dotnet/MiniMaxAIDocx.Core/MiniMaxAIDocx.Core.csproj）
-       → 有 → report_engine = minimax-docx（verify-docx-cli，專業排版 + TOC + 結構驗證）
-       → 沒有 → report_engine = minimax-skills-missing（step 10.0c 詢問：安裝 / 設 env var / 改 python-docx / 跳過）
+              （$MinimaxCorePath env var override 優先；其他 Host-specific fallback 必須明確標成 adapter compatibility）
+       → 有 → report_engine = minimax-docx
+       → 沒有 → report_engine = minimax-skills-missing
      → 沒有 → 檢查 python3 -c "import docx" 是否成功
-       → 有 → report_engine = python-docx（基礎排版，已就緒）
-       → 沒有 → report_engine = python-docx-pending（需安裝）
+       → 有 → report_engine = python-docx
+       → 沒有 → report_engine = python-docx-pending
    此結果只在 `--word` 模式使用；主流程不偵測、不提示
-```
 
 偵測完成後顯示摘要：
 
 ```
-🔧 驗證工具：Playwright MCP
-🔍 除錯工具：chrome-devtools-mcp（--deep 可用）
+🔧 驗證工具：{Playwright / chrome-devtools / local CDP / API-only}
+🔍 除錯工具：{chrome-devtools（--deep 可用） / unavailable}
 {📄 報告工具：{minimax-docx / python-docx / python-docx（需安裝）} ← 僅 --word 模式顯示}
 ```
 
@@ -148,36 +159,34 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 
 ### 2.5 載入驗證記憶
 
-按以下順序載入驗證記憶，後者覆蓋前者：
+完整 storage / precedence / migration contract 見 `../../references/verify-memory.md`。
 
-1. **Layer 3 產品級記憶**（若『產品偵測』一節偵測到 product_id）
-   → 讀取 `products/{product_id}-memory.md`
+依序載入，後者覆蓋前者：
+
+1. **Layer 3 產品級記憶**
+   → `products/{product_id}-memory.md`
 2. **Layer 2 專案級記憶**
-   → 讀取專案 repo 的 `.claude/verify-memory.md`（若存在）
+   → canonical：專案 repo `.crew/verify-memory.md`
+   → legacy read fallback：只有 canonical 不存在時才讀 `.claude/verify-memory.md`
+   → **新寫入一律寫 canonical，不再寫 legacy path**
 3. **Layer 1 任務級記憶**
-   → 讀取 `.spec/{slug}/.cache/verify-memory.md`（若存在，如 --recheck 時；`.cache/` 為 gitignore 暫存）
+   → `.spec/{slug}/.cache/verify-memory.md`（gitignore 暫存）
 
 #### 時效性檢查（last_verified）
 
-每筆記憶條目應包含 `last_verified`（YYYY-MM-DD）欄位。載入時與當天日期比對：
+每筆記憶條目應包含 `last_verified`（YYYY-MM-DD）：
 
 | 距今 | 狀態 | 處理 |
 |------|------|------|
 | ≤ 30 天 | 🟢 新鮮 | 直接使用 |
-| 31-90 天 | 🟡 需確認 | 使用但標示，驗證過程中若仍有效則自動刷新 `last_verified` |
-| > 90 天 | 🔴 過期 | **不使用記憶值**，照走 Selector Fallback 6 級重新探索；若新探索結果與舊記憶一致再更新 |
-| 無欄位（舊格式） | 🟡 視為需確認 | 同 31-90 天規則處理 |
+| 31-90 天 | 🟡 需確認 | 使用但標示；仍有效時刷新日期 |
+| > 90 天 | 🔴 過期 | 不使用舊值，重新探索 |
+| 無欄位 | 🟡 需確認 | 同 31-90 天 |
 
-> 過時記憶比沒記憶更糟：UI 改版後舊 selector 可能仍存在但已被覆蓋為其他用途，照舊記憶會點錯目標。
-> 失效門檻預設 `30/90`（fresh/stale）；要調整就在指令中明說（例：`/plan-verify --manual` 時口頭指定），
-> 🔴 不要為此在 plan.md frontmatter 加欄位 —— frontmatter 只放身分與漂移兩類欄位。
-
-#### 合併為驗證 context
-
-- Selector 記憶 → 優先使用🟢/🟡「有效 Selector」，避免「無效 Selector」；🔴 過期條目跳過
-- 頁面操作記憶 → 注入到對應頁面的驗證計畫（🔴 過期跳過，重新探索）
-- 等待策略記憶 → 覆蓋預設等待時間（🔴 過期改用預設策略）
-- 踩坑紀錄 → 作為驗證計畫的提醒（不受時效影響，永遠保留作為 advisory）
+- Selector 記憶：優先有效 selector，過期值不採用。
+- 頁面操作/等待策略：可覆蓋預設策略，但過期需重新探索。
+- 踩坑紀錄：advisory，永久保留。
+- Shared memory 不得寫 Cookie、Token、密碼或一次性測試資料。
 
 ### 3. 建構驗證計畫
 
@@ -201,9 +210,9 @@ AI 分析每條驗收條件，將其分類並規劃驗證方式：
 
 > `$CDP` 是本文所有 Bash 範例對 plugin 內建 `scripts/cdp.mjs` 的別名，使用前需先設定：
 > ```bash
-> CDP="node {plugin_path}/scripts/cdp.mjs"
+> CDP="node ${CREW_PLUGIN_ROOT}/scripts/cdp.mjs"
 > ```
-> （`{plugin_path}` 為本 plugin 根目錄，通常是 `~/.claude/plugins/marketplaces/company-marketplace/plugins/feature-workflow`；需 Node.js 22+）
+> `CREW_PLUGIN_ROOT` 由 `plugin_root` capability 解析；不得猜 Host marketplace/cache path。需 Node.js 22+。
 
 | 類型 | 工具 | 範例 |
 |------|------|------|
@@ -312,7 +321,7 @@ verify-map.json 格式：
 - 每步驟後判斷是否值得記憶（見『記憶記錄判斷』一節）
 - **每驗完一條就寫進度**（中斷後可續跑，不必從頭再驗一遍）：
   ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
+  python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
     --skill plan-verify --done {已驗條數} --total {AC 總數} --label 條 \
     --remaining "{未驗的 AC 編號，逗號分隔}"
   ```
@@ -333,7 +342,7 @@ verify-map.json 格式：
 每筆寫入記憶**必須包含 `last_verified: YYYY-MM-DD` 欄位**（當天日期）。
 若覆寫既有條目（值改變），仍刷新 `last_verified`。
 
-暫存在 `.spec/{slug}/.cache/verify-memory.md`（Layer 1，gitignore）。欄位格式見本文件『2.5 載入驗證記憶』（`last_verified` 時效性欄位）與『5.5 記憶記錄判斷』（各觸發條件對應的記錄內容），無獨立 schema 文件。跨任務資產請走『記憶升級判斷』一節升級到專案 `.claude/verify-memory.md`（Layer 2）—— `.cache/` 隨時會被清掉。
+暫存在 `.spec/{slug}/.cache/verify-memory.md`（Layer 1，gitignore）。欄位格式見本文件『2.5 載入驗證記憶』（`last_verified` 時效性欄位）與『5.5 記憶記錄判斷』（各觸發條件對應的記錄內容），無獨立 schema 文件。跨任務資產請走『記憶升級判斷』一節升級到 canonical `.crew/verify-memory.md`（Layer 2）—— `.cache/` 隨時會被清掉。
 
 ### 6. 收集截圖與 Evidence
 
@@ -385,14 +394,14 @@ mkdir -p .spec/{slug}/.cache
 **8b. 寫回 state.json（唯一狀態權威）**
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" result --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" result --slug {slug} \
   --kind verify --status {PASS|WARN|FAIL} \
   --set health_score={分數} --set passed={N} --set failed={N} --set skipped={N} \
   --set manual={N} --set mode={full|api-only|manual|recheck|e2e}
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} --clear
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} --clear
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
   --step verify --status done --phase verify
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase verify
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase verify
 ```
 
 `results.verify` 取代舊流程「解析 verify.md 文字」的做法 —— 下游（`/plan-review`、`/plan-next`、`/plan-close`）一律讀這裡。
@@ -422,31 +431,25 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --e
   • /plan-verify --recheck — 重新驗證失敗項目
   • /plan-verify --word    — 產 Word 驗收報告（可選，讀 .cache/）
   • /plan-review          — 多角色程式碼審查
-  • review 完成後由使用者做 UAT 決策；UAT 通過後，/plan-next 才會建議 /plan-close
+  • review 完成後執行 /plan-close；Human UAT 在 /plan-close 內取得，verify PASS 不等於 UAT approved
 ```
 
 ### 9.5 記憶升級判斷
 
-驗證完成後，檢查 `.spec/{slug}/.cache/verify-memory.md`（Layer 1）是否有新記錄：
+驗證完成後，檢查 Layer 1 `.spec/{slug}/.cache/verify-memory.md` 是否有新記錄：
 
-1. 有新記錄 → 提問使用者：
-   ```
-   本次發現 {N} 個新操作模式：
-     • {selector 記憶數} 個 Selector 記錄
-     • {recipe 數} 個特殊操作 Recipe
-     • {等待策略數} 個等待策略調整
-     • {刷新數} 個既有記憶刷新 last_verified
-   
-   要升級到專案記憶嗎？[Y/n]
-   ```
-2. 使用者選 YES → 合併到專案 repo 的 `.claude/verify-memory.md`（Layer 2）
-   - 升級時**保留原始 `last_verified`**（已刷新的條目帶今日日期，未變動的保留舊日期）
-   - Layer 2 寫入時，frontmatter 的 `last_updated` 同步刷新為今日
-3. 使用者選 NO → 保留在 Layer 1，不升級
+1. 有新記錄 → 詢問是否升級到專案記憶。
+2. 使用者選 YES：
+   - canonical destination 一律是 `.crew/verify-memory.md`。
+   - 若 canonical 不存在但 legacy `.claude/verify-memory.md` 存在，可讀 legacy 作 merge baseline；完成後寫 canonical，legacy 保持原樣。
+   - 建立 `.crew/` 時只建立必要目錄/檔案，不修改 Host 設定。
+   - 保留原始 `last_verified`；有重新驗證的條目刷新為今日。
+   - frontmatter `last_updated` 更新為今日。
+3. 使用者選 NO → 只保留 Layer 1 暫存，不升級。
 
 升級標準：
-- ✅ 升級：頁面通用操作、全站共用 Selector、專案統一 API 格式
-- ❌ 不升級：一次性操作、測試資料相關、Bug workaround
+- ✅ 頁面通用操作、全站 selector、專案統一 API 格式。
+- ❌ 一次性操作、測試資料、Bug workaround、任何 secret。
 
 ### 測試骨架產出（Phase 3，可選）
 
@@ -538,7 +541,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 - **`.cache/` 會消失，別把它當事實來源**：它在 `.gitignore` 內、清 build 或換機器就沒了。要保留的結論只有兩處：plan.md 的摘要一行與 `state.json` 的 `results.verify`。Word／Excel 報告要留就自己搬出 `build/`。
 - **驗證結果不回寫 plan.md 的 checkbox**：`- [ ] AC-n` 的勾選狀態屬規格（spec pass 的 owner），不是驗證結果。驗證通過與否看 `state.json` 的 `results.verify` 與摘要行；勾 checkbox 會讓兩套語意打架。
 - **產品知識庫的 i18n 對照表可能不完整**：`products/{id}.md` 只列出高頻操作的翻譯。若驗證時遇到未列出的文字，退回穩定 selector 策略。
-- **Layer 2 記憶需 git push 才能共享**：專案的 `.claude/verify-memory.md` 需要使用者自行 commit 和 push，plugin 不會自動操作 git。
+- **Layer 2 記憶需 git push 才能共享**：canonical `.crew/verify-memory.md` 需要使用者自行 commit / push；plugin 不會自動操作 git。legacy `.claude/verify-memory.md` 只讀不寫。
 
 > Word/Excel 報告相關 Gotchas（雙引擎切換、python-docx 臨時安裝、截圖嵌入、封面資訊快取、Evidence 遮蔽、回應截斷判斷、多次 API evidence、Excel 需 Node.js）：見 `phases/word-report.md`「Gotchas（報告相關）」段。
 
@@ -547,7 +550,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 ## 邊界情況
 
 - **plan.md「驗收條件」節為空**：提示先執行 `/plan spec`，或請使用者當場口述（並在回報標「本次條件未進 plan.md」）
-- **Playwright MCP 未安裝**：提示安裝指令（`claude mcp add playwright --scope user -- npx @playwright/mcp@latest`）
+- **preferred Playwright adapter 不可用**：先嘗試 chrome-devtools / local CDP fallback；仍不可用時依 `../../references/mcp-install.md` 顯示目前 Host 的整合指引，不在本 Skill 硬編碼 Claude-only 指令
 - **Playwright 操作失敗**（如 selector 不存在）：標記該條為 FAIL，記錄錯誤訊息，繼續下一條
 - **evidence 檔案寫入失敗**（磁碟空間不足等）：記錄警告，`.cache/verify.md` 中標註 `evidence_error: {原因}`，不阻斷驗證流程
 - **--api-only 跳過 UI**：UI 類型標記為 SKIP，不影響其他驗證

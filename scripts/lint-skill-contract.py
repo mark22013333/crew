@@ -45,6 +45,29 @@ CREW_UPGRADE_FORBIDDEN = (
     "~/.codex/plugins/",
 )
 
+PLAN_VERIFY = REPO / "plugins" / "feature-workflow" / "skills" / "plan-verify" / "SKILL.md"
+PLAN_VERIFY_WORD_REPORT = PLAN_VERIFY.parent / "phases" / "word-report.md"
+PLAN_VERIFY_MEMORY = REPO / "plugins" / "feature-workflow" / "references" / "verify-memory.md"
+PLAN_VERIFY_MCP = REPO / "plugins" / "feature-workflow" / "references" / "mcp-install.md"
+PLAN_VERIFY_PRODUCT_MEMORY = REPO / "plugins" / "feature-workflow" / "products" / "smartrobot-memory.md"
+
+PLAN_VERIFY_REQUIRED = (
+    "CREW_PLUGIN_ROOT",
+    "tool_probe(tool_kind=browser",
+    ".crew/verify-memory.md",
+    "../../references/verify-memory.md",
+    "Human UAT 在 /plan-close 內取得",
+    "local CDP",
+)
+PLAN_VERIFY_FORBIDDEN = (
+    'python3 "${CLAUDE_PLUGIN_ROOT}/',
+    "~/.claude/plugins/marketplaces/company-marketplace/plugins/feature-workflow",
+    "{plugin_path}",
+    "review 完成後由使用者做 UAT 決策",
+    "Playwright MCP（必要",
+    "claude mcp add playwright",
+)
+
 
 def parse_frontmatter(text: str) -> dict | None:
     m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
@@ -131,6 +154,69 @@ def check_crew_upgrade_contract() -> list[str]:
     return errors
 
 
+def check_plan_verify_contract() -> list[str]:
+    errors: list[str] = []
+
+    required_files = (
+        PLAN_VERIFY,
+        PLAN_VERIFY_WORD_REPORT,
+        PLAN_VERIFY_MEMORY,
+        PLAN_VERIFY_MCP,
+        PLAN_VERIFY_PRODUCT_MEMORY,
+    )
+    for path in required_files:
+        if not path.is_file():
+            errors.append(f"{path.relative_to(REPO)} 不存在")
+    if errors:
+        return errors
+
+    skill = PLAN_VERIFY.read_text(encoding="utf-8")
+    rel = PLAN_VERIFY.relative_to(REPO)
+    for marker in PLAN_VERIFY_REQUIRED:
+        if marker not in skill:
+            errors.append(f"{rel} 缺 plan-verify convergence marker：{marker}")
+    for marker in PLAN_VERIFY_FORBIDDEN:
+        if marker in skill:
+            errors.append(f"{rel} 重新引入 plan-verify Host/UAT drift：{marker}")
+
+    report = PLAN_VERIFY_WORD_REPORT.read_text(encoding="utf-8")
+    report_rel = PLAN_VERIFY_WORD_REPORT.relative_to(REPO)
+    for marker in ("CREW_PLUGIN_ROOT", '"$CREW_PLUGIN_ROOT/references/verify-docx-generator.py"', '"$CREW_PLUGIN_ROOT/references/verify-excel-generator.js"'):
+        if marker not in report:
+            errors.append(f"{report_rel} 缺 portable plugin-root marker：{marker}")
+    for marker in (
+        "~/.claude/plugins/marketplaces/company-marketplace/plugins/feature-workflow",
+        "{plugin_path}/references/",
+    ):
+        if marker in report:
+            errors.append(f"{report_rel} 仍硬編碼 CREW 自身 Host path：{marker}")
+
+    memory = PLAN_VERIFY_MEMORY.read_text(encoding="utf-8")
+    memory_rel = PLAN_VERIFY_MEMORY.relative_to(REPO)
+    for marker in (
+        ".crew/verify-memory.md",
+        ".claude/verify-memory.md",
+        "新寫入永遠寫 `.crew/verify-memory.md`",
+        "state.json.results.verify",
+    ):
+        if marker not in memory:
+            errors.append(f"{memory_rel} 缺 verify-memory contract marker：{marker}")
+
+    mcp = PLAN_VERIFY_MCP.read_text(encoding="utf-8")
+    mcp_rel = PLAN_VERIFY_MCP.relative_to(REPO)
+    for marker in ("tool_probe", "Codex / 其他 Host", "Local CDP fallback", "CREW_PLUGIN_ROOT"):
+        if marker not in mcp:
+            errors.append(f"{mcp_rel} 缺 browser adapter marker：{marker}")
+    if "codex mcp add" in mcp:
+        errors.append(f"{mcp_rel} 不得臆造固定 Codex MCP CLI")
+
+    product_memory = PLAN_VERIFY_PRODUCT_MEMORY.read_text(encoding="utf-8")
+    if ".crew/verify-memory.md" not in product_memory:
+        errors.append(f"{PLAN_VERIFY_PRODUCT_MEMORY.relative_to(REPO)} 未指向 canonical Layer 2 memory")
+
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     checked = 0
@@ -150,6 +236,7 @@ def main() -> int:
         errors.extend(check_internal_links(text, skill_md))
 
     errors.extend(check_crew_upgrade_contract())
+    errors.extend(check_plan_verify_contract())
 
     for e in errors:
         print(f"❌ {e}")

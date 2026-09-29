@@ -3,6 +3,18 @@
 本檔由 [`../SKILL.md`](../SKILL.md)「可選指令：Word／Excel 驗收報告」段引用。
 **不在 `/plan-verify` 主流程**，只有使用者明確下 `--word` / `--excel` 才執行。
 
+呼叫 CREW 內建 generator / CLI 前先依 Host Capability Contract 解析：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+[ -n "$CREW_PLUGIN_ROOT" ] || {
+  echo "無法解析 plugin root"
+  exit 1
+}
+```
+
+不得猜 Claude/Codex marketplace cache 路徑。
+
 - **輸入**：`.spec/{slug}/.cache/verify.md`（`/plan-verify` 留下的一次性暫存，本階段唯一資料來源，不重跑驗證）
 - **輸出**：`build/{功能}-驗收報告.docx` / `.xlsx`（專案根目錄 `build/`，🔴 不寫進 `.spec/`）
 
@@ -30,8 +42,13 @@ elif [ "$(dotnet --version | cut -d. -f1)" -lt 8 ]; then
   report_engine="python-docx-pending"
 else
   # 偵測 minimax-skills Core（verify-docx-cli 透過 ProjectReference 共用其 OpenXML helper）
-  CORE_PATH="${MinimaxCorePath:-$HOME/.claude/plugins/marketplaces/minimax-skills/skills/minimax-docx/scripts/dotnet/MiniMaxAIDocx.Core/MiniMaxAIDocx.Core.csproj}"
-  if [ ! -f "$CORE_PATH" ]; then
+  # MinimaxCorePath 是 portable override；若未設定，可沿用 Claude adapter 的既有相容 fallback。
+  LEGACY_MINIMAX_CORE="$HOME/.claude/plugins/marketplaces/minimax-skills/skills/minimax-docx/scripts/dotnet/MiniMaxAIDocx.Core/MiniMaxAIDocx.Core.csproj"
+  CORE_PATH="${MinimaxCorePath:-}"
+  if [ -z "$CORE_PATH" ] && [ -f "$LEGACY_MINIMAX_CORE" ]; then
+    CORE_PATH="$LEGACY_MINIMAX_CORE"
+  fi
+  if [ -z "$CORE_PATH" ] || [ ! -f "$CORE_PATH" ]; then
     report_engine="minimax-skills-missing"
   else
     report_engine="minimax-docx"
@@ -42,7 +59,7 @@ fi
 依偵測結果分流：
 
 - `report_engine = minimax-docx`：進入 10.0a 選風格，產出走 **10.4a**（verify-docx-cli）。
-- `report_engine = minimax-skills-missing`：dotnet 就緒但缺 minimax-skills Core，用 `AskUserQuestion` 詢問：
+- `report_engine = minimax-skills-missing`：dotnet 就緒但缺 minimax-skills Core，依 `ask_user` capability 詢問：
 
   | 選項 | 動作 |
   |-----|------|
@@ -55,7 +72,7 @@ fi
 
 #### 10.0a 選擇報告風格
 
-使用 `AskUserQuestion` 讓使用者選擇風格：
+使用 `ask_user` capability 讓使用者選擇風格：
 
 **問題**：「請選擇驗收報告風格」
 
@@ -333,15 +350,12 @@ AI 依以下七段式結構組裝 Markdown 報告內容（作為報告產出引�
 呼叫 plugin 內建的 verify-docx-cli .NET 子專案（它透過 ProjectReference 共用 minimax-docx Core 的 OpenXML helper）：
 
 ```bash
-# 1. 解析 plugin 路徑
-PLUGIN_DIR="$HOME/.claude/plugins/marketplaces/company-marketplace/plugins/feature-workflow"
-CLI_DIR="$PLUGIN_DIR/references/dotnet/verify-docx-cli"
+# 1. 由 plugin_root capability 取得本 plugin 路徑
+CLI_DIR="$CREW_PLUGIN_ROOT/references/dotnet/verify-docx-cli"
 
-# 2. 解析 Logo（三層偵測，CLI 內部也會做一次；swiss 風格可省略 --logo）
+# 2. 解析 Logo；使用者明確覆寫優先，否則使用 plugin 內建 asset
 if [ -n "$USER_LOGO" ]; then
   LOGO="$USER_LOGO"
-elif [ -f "$HOME/.claude/feature-workflow/assets/intumit-logo.png" ]; then
-  LOGO="$HOME/.claude/feature-workflow/assets/intumit-logo.png"
 else
   LOGO="$CLI_DIR/assets/intumit-logo.png"
 fi
@@ -383,7 +397,7 @@ fi
 
 # 產出 Word 報告
 PYTHONPATH=/tmp/crew-docx-env:$PYTHONPATH python3 \
-  {plugin_path}/references/verify-docx-generator.py \
+  "$CREW_PLUGIN_ROOT/references/verify-docx-generator.py" \
   --verify .spec/{slug}/.cache/verify.md \
   --screenshots .spec/{slug}/screenshots/ \
   --evidence .spec/{slug}/evidence/ \
@@ -444,7 +458,7 @@ NPM_TMP=$(mktemp -d)
 npm install --prefix "$NPM_TMP" exceljs --no-save --silent
 
 # 產出 Excel 報告（透過 NODE_PATH 注入臨時安裝的 exceljs）
-NODE_PATH="$NPM_TMP/node_modules" node {plugin_path}/references/verify-excel-generator.js \
+NODE_PATH="$NPM_TMP/node_modules" node "$CREW_PLUGIN_ROOT/references/verify-excel-generator.js" \
   --verify .spec/{slug}/.cache/verify.md \
   --screenshots .spec/{slug}/screenshots/ \
   --evidence .spec/{slug}/evidence/ \
