@@ -43,7 +43,7 @@ drift_policy: off
 - [x] AC-29 剩餘 provider-specific model callsites（plan/plan-build/plan-review/bug-investigate/bug-fix）完成 profile routing 遷移，不再靠 legacy sonnet/opus 名稱。
 - [x] AC-30 Host-management/setup portability 收斂：將設定路徑與 plugin CLI 類 advisory 分離成 portable config contract / host-specific 管理 adapter；核心 workflow 維持 hard=0。
 - [x] AC-31 v1 legacy retirement 具明確移除條件與版本/日期，不在條件未滿足前刪相容層。
-- [ ] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source。（結構與官方格式已完成；仍需在有 Codex CLI 的環境做一次實際 marketplace add smoke test）
+- [x] AC-1 repo 存在 .agents/plugins/marketplace.json，Codex 可把 mark22013333/crew 當 marketplace source；已以真實 Codex CLI 完成 marketplace add + 兩個 plugin install smoke。
 - [x] AC-2 plugins/feature-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-3 plugins/bug-workflow/plugin.json 符合 Agent Plugins portable manifest 最小格式。
 - [x] AC-4 portable manifest version 與 Claude manifest、Claude marketplace、plugin README 版本一致。
@@ -106,6 +106,7 @@ drift_policy: off
 - D-59 [convergence] `/plan-setup` 主設定層改為 resolver-owned storage：既有 Feature config 由 `feature/config --mode read` 定位，主設定新建／重新設定一律寫 `feature/config --mode write` canonical path；Bug 共用 Notion metadata 由 `bug/config --mode read` 取得。`stacks/_builtin.md` / projects bundle 本批只維持既有相對建立語意，不新增 resolver key。
 - D-60 [convergence] AC-30 closure criteria 以「CREW-owned config violation=0 + Host portability hard=0 + deterministic resolver smoke 全綠」為準，不要求 advisory=0。剩餘 `CLAUDE_PLUGIN_CLI` / `CLAUDE_CONFIG_PATH`（marketplace、plugin install、`settings.json`、Host rules）屬 host-management adapter；`CLAUDE_MD` 屬 `project_instructions` alias，不再視為 AC-30 未完成。
 - D-61 [convergence] v1 retirement eligibility 固定為：起點 `feature-workflow@5.0.0 / 2026-07-28`；第一個 `5.1.0+` 發布或 `2026-10-26`（90 天）以先到者為 removal gate。Gate 未達前 `legacy-v1.md`、`plan-status --migrate`、crew-doctor v1 偵測必須存在；gate 達成只解除「不得刪」限制，不會自動 cleanup。
+- D-62 [convergence] AC-1 的驗收證據必須是真實 Codex CLI，而非 manifest/lint 推論。Codex CLI 0.158.0 的安裝命令為 `codex plugin add PLUGIN@MARKETPLACE`；`codex plugin marketplace add` 成功解析 CREW repo marketplace 後，`bug-workflow@crew` 與 `feature-workflow@crew` 均實際安裝並由 `codex plugin list` 回報 installed, enabled。
 - D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
@@ -408,3 +409,9 @@ drift_policy: off
 - [2026-09-29] [convergence-30] Functional commit `a9ed9dc`；GitHub Actions run 36514170638（#155）15/15 success。State-writer gate 實際輸出：`feature-workflow=5.0.2, check_date=2026-09-29, gate=version>=5.1.0 OR date>=2026-10-26, eligible=false`，且 compatibility presence guard success。
 - [2026-09-29] [convergence-30] Host portability 維持 `hard=0 / advisory=62`；AC-31 已勾選完成。v1 相容層目前仍完整存在，沒有提前退休。
 - [2026-09-29] [next] 剩餘唯一未完成驗收條件為 AC-1。下一小批只做「真實 Codex CLI marketplace add/install smoke」：先確認執行環境真的有可用 Codex CLI，依執行當下官方 CLI 語法把 `mark22013333/crew` 當 marketplace source，驗證可發現並安裝 portable plugin，記錄 Codex CLI version、實際命令、stdout/stderr 與結果。若環境沒有 Codex CLI 或 marketplace 功能不可用，明確記為未完成，絕不以 manifest/lint 代替真機 smoke；不要同批進 Phase 4、修改已完成 AC-30/31、mark ready 或 merge PR。
+
+- [2026-09-29] [convergence-31] AC-1 真實 Codex CLI smoke 已完成。原工作容器無 `codex` 且外部 DNS 受限，因此改用一次性 GitHub-hosted runner，不以靜態 manifest/lint 代替真機驗證。
+- [2026-09-29] [convergence-31] 探索 run 36514738619（#157）安裝 `codex-cli 0.158.0`，成功執行 `codex plugin marketplace add mark22013333/crew --ref feature/crew-6-portable-plugin`；Codex 回報 marketplace `crew` 已加入，snapshot 解析出 `bug-workflow` / `feature-workflow`。同 run 的 `codex plugin --help` 確認真實安裝子命令是 `plugin add`，不是 `plugin install`。
+- [2026-09-29] [convergence-31] 安裝 run 36514828460（#158）16/16 success；實跑 `codex plugin add bug-workflow@crew` 與 `codex plugin add feature-workflow@crew` 均成功。`codex plugin list` 回報 `bug-workflow@crew installed, enabled 4.0.1`、`feature-workflow@crew installed, enabled 5.0.2`；實體 cache 亦存在兩份 portable `plugin.json`。
+- [2026-09-29] [convergence-31] AC-1 已勾選；至此 AC-1～AC-31 全部完成。一次性 `Codex marketplace smoke (temporary)` CI job 已在本 checkpoint 移除，避免把網路型 smoke 永久加入既有 deterministic lint pipeline。
+- [2026-09-29] [next] 不再自動新增 implementation scope。Phase 4 Runtime/MCP 仍維持 D-21 的 deferred 決策；PR #17 保持 draft/open/unmerged。下一步應先做最終 PR evidence review，再由使用者明確決定是否 mark ready 或 merge；未收到明確指示前不得執行這兩個動作。
