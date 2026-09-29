@@ -22,7 +22,7 @@ description: 更新 CREW plugins（bug-workflow + feature-workflow）並驗證�
 ## 不變量
 
 1. **不得**讀寫 Host 私有 plugin registry/cache。
-2. **不得**使用已退休的 `.claude-company` 路徑。
+2. **不得**使用已退休的 legacy company-home path。
 3. 不因為某個 CLI binary 恰好存在就猜目前 Host；以目前 session/adapter context 判定。若 Host 身分不可靠，先詢問「Claude Code / Codex」。
 4. 只更新目前已安裝的 CREW plugin；未安裝的 plugin 不自動加裝。
 5. 更新後提醒使用者開新 session，因目前 session 可能仍載入舊 Skill。
