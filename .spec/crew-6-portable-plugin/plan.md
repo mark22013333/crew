@@ -107,6 +107,7 @@ drift_policy: off
 - D-60 [convergence] AC-30 closure criteria 以「CREW-owned config violation=0 + Host portability hard=0 + deterministic resolver smoke 全綠」為準，不要求 advisory=0。剩餘 `CLAUDE_PLUGIN_CLI` / `CLAUDE_CONFIG_PATH`（marketplace、plugin install、`settings.json`、Host rules）屬 host-management adapter；`CLAUDE_MD` 屬 `project_instructions` alias，不再視為 AC-30 未完成。
 - D-61 [convergence] v1 retirement eligibility 固定為：起點 `feature-workflow@5.0.0 / 2026-07-28`；第一個 `5.1.0+` 發布或 `2026-10-26`（90 天）以先到者為 removal gate。Gate 未達前 `legacy-v1.md`、`plan-status --migrate`、crew-doctor v1 偵測必須存在；gate 達成只解除「不得刪」限制，不會自動 cleanup。
 - D-62 [convergence] AC-1 的驗收證據必須是真實 Codex CLI，而非 manifest/lint 推論。Codex CLI 0.158.0 的安裝命令為 `codex plugin add PLUGIN@MARKETPLACE`；`codex plugin marketplace add` 成功解析 CREW repo marketplace 後，`bug-workflow@crew` 與 `feature-workflow@crew` 均實際安裝並由 `codex plugin list` 回報 installed, enabled。
+- D-63 [convergence] 最終 PR evidence review 只判定「是否具備交付證據」，不自動改變 PR lifecycle。當 AC 31/31、最終 deterministic CI 全綠、branch behind=0、GitHub mergeable=true、且 review/comment/thread 無未處理項時，可視為技術證據齊備；mark ready / merge 仍需 Human 明確決策。
 - D-48 [convergence] `/plan-close` 的 Bug config read 已改為 `bug/config --mode read` logical key；Feature 結案照既有 feature 設定流程，Bug 類型額外讀 `bug/config`，但 Skill 不再知道 `bug-workflow-config.md` 的 Host 實體位置。
 - D-1 [spec] 範圍判斷：TASK_TYPE=refactor、CHANGE_SCOPE=full、FRONTEND_REQUIRED=false（FRONTEND_TECH=無）、DB_REQUIRED=false（DB_TABLES=無）、NEW_API=false、EXISTING_API_CHANGE=false｜理由：本次為工具鏈與封裝層演進。
 - D-2 [spec] 不另建 crew-codex repo｜理由：避免 Skill/reference/scripts 雙份維護與漂移｜否決：Claude/Codex 各一套 repo（維護成本過高）。
@@ -415,3 +416,9 @@ drift_policy: off
 - [2026-09-29] [convergence-31] 安裝 run 36514828460（#158）16/16 success；實跑 `codex plugin add bug-workflow@crew` 與 `codex plugin add feature-workflow@crew` 均成功。`codex plugin list` 回報 `bug-workflow@crew installed, enabled 4.0.1`、`feature-workflow@crew installed, enabled 5.0.2`；實體 cache 亦存在兩份 portable `plugin.json`。
 - [2026-09-29] [convergence-31] AC-1 已勾選；至此 AC-1～AC-31 全部完成。一次性 `Codex marketplace smoke (temporary)` CI job 已在本 checkpoint 移除，避免把網路型 smoke 永久加入既有 deterministic lint pipeline。
 - [2026-09-29] [next] 不再自動新增 implementation scope。Phase 4 Runtime/MCP 仍維持 D-21 的 deferred 決策；PR #17 保持 draft/open/unmerged。下一步應先做最終 PR evidence review，再由使用者明確決定是否 mark ready 或 merge；未收到明確指示前不得執行這兩個動作。
+
+- [2026-09-29] [convergence-32] 最終 PR evidence review 完成：PR #17 HEAD `274cc86`、open/draft/unmerged、GitHub `mergeable=true`；相對最新 `main` 為 ahead=173 / behind=0，merge base 與 main HEAD 皆為 `2d8acc5`。
+- [2026-09-29] [convergence-32] PR 變更統計為 74 files、+6260/-764；分類集中 portable packaging=3、CI=1、plan/evidence=1、docs=2、references=26、plugin scripts=6、bug skills=9、feature skills=15、repo lint/scripts=11，與 CREW 6 portable/convergence scope 一致，未發現額外 scope drift。
+- [2026-09-29] [convergence-32] Review surface 檢查：PR discussion comments=0、submitted reviews=0、inline review threads=0，因此沒有待處理 review/thread。最終 branch CI #159 15/15 success；Host portability `hard=0 / advisory=62`；plan AC 31/31、unchecked=0。
+- [2026-09-29] [convergence-32] PR body 原先仍停在 Phase 1 並聲稱 Codex smoke 未做，與目前 HEAD 實況不符；final review 已更新 PR body，改為完整列出 Phase 2/3/convergence、AC 31/31、Codex CLI #158 add/install smoke、#159 最終 CI 與 deferred Phase 4。PR 仍保持 draft。
+- [2026-09-29] [next] 技術 evidence 已齊備，沒有新的 implementation scope。等待 Human 明確決策：若要進入正式 review，才 mark ready；若要合併，必須另有明確 merge 指示。未收到指示前保持 draft/open/unmerged，Phase 4 繼續 deferred。
