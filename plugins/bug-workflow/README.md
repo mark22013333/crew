@@ -1,283 +1,165 @@
 # Bug Workflow Plugin `v4.0.1`
 
-整合 Notion 與 Claude Code，自動化 Bug 生命週期管理。
-
-## 功能
-
-| 指令 | 說明 |
-|------|------|
-| `/bug-setup` | 首次設定引導，自動偵測 Notion 資料庫並產出設定檔 |
-| `/bug-start <問題簡述>` | 在 Notion 建立 Bug 條目，自動關聯來源 Feature + 偵測 Feature Branch |
-| `/bug-investigate` | 假說驅動根因調查 — 證據收集、模式比對、假說驗證、3-Strike 升級 |
-| `/bug-fix` | 修復紀律 — 分支檢查 + 鐵律檢查 + 迴歸測試 + merge 引導 |
-| `/bug-update <內容>` | 調查過程中更新 Bug 頁面（Log、SQL、判斷等） |
-| `/bug-update reopen <Bug>` | 重新開啟已結案的 Bug（復發處理） |
-| `/bug-close` | 結案前引導 merge 回 DEV + 從 Git diff 擷取修復細節 + 同步知識庫 |
-| `/project-add` | **偵測專案架構**（簡單型/產品型）→ Notion 註冊 → 可選安裝 DB MCP |
-| `/crew-doctor` | CREW 環境健診 — 20 項依賴與設定檢查（含 CREW hooks 與 v1 舊任務偵測），含 `--quick` / `--fix` 模式 |
-| `/crew-init` | CREW 一鍵首次設定 — 統合 /bug-setup + /plan-setup + 提示 /init 與 /project-add，含 `--resume` |
-| `/crew-upgrade` | 一次更新 bug-workflow + feature-workflow，顯示 CHANGELOG 摘要 |
-
-## 前置條件
-
-1. **Node.js ≥ 18** — 所有 MCP Server 的執行環境
-   - macOS：`brew install node` 或 [nodejs.org](https://nodejs.org/)
-   - Windows：[nodejs.org](https://nodejs.org/) 下載 LTS 版（安裝時勾選 Add to PATH）
-   - Linux：`sudo apt install nodejs npm`
-
-2. **Notion Plugin** — 需先安裝 Notion MCP Server
-   ```bash
-   claude plugin install notion
-   ```
-
-3. **Notion Workspace** — 需有以下資料庫（或由 `/bug-setup` 引導建立）：
-   - **任務追蹤工具**：Bug 生命週期管理（主要資料庫）
-   - **Bug 知識庫**（選用）：精簡索引，結案時自動同步
-   - **專案資料庫**：管理專案對應
-
-4. **Notion 權限** — Claude Code 需授權以下 Notion 工具：
-   - `notion-search`、`notion-fetch`（搜尋與讀取）
-   - `notion-create-pages`（建立 Bug 條目）
-   - `notion-update-page`（更新頁面內容與屬性）
-   - `notion-update-data-source`（新增欄位，僅 setup 時使用）
-
-> **Windows 使用者**：詳細的 Windows 環境設定指南請見[根目錄 README](../../README.md#windows-使用者指南)。`/bug-setup` 會自動偵測作業系統並顯示對應的安裝指令。
+跨 Host 的 Bug lifecycle：建立狀態、蒐集證據、驗證根因、修復、回歸測試，最後由 Human UAT 決定是否結案。核心流程依賴 CREW Host Capability Contract，而不是某一家的 agent/team 工具。
 
 ## 安裝
 
+### Claude Code
+
 ```bash
-claude plugin marketplace add mark22013333/crew && \
+claude plugin marketplace add mark22013333/crew
 claude plugin install bug-workflow
 ```
 
-安裝後 Plugin 會自動啟用。若未自動啟用，手動執行：`claude plugin enable bug-workflow`
-
-### SessionStart hook（自動執行揭露）
-
-本 plugin 安裝一個 **SessionStart hook**。每次開啟 session（新開、`--resume`、`/clear`）時，
-Claude Code 會在**你的本機**執行 `python3 scripts/crew-state.py session-brief`：
-
-- **讀取範圍**：只讀**當前專案**目錄下的 `.spec/*/state.json`（CREW 自己產生的流程狀態檔）
-- **不外送任何資料**：純本機 Python 標準函式庫，零網路呼叫
-- **不寫專案檔案**：只在系統暫存目錄寫一個 session marker，避免與 feature-workflow 的同名 hook 重複輸出
-- **輸出**：未結案任務清單（最多 3 行）＋ 對應的 `/plan-next {slug}` 指令
-- **無 `.spec/` 或全部結案時零輸出**（exit 0，不佔 token）
-- **不阻擋**：任何錯誤都靜默 exit 0，內建 1 秒總體時限（讀 stdin 上限 0.2 秒），實測典型耗時約 80ms
-
-要關掉：`claude plugin disable bug-workflow`（連 Skill 一起關），或刪除已安裝目錄下的
-`hooks/hooks.json` 後重啟 Claude Code（只關 hook、保留 Skill）。hook 變更需**重啟**才生效。
-
-完整說明見[根 README 的 SessionStart hook 段](../../README.md#sessionstart-hook自動執行揭露)。
-
-### 更新
+### Codex
 
 ```bash
-claude plugin update bug-workflow@company-marketplace
+codex plugin marketplace add mark22013333/crew
+codex plugin add bug-workflow@crew
 ```
 
-更新完成後**重啟 Claude Code** 使新版生效。
+首次使用可執行 `/bug-setup`，或由 `/crew-init` 統一引導。
 
-> 若 `update` 顯示已是最新但功能未生效，可先移除再重裝：
-> ```bash
-> claude plugin uninstall bug-workflow@company-marketplace && \
-> claude plugin install bug-workflow@company-marketplace
-> ```
+---
 
-## 首次設定
-
-安裝後執行 `/bug-setup`，自動完成：
-1. 選擇設定檔儲存位置（公司環境或個人環境）
-2. 偵測 Notion Workspace 中的資料庫
-3. 驗證並補齊必要欄位（狀態、根因分類、修復分支、相關任務等）
-4. 設定當前專案目錄與 Notion 專案的對應
-5. 產出設定檔
-
-## 工作流程
+## 核心流程
 
 ```mermaid
-flowchart TD
-    discover["發現 Bug"]
-    investigate["/bug-investigate<br/><i>自動建立條目 + 假說驅動根因調查</i>"]
-    clarify{"需要釐清？"}
-    clarifyStep["列出釐清問題<br/><i>使用者回答後建議指令</i>"]
-    fix["/bug-fix<br/><i>修復 + 鐵律檢查 + 迴歸測試</i>"]
-    close["/bug-close<br/><i>merge 引導 + 結案 + 知識庫</i>"]
-    reopen{上線後復發？}
-    reopenCmd["/bug-update reopen<br/><i>重新開啟</i>"]
-    startOpt["/bug-start<br/><i>僅建立條目（可選）</i>"]
-
-    discover --> investigate
-    investigate --> clarify
-    clarify -- "是" --> clarifyStep --> fix
-    clarify -- "否" --> fix
-    fix --> close --> reopen
-    reopen -- "是" --> reopenCmd --> investigate
-    reopen -- "否" --> done(["完成"])
-
-    discover -. "只想先建條目" .-> startOpt .-> investigate
-
-    style discover fill:#fee,stroke:#f66
-    style done fill:#efe,stroke:#6c6
-    style investigate fill:#e3f2fd,stroke:#2196f3
-    style fix fill:#e3f2fd,stroke:#2196f3
-    style clarify fill:#fff3e0,stroke:#ff9800
-    style startOpt fill:#f5f5f5,stroke:#bbb,stroke-dasharray: 5 5
+flowchart LR
+    A["發現問題"] --> B["/bug-investigate"]
+    B --> C["根因確認"]
+    C --> D["/bug-fix"]
+    D --> E["build/test/回歸 evidence"]
+    E --> F["/bug-close"]
+    F --> G{"Human UAT"}
+    G -- accepted --> H["close"]
+    G -- rejected --> D
 ```
 
-### 模型分工
+Runtime state：
 
-各階段的模型（含唯讀 vs 可改正式程式碼的邊界）一律以共用 reference
-[`references/model-policy.md`](references/model-policy.md) 為準：
+```text
+start → investigate → fix → close
+```
 
-| 階段 | 工作 | model | 可改正式程式碼 |
-|------|------|-------|----------------|
-| `/bug-investigate` | 證據收集、log／stacktrace／Git 歷史分析、模式比對、假說驗證 | `sonnet` | ✗ |
-| `/bug-investigate` | 深度根因推理（僅 3-Strike 等升級條件成立時） | `opus` | ✗ |
-| `/bug-fix` | 定位、搜尋相似修正、找測試範本、分析編譯／測試輸出 | `sonnet` | ✗ |
-| `/bug-fix` | 修復實作、迴歸測試撰寫 | `opus` | ✓ |
+`.spec/{slug}/state.json` 是唯一流程狀態，唯一寫者為 `scripts/crew-state.py`。調查與修復都使用 resumable work unit，因此 session 中斷後可從 deterministic state 繼續。
 
-- 模型必須以 Agent tool 的結構化 `model` 參數傳入；只在 prompt 寫「請使用 Sonnet」不算（CI 的 `agent-model` job 會 block）。
-- 沒有根因確認就不進修正（鐵律）；`--verify-only` 不改程式碼，預設 `model: sonnet`。
+### Human UAT
+
+`/bug-close` 不能把 build/test、C1-C4 或其他 machine evidence 自動等同「使用者接受修復」。只有 Human 明確接受後，才能寫入 `uat=approved` 並完成 close；若 rejected，下一步回到 `/bug-fix`。
 
 ---
 
-## 斷點保險：中斷了也接得回來
+## Model Routing
 
-長時間的調查與修復很容易被打斷 —— crash、關機、隔天重開。CREW 的保險是
-`.spec/{slug}/state.json`，目標是**最多損失一個工作單元**。
+Bug workflow 使用 provider-neutral profiles：
 
-```
-.spec/{slug}/state.json      # 流程狀態唯一權威，唯一寫者 scripts/crew-state.py
-```
+| 工作 | Profile | 是否可改產品碼 |
+|---|---|---|
+| repository search、log/stacktrace/Git evidence 蒐集 | `FAST` | 否 |
+| 一般假說推理、debugging | `STANDARD` | 否 |
+| 複雜跨模組/交易/並行根因 | `DEEP` | 否 |
+| build/test/schema validation | `NONE` | 否 |
+| 已確認根因後的正式修復與迴歸測試 | `DEEP` | **是** |
 
-bug 型任務若沒有 `.spec/` 目錄，會建輕量目錄只放這一個檔（slug 取當前 branch 去掉
-`fix/`、`hotfix/` 等前綴）。
-
-**一個工作單元是什麼**：`bug-investigate` 是「一個假說的驗證結果」（確認或否定都算完成），
-`bug-fix` 是「一個修復步驟」—— 根因確認、程式碼修改、迴歸測試各算一個。
-
-**進度即寫。** 每完成一個單元就立刻寫，不准等做完一批再補 —— 中斷不挑時間，事後補寫等於沒有保險。
-
-| 要記的東西 | 去處 |
-|-----------|------|
-| ⚠️ 歧義點與風險 | `work_unit.ambiguities`（`/plan-next` 會印在接手簡報最前面） |
-| 已完成（附證據） | `work_unit.evidence` ＋ `steps[].commit` |
-| 進行中／未完成 | `work_unit.remaining` |
-| 接手前要準備 | `resume_hint`（branch、要啟動的服務、先讀哪些檔） |
-
-**結案不刪除。** 舊版的 `handoff.md` 是純過程性檔案、結案即刪；`state.json` 結案後要保留
-並入版控 —— `/plan-deploy-confirm` 事後要靠它查「這個任務的 SQL 到底跑了沒」。
-
-> 🔴 不要手寫這個 JSON。欄位拼錯不會當場報錯，會在幾天後 `/plan-next` 判位錯誤時才爆；
-> 而且 Agent Teams 多成員同時寫會寫壞檔案（script 有 `flock` 加鎖與原子寫入，手寫沒有）。
->
-> 完整紀律見共用 reference [`state-discipline.md`](references/state-discipline.md)。
-
-遺失或損壞時跑 `crew-state.py rebuild --slug {slug}`，它會從 git 與檔案系統重建，
-並把 `inferred` 標為 `true` 提醒你人工核對一次。
+實際 provider model 由 Host adapter 與 `crew-model-route.py` 決定。Host 無法精準套用 per-worker mapping 時，保留角色/write boundary 並標記 routing degraded；不可假裝已切換模型。
 
 ---
 
-## 使用範例
+## Host Capability Contract
 
-### 調查 Bug（主入口）
+Bug Skill 只依賴 capability：
 
-```bash
-/bug-investigate 推播排程發送失敗         # 帶症狀描述開始（自動建立 Notion 條目 + 調查）
-/bug-investigate NullPointerException   # 帶 stacktrace 關鍵字開始
-/bug-investigate                        # 調查已存在的進行中 bug
-/bug-investigate --resume               # 繼續上次的調查
-```
+- `project_instructions`：接受 `AGENTS.md`、`CLAUDE.md`
+- `delegate_readonly`：證據蒐集與分析
+- `delegate_write`：只有 `/bug-fix` 可用於正式產品碼
+- `parallel_delegate`：可用則平行，不可用就 sequential
+- `tool_probe`：判斷 DB/外部工具真的能否呼叫
+- `ask_user`：根因歧義與 UAT 等 Human decision
 
-### 修復並驗證
-
-```bash
-/bug-fix                  # 標準修復流程（分支檢查 + 鐵律檢查 + 迴歸測試 + merge 引導）
-/bug-fix --verify-only    # 已修復，只要驗證 + 產出測試
-```
-
-### 結案
-
-```bash
-/bug-close    # merge 引導 + 從 Git diff 擷取修復細節 + 結案 + 同步知識庫
-```
-
-### 輔助指令
-
-```bash
-/bug-start 推播排程發送失敗               # 只建立條目，不調查（適合先立案再安排）
-/bug-update 關鍵 log：NPE at PushService.java:235  # 補充調查資訊
-/bug-update log /opt/tomcat/logs/catalina.out       # 從檔案擷取 ERROR
-```
-
-### 重新開啟已結案 Bug
-
-```bash
-/bug-update reopen                                   # 顯示該專案近期已結案 Bug 清單，互動式選擇
-/bug-update reopen SSO登入找不到使用者                  # 用關鍵字搜尋已結案 Bug
-/bug-update reopen https://www.notion.so/abe41af9...  # 直接貼 Notion 頁面連結
-```
-
-> 不帶參數時會列出該專案近期已結案的 Bug，可輸入編號、關鍵字、或 Notion 連結來選擇。
-
-> 搜尋過往 Bug 解法可直接在 Notion 的 Bug 知識庫中搜尋，不需額外指令。
-
-### CREW meta 指令
-
-```bash
-/crew-init                 # 一鍵首次設定（4 階段含偵測跳過、--resume 中斷續跑）
-/crew-doctor               # 環境健診 20 項（紅/黃/綠/選配）
-/crew-doctor --quick       # 只跑紅燈必要項目
-/crew-doctor --fix         # 健診同時自動修可修項
-/crew-upgrade              # 檢查並更新所有 CREW plugins
-/crew-upgrade --check      # 只檢查版本，不更新
-```
+完整 contract 見 [references/host-capabilities.md](references/host-capabilities.md)。
 
 ---
 
-## 跨專案支援
+## 首次設定與 Portable Config
 
-Plugin 透過 `git remote get-url origin` 自動偵測 Git Repo，比對 Notion 專案資料庫中的「Git Repo」欄位，自動關聯到正確的專案。
+`/bug-setup` 不再要求使用者選擇某個 Host-specific storage directory。CREW-owned config 透過 shared resolver 存取。
 
-在不同專案目錄下執行 `/bug-start`，會自動對應不同的 Notion 專案，無需手動切換。
+Portable root：
 
-### 新增專案（/project-add）
+1. `CREW_CONFIG_HOME`
+2. `$XDG_CONFIG_HOME/crew`
+3. `~/.config/crew`
 
-在新專案目錄下執行 `/project-add`，自動完成：
+Bug 相關 logical keys：
 
-1. **偵測 Git Repo** 識別碼（支援公司 GitLab 與 GitHub）
-2. **偵測技術棧**（掃描 pom.xml / build.gradle）
-3. **判斷專案類型**：
-   - **簡單型** — 單 WAR/JAR、Maven 單模組
-   - **產品型** — Gradle 多模組、`kernel/` 外部資源、Solr/Hazelcast 中介軟體
-4. **偵測 DB 類型**（MSSQL / MySQL / PostgreSQL / H2）
-5. **同步 Notion** — 建立或更新專案條目，套用對應頁面模版
-6. **可選安裝 DB MCP**（[DBHub](https://github.com/bytebase/dbhub)）：
-   ```bash
-   # 專案級安裝（推薦）
-   claude mcp add dbhub --scope project -- \
-     npx @bytebase/dbhub --transport stdio \
-     --dsn "sqlserver://user:pwd@host:1433/database"
-   ```
-7. **檢查 CLAUDE.md** — 提醒 commit + push 讓團隊共用
-8. **同步更新**所有 Workflow 設定檔（bug-workflow + feature-workflow）
+| Key | 用途 |
+|---|---|
+| `bug/config` | Notion Data Source IDs、workspace/欄位 metadata |
+| `bug/learning` | Bug learning storage |
+| `feature/project` | 共用 repo-id → project mapping（由 `/project-add` 管理） |
 
-已存在的專案也可用 `/project-add` 更新資訊（主機、部署方式等）。
+實際 read fallback / canonical write path 由 `scripts/crew-config.py` 決定。Skill 不自行拼 Host path，也不把 project mapping 複寫回 Bug 主設定。
 
-## 設定檔
+---
 
-設定檔儲存位置由使用者在 `/bug-setup` 時選擇：
+## 專案指令與專案註冊
 
-| 環境 | 路徑 | 適用場景 |
-|------|------|---------|
-| 公司 | `~/.claude-company/bug-workflow-config.md` | 團隊共用 Notion Workspace |
-| 個人 | `~/.claude/bug-workflow-config.md` | 私人 Notion Workspace |
+需要專案規範時使用 `project_instructions`：
 
-Skill 執行時會依序檢查公司 → 個人路徑，讀取第一個找到的設定檔。
+- `AGENTS.md`
+- `CLAUDE.md`
 
-設定檔包含：
-- Notion 資料庫 Data Source ID
-- 專案對應表
-- 欄位對照表
+兩者都存在時都可讀；有衝突就列為 ambiguity。
 
-可手動編輯此檔案，或透過 `/bug-setup` 重新設定。
+`/project-add` 會：
+
+1. 解析 repo-id。
+2. 同步/更新 Notion 專案。
+3. 以 portable `feature/project` 寫入 project frontmatter（stack、prod branch、可選 uat branch）。
+4. legacy monolith 僅相容讀取；更新時寫 canonical project file。
+
+---
+
+## 指令
+
+| Skill | 說明 |
+|---|---|
+| `/bug-setup` | 建立/更新 Bug portable config |
+| `/bug-start <問題>` | 建立 Bug + minimal runtime state |
+| `/bug-investigate` | 假說驅動調查；可 `--resume` |
+| `/bug-update` | 補充調查資訊 / reopen |
+| `/bug-fix` | 三段 resumable 修復 + 回歸驗證 |
+| `/bug-close` | Human UAT、結案、知識同步與 merge 引導 |
+| `/project-add` | 建立/更新 project mapping |
+| `/crew-init` | setup / registration read-only 偵測與引導 |
+| `/crew-doctor` | config/project/tool 健診；config storage 不由 doctor 直接 mkdir |
+| `/crew-upgrade` | 更新 CREW plugins |
+
+---
+
+## SessionStart hook
+
+Claude Code adapter 會執行 `python3 scripts/crew-state.py session-brief`：
+
+- 只讀當前專案 `.spec/*/state.json`
+- 不外送資料
+- 不寫產品檔案
+- 顯示未結案任務與建議下一步
+- 失敗時不阻擋 session
+
+其他 Host 沒有同等 session hook 也沒關係；直接使用 workflow Skill / state next 即可。
+
+---
+
+## 設計參考
+
+- [Host Capability Contract](references/host-capabilities.md)
+- [Model Policy](references/model-policy.md)
+- [State Discipline](references/state-discipline.md)
+- [Portable Config Contract](references/config-contract.md)
+- [Learning Schema](references/learnings-schema.md)
+
+## 授權
+
+MIT License

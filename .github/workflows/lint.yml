@@ -146,6 +146,17 @@ jobs:
       - name: 檢查每個 SKILL.md 是否同步到根 README + 自家 plugin README
         run: python3 scripts/lint-readme-sync.py
 
+  readme-architecture:
+    name: README 架構契約
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 阻擋 README 回歸舊 Host/provider/config 契約
+        run: python3 scripts/lint-readme-architecture.py
+
   spec-drift:
     name: .spec 漂移偵測
     runs-on: ubuntu-latest
