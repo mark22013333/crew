@@ -68,6 +68,14 @@ PLAN_VERIFY_FORBIDDEN = (
     "claude mcp add playwright",
 )
 
+PLAN_START = REPO / "plugins" / "feature-workflow" / "skills" / "plan-start" / "SKILL.md"
+PLAN_SYNC = REPO / "plugins" / "feature-workflow" / "skills" / "plan-sync" / "SKILL.md"
+PLAN_CLOSE = REPO / "plugins" / "feature-workflow" / "skills" / "plan-close" / "SKILL.md"
+PLAN_SETUP = REPO / "plugins" / "feature-workflow" / "skills" / "plan-setup" / "SKILL.md"
+INTAKE_AGENT = REPO / "plugins" / "feature-workflow" / "agents" / "feature-intake-refiner.md"
+INTAKE_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "intake-refinement.md"
+NOTION_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "notion-page-template.md"
+
 
 def parse_frontmatter(text: str) -> dict | None:
     m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
@@ -217,6 +225,114 @@ def check_plan_verify_contract() -> list[str]:
     return errors
 
 
+def check_plan_start_intake_contract() -> list[str]:
+    errors: list[str] = []
+
+    required_files = (
+        PLAN_START,
+        PLAN_SYNC,
+        PLAN_CLOSE,
+        PLAN_SETUP,
+        INTAKE_AGENT,
+        INTAKE_CONTRACT,
+        NOTION_TEMPLATE,
+    )
+    for path in required_files:
+        if not path.is_file():
+            errors.append(f"{path.relative_to(REPO)} 不存在")
+    if errors:
+        return errors
+
+    start = PLAN_START.read_text(encoding="utf-8")
+    start_rel = PLAN_START.relative_to(REPO)
+    start_required = (
+        "role=`feature-intake-refiner`",
+        "task=`requirement_analysis`",
+        "profile=`STANDARD`",
+        "ORIGINAL_REQUEST",
+        "REFINED_REQUEST",
+        "CONFIRMED_TITLE",
+        "Human intake confirmation",
+        "零 side effect",
+        ".cache/intake.md",
+        "../../references/intake-refinement.md",
+    )
+    for marker in start_required:
+        if marker not in start:
+            errors.append(f"{start_rel} 缺 intake marker：{marker}")
+
+    confirm_at = start.find("#### 1-4. Human intake confirmation")
+    notion_at = start.find("### 6. 建立 Notion 條目")
+    spec_at = start.find("### 7. 建立 .spec/{slug}/")
+    branch_at = start.find("### 8. 建立 Git branch")
+    if min(confirm_at, notion_at, spec_at, branch_at) < 0:
+        errors.append(f"{start_rel} 缺 intake/side-effect 章節，無法驗證順序")
+    elif not (confirm_at < notion_at < spec_at < branch_at):
+        errors.append(f"{start_rel} Human confirmation 必須早於 Notion/.spec/Git side effects")
+
+    agent = INTAKE_AGENT.read_text(encoding="utf-8")
+    agent_rel = INTAKE_AGENT.relative_to(REPO)
+    for marker in (
+        "name: feature-intake-refiner",
+        "model: sonnet",
+        "不產正式 spec",
+        "全程唯讀",
+        "blocking_questions",
+    ):
+        if marker not in agent:
+            errors.append(f"{agent_rel} 缺 intake agent marker：{marker}")
+
+    contract = INTAKE_CONTRACT.read_text(encoding="utf-8")
+    contract_rel = INTAKE_CONTRACT.relative_to(REPO)
+    for marker in (
+        "raw user request",
+        "Human confirms intent",
+        "ORIGINAL_REQUEST",
+        "REFINED_REQUEST",
+        ".cache/intake.md",
+        "不得猜原文",
+    ):
+        if marker not in contract:
+            errors.append(f"{contract_rel} 缺 intake contract marker：{marker}")
+
+    template = NOTION_TEMPLATE.read_text(encoding="utf-8")
+    for marker in ("### 原始需求", "### 確認後任務描述", "### 目標與範圍", "### 驗收條件"):
+        if marker not in template:
+            errors.append(f"{NOTION_TEMPLATE.relative_to(REPO)} 缺 intake/template marker：{marker}")
+
+    sync = PLAN_SYNC.read_text(encoding="utf-8")
+    sync_rel = PLAN_SYNC.relative_to(REPO)
+    for marker in (
+        "Intake prefix immutable",
+        "### 原始需求",
+        "### 確認後任務描述",
+        "### 原始通報",
+        "### 確認後問題描述",
+        ".cache/intake.md",
+        "不得猜原文",
+    ):
+        if marker not in sync:
+            errors.append(f"{sync_rel} 缺 intake preservation marker：{marker}")
+
+    close = PLAN_CLOSE.read_text(encoding="utf-8")
+    close_rel = PLAN_CLOSE.relative_to(REPO)
+    for marker in (
+        "intake prefix 永久保留",
+        "### 原始需求",
+        "### 確認後任務描述",
+        ".cache/intake.md",
+        "不得猜原始 prompt",
+    ):
+        if marker not in close:
+            errors.append(f"{close_rel} 缺 intake close marker：{marker}")
+
+    setup = PLAN_SETUP.read_text(encoding="utf-8")
+    if "5 個獨立 Agent" not in setup or "feature-intake-refiner" not in setup:
+        errors.append(f"{PLAN_SETUP.relative_to(REPO)} 未把 intake refiner 納入 Agent setup")
+
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     checked = 0
@@ -237,6 +353,7 @@ def main() -> int:
 
     errors.extend(check_crew_upgrade_contract())
     errors.extend(check_plan_verify_contract())
+    errors.extend(check_plan_start_intake_contract())
 
     for e in errors:
         print(f"❌ {e}")

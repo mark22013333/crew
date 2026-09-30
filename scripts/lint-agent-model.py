@@ -91,6 +91,7 @@ VAGUE_RE = re.compile(
 # --- 2. agents/*.md frontmatter 政策 ---------------------------------------
 # 規格分析／唯讀探索類 → 不得 opus；正式程式碼實作類 → 不得 sonnet
 AGENT_MODEL_POLICY = {
+    "feature-intake-refiner.md": ("sonnet", "intake refinement 為唯讀需求整理，不得使用 Opus"),
     "feature-spec-analyst.md": ("sonnet", "規格分析（唯讀，產出 .spec/ 文件）不得使用 Opus"),
     "feature-code-generator.md": ("opus", "正式程式碼實作者不得使用 Sonnet"),
     "feature-db-designer.md": ("opus", "DB schema／索引／交易一致性屬複雜架構決策"),
@@ -101,6 +102,12 @@ AGENT_MODEL_POLICY = {
 # require: 檔案中必須出現的結構化模型；forbid: 全檔禁止出現的結構化模型
 # section_rules: (段落標題關鍵字, require, forbid) — 段落 = 該標題到下一個同級或更高級標題
 ROLE_POLICY = {
+    "plan-start": {
+        "require_profiles": ["STANDARD"],
+        "require_tasks": ["requirement_analysis"],
+        "forbid": ["sonnet", "opus", "haiku"],
+        "why": "plan-start intake refinement 使用 requirement_analysis + STANDARD；provider model 只由 adapter 對映",
+    },
     "plan": {
         "require_profiles": ["STANDARD", "DEEP"],
         "require_tasks": ["requirement_analysis", "schema_design", "architecture"],

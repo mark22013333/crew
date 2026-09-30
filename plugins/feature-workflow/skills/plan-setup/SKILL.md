@@ -148,7 +148,7 @@ BUG_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve 
 
 ### 5. Agent 安裝（選用）
 
-詢問是否安裝 4 個獨立 Agent（feature-spec-analyst / feature-db-designer / feature-backend-designer / feature-code-generator）。
+詢問是否安裝 5 個獨立 Agent（feature-intake-refiner / feature-spec-analyst / feature-db-designer / feature-backend-designer / feature-code-generator）。
 
 ### 6. Chrome DevTools MCP 安裝（選用）
 

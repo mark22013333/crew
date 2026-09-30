@@ -1,12 +1,12 @@
 ---
 name: plan-start
-description: 建立 Notion 條目 + .spec/{slug}/（plan.md 骨架 + state.json）+ Git branch 的統一任務入口（支援 feature 與 bug），含退出驗證確保必填欄位完整。當使用者提到 /plan-start、「開新 CREW 任務」、「建立規劃任務」時觸發此 Skill。
+description: 先用唯讀 Intake Refiner 整理使用者原始需求並取得 Human 明確確認，再建立 Notion + .spec/{slug}/ + Git branch 的統一任務入口（支援 feature 與 bug）。當使用者提到 /plan-start、「開新 CREW 任務」、「建立規劃任務」時觸發此 Skill。
 argument-hint: "<任務簡述> [選項]"
 ---
 
 # plan-start — 統一任務入口（本地規劃模式）
 
-在 Notion「任務追蹤工具」建立條目，同時在專案根目錄建立 `.spec/{slug}/`（`plan.md` 骨架 ＋ `state.json`），並可選建立 Git branch。支援 Feature 和 Bug 兩種類型。
+先把使用者的 raw request 經唯讀 `feature-intake-refiner` 整理成可理解但尚未工程規格化的 task brief，取得 Human 明確確認後，才在 Notion 建立條目、建立 `.spec/{slug}/`（`plan.md` 骨架 ＋ `state.json`）並可選建立 Git branch。支援 Feature 和 Bug 兩種類型。
 
 > 本 skill 是 plan.md 骨架的**唯一建立者**。骨架用 Write 寫**一次**，之後所有階段一律用 Edit 對錨點插入 —— 章節契約與寫入紀律見 plugin 根目錄 `references/plan-common.md`（相對 SKILL.md 為 `../../references/`）。
 > 紀律護欄：`../../references/discipline-preamble.md`。
@@ -41,21 +41,101 @@ BUG_CONFIG_FILE="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve 
 
 > **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
-### 1. 解析使用者輸入
+### 1. Intake refinement（任何 side effect 之前）
+
+完整契約見 `../../references/intake-refinement.md`。
 
 使用者會以以下格式觸發：
 
-```
+```text
 /plan-start <任務簡述> [選項]
 ```
 
-**類型推斷**：
-- 明確指定：`/plan-start feature 推播標籤查詢` 或 `/plan-start bug SSO 登入錯誤`
-- 關鍵字推斷：輸入含「bug」、「錯誤」、「問題」、「修復」、「異常」→ type=bug
-- 預設為 feature
+#### 1-1. 分離 control metadata 與原始需求
 
-**Bug 關聯選項**：
-- `--related <feature-slug>`：手動指定關聯的 feature
+- 移除 `/plan-start` 本身。
+- 明確的 `feature` / `bug` 前綴與 `--related <feature-slug>` 視為 CREW control metadata。
+- 剩餘自然語言內容原封不動保存為 `ORIGINAL_REQUEST`；**不得先潤稿再說這是原文**。
+- type 仍依 deterministic 規則決定：
+  - 明確指定 `feature` / `bug` 優先。
+  - 否則原始輸入含「bug」「錯誤」「問題」「修復」「異常」→ `type=bug`。
+  - 其他預設 `type=feature`。
+- Refiner 回傳的 `type_hint` 只有 advisory，不可覆蓋上述規則。
+
+#### 1-2. 呼叫 Intake Refiner
+
+先取得 requirement-analysis routing：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task requirement_analysis --risk low --complexity low \
+  --host portable --format json
+```
+
+依 `../../references/host-capabilities.md` 呼叫 `delegate_readonly`：
+- role=`feature-intake-refiner`
+- task=`requirement_analysis`
+- profile=`STANDARD`
+- risk=`low`
+- complexity=`low`
+
+Host 無 delegation 能力時，主 Agent inline 執行**同一份唯讀 contract**，不得跳過 refinement/confirmation。
+
+輸入：
+- `ORIGINAL_REQUEST`
+- explicit type / `--related` 等 control metadata
+- `project_instructions`（`AGENTS.md` / `CLAUDE.md`）
+- 必要時少量專案術語；**不做廣泛 codebase exploration**，工程規格留給 `/plan spec`
+
+要求輸出：
+- `refined_title`：短標題
+- `refined_request`：1–8 行，保留原意、補清楚主詞/目的/已知限制
+- `known_constraints`
+- `ambiguities`
+- `blocking_questions`：最多 3 個，只有不回答就可能改變需求方向時才列
+- `type_hint`：advisory
+
+#### 1-3. 只處理 blocking ambiguity
+
+若 `blocking_questions` 非空：
+1. 先問 Human。
+2. 把回答連同 `ORIGINAL_REQUEST` 再交給 refiner。
+3. 產生新的 refined result。
+4. **仍然不得建立 Notion、`.spec` 或 Git branch。**
+
+非阻塞 ambiguity 只顯示，不為了追求完美而阻擋。
+
+#### 1-4. Human intake confirmation（硬邊界）
+
+顯示：
+
+```text
+原始需求：
+{ORIGINAL_REQUEST}
+
+精煉後任務：
+標題：{refined_title}
+描述：
+{refined_request}
+
+已知限制：{known_constraints 或 無}
+仍有非阻塞歧義：{ambiguities 或 無}
+
+請選擇：
+1. 確認，建立 CREW 任務
+2. 我要修改／補充（回到 refinement）
+3. 不採用潤飾，使用原始需求作為 confirmed brief
+4. 取消
+```
+
+只有本輪 Human 明確選 1 或 3 才能繼續：
+- 選 1 → `CONFIRMED_TITLE=refined_title`、`REFINED_REQUEST=refined_request`
+- 選 2 → 合併使用者補充後重跑 refiner，再次確認
+- 選 3 → `REFINED_REQUEST=ORIGINAL_REQUEST`；標題只做最小短標題化
+- 選 4 → 結束，**零 side effect**
+
+🔴 在 confirmation 之前禁止：Notion create/update、mkdir `.spec`、`crew-state.py init`、建立/切換 Git branch。
 
 ### 2. 偵測環境資訊（自動專案對應）
 
@@ -90,7 +170,7 @@ Git Repo 識別碼解析規則：
 
 ### 4. 產生 slug
 
-從任務簡述產生英文 slug：
+從 `CONFIRMED_TITLE` 產生英文 slug：
 - 中文 → 翻譯為簡短英文（如「推播標籤查詢」→ `push-tag-query`）
 - 已經是英文 → 轉為 kebab-case
 - 確認 `.spec/{slug}/` 不存在，若存在則加數字後綴
@@ -118,7 +198,7 @@ Git Repo 識別碼解析規則：
 
 | 欄位 | 值 |
 |------|-----|
-| 任務名稱 | 使用者提供的任務簡述 |
+| 任務名稱 | `CONFIRMED_TITLE` |
 | 任務類型 | `["💬 功能要求"]` |
 | 狀態 | `進行中` |
 | 優先順序 | 使用者選擇 |
@@ -133,11 +213,12 @@ Git Repo 識別碼解析規則：
 
 > **database_id 解析**：`config.md` 中的 Data Source ID 不能直接用於 `post-page` 的 `parent.database_id`。需先依照 plugin 根目錄 `references/plan-common.md`（相對 SKILL.md 為 `../../references/`）的「Notion database_id 解析」邏輯，呼叫 `retrieve-a-data-source` 取得底層 `database_id`。
 
-**Step B**：取得 `page_id` 後，使用 `patch-block-children` 追加 plugin 根目錄 `references/notion-page-template.md`（相對 SKILL.md 為 `../../references/`）的標準 8 區塊模板。
+**Step B**：取得 `page_id` 後，使用 `patch-block-children` 追加 plugin 根目錄 `references/notion-page-template.md`（相對 SKILL.md 為 `../../references/`）的標準 5 區塊模板。Feature 的「📋 需求描述」必須先寫入 `ORIGINAL_REQUEST` 與 Human 確認後的 `REFINED_REQUEST`；後續 plan-sync/plan-close 只能更新它們之後的 spec projection。
 
 **錯誤處理**：
-- Step A 失敗 → 本地 `.spec/` 目錄照常建立，`notion.page_id` 留空
-- Step B 失敗 → 頁面已建立（有 properties 無 body），在回傳結果中提示可用 `/plan-sync` 補寫
+- Step A 失敗 → 本地 `.spec/` 目錄照常建立，`notion.page_id` 留空；建立本地 task 後把 original/refined intake 暫存到 `.spec/{slug}/.cache/intake.md`
+- Step B 失敗 → 頁面已建立（有 properties 無 body）；同樣暫存 `.cache/intake.md`，提示可用 `/plan-sync` 補寫
+- Step B 成功且已確認 Notion 中 original/refined intake 都存在 → 不需要建立 intake cache
 
 #### Bug 類型
 
@@ -145,7 +226,7 @@ Git Repo 識別碼解析規則：
 
 | 欄位 | 值 |
 |------|-----|
-| 任務名稱 | 使用者提供的任務簡述 |
+| 任務名稱 | CONFIRMED_TITLE |
 | 任務類型 | `["🐞 錯誤"]` |
 | 狀態 | `進行中` |
 | 優先順序 | 使用者選擇 |
@@ -157,6 +238,12 @@ Git Repo 識別碼解析規則：
 
 ```
 ## 🔴 問題描述
+### 原始通報
+{ORIGINAL_REQUEST}
+
+### 確認後問題描述
+{REFINED_REQUEST}
+
 - **通報來源**：
 - **發生時間**：{當前日期時間}
 - **重現步驟**：
@@ -206,7 +293,7 @@ Git Repo 識別碼解析規則：
 - **如何預防**：
 ```
 
-建立方式同 Feature 的兩步法（Step A + Step B），但 Step B 追加的是上方內嵌模板，而非 `references/notion-page-template.md`。
+建立方式同 Feature 的兩步法（Step A + Step B），但 Step B 追加的是上方內嵌模板，而非 `references/notion-page-template.md`。其中 `### 原始通報` / `### 確認後問題描述` 是 Bug intake prefix；後續同步不得覆蓋。若 Step A/B 失敗，同樣使用 `.spec/{slug}/.cache/intake.md` 保存 original/refined。
 
 ### 7. 建立 .spec/{slug}/ 本地任務目錄
 
@@ -231,16 +318,16 @@ mkdir -p .spec/{slug}
 ```markdown
 ---
 slug: {slug}
-name: {任務簡述}
+name: {CONFIRMED_TITLE}
 type: {feature|bug}
 verified_at_commit:
 verified_at:
 drift_policy: normal
 ---
 
-# {任務簡述}
+# {CONFIRMED_TITLE}
 
-> {使用者提供的一句話需求／問題描述；沒有就留「（待 /plan 補）」}
+> {REFINED_REQUEST}
 
 ## 目標與範圍        <!-- crew:goal owner=spec -->
 
@@ -257,7 +344,20 @@ drift_policy: normal
 
 🔴 **本 skill 是唯一能用 Write 碰 plan.md 的地方**。骨架寫完後，本 skill 自己也只能用 Edit 對錨點註解那一行插入內容。
 🔴 **不要**在骨架裡塞需求全文、API 表、欄位清單或範例錨點 —— 章節內容由 `/plan` 的三個 pass 依 `references/plan-common.md`「章節契約」填入。
-🔴 **不建立**其他任何文件檔；一個任務只有 `plan.md` ＋ `state.json`（＋ DB 階段才產生的 `deploy.sql`）。
+🔴 **不建立**其他任何永久文件檔；一個任務的永久 artifact 只有 `plan.md` ＋ `state.json`（＋ DB 階段才產生的 `deploy.sql`）。
+
+若 Notion Step A/B 沒有成功持久化 intake，允許建立**暫存 recovery cache**：
+
+```text
+.spec/{slug}/.cache/intake.md
+```
+
+內容固定保存：
+- `original_request`：`ORIGINAL_REQUEST` 原文
+- `refined_request`：Human 確認後的 `REFINED_REQUEST`
+- `refined_title`：`CONFIRMED_TITLE`
+
+此檔屬 `.cache/`、不進 Git，不是 workflow truth；`/plan-sync` 或 `/plan-close` 成功補進 Notion 後刪除。
 
 #### 7-3. 建立 state.json（唯一權威）
 
@@ -265,7 +365,7 @@ drift_policy: normal
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" init \
-  --slug {slug} --name "{任務簡述}" --type {feature|bug} \
+  --slug {slug} --name "{CONFIRMED_TITLE}" --type {feature|bug} \
   --notion-page-id {Notion 頁面 ID，沒有就省略} \
   --commit "$(git rev-parse HEAD 2>/dev/null)"
 ```
@@ -459,6 +559,8 @@ start 組 —— 本 skill 是完整入口（Notion + .spec/ + branch）；只�
 
 ## 邊界情況
 
+- **使用者取消 intake confirmation**：立即結束；不得留下 Notion page、`.spec`、state 或 Git branch
+- **Refiner 無法委派**：依 Host Capability Contract inline 執行同一唯讀 refinement contract；不得跳過 Human confirmation
 - **設定目錄不存在**：提示先執行 `/plan-setup` 或 `/bug-setup`
 - **不在 Git repo 中**：跳過分支和專案自動偵測；`crew-state.py init` 的 `--commit` 省略
 - **`.spec/` 目錄已存在同名 slug**：加數字後綴或詢問使用者（不要用 `init --force` 覆蓋別人的狀態檔）

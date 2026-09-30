@@ -1,4 +1,4 @@
-# Feature Workflow Plugin `v5.0.3`
+# Feature Workflow Plugin `v5.0.4`
 
 跨 Host 的 Feature lifecycle：本地 `.spec/` 規劃、Human approval gates、正式實作、安全/驗證/review、Human UAT 與結案同步。核心 contract 不依賴單一 Host 的 team、subagent 或 provider model 名稱。
 
@@ -50,6 +50,40 @@ codex plugin list
 
 ---
 
+## Intake refinement
+
+`/plan-start` 在任何 Notion / `.spec` / Git side effect 前，先用唯讀 `feature-intake-refiner` 把 raw request 整理成短標題與 task brief，再由 Human 明確確認。
+
+<!-- crew:diagram intake-refinement-flow -->
+```mermaid
+flowchart TD
+    Raw["Raw user request"] --> Refiner["feature-intake-refiner<br/>delegate_readonly + STANDARD"]
+    Refiner --> Blocking{"Blocking ambiguity?"}
+    Blocking -- "yes" --> Ask["Ask Human<br/>max 3 questions"]
+    Ask --> Refiner
+    Blocking -- "no" --> Confirm{"Human confirms intent?"}
+    Confirm -- "modify" --> Refiner
+    Confirm -- "cancel" --> Stop["Stop<br/>zero side effect"]
+    Confirm -- "confirmed" --> Start["Create Notion / .spec / branch"]
+    Start --> PersistOriginal["Notion<br/>original_request"]
+    Start --> PersistRefined["plan.md<br/>refined_request"]
+    PersistOriginal --> Spec["/plan spec"]
+    PersistRefined --> Spec
+    Spec --> Analyst["feature-spec-analyst<br/>Goal / AC / Decisions / Risks"]
+```
+
+責任分界：
+
+- Intake Refiner：回答「使用者到底想做什麼？」；不產 AC、不做 DB/API/架構設計。
+- Human：確認 refined intent；沉默不算核准。
+- `feature-spec-analyst`：任務建立後才把 confirmed brief 工程化成 Goal / AC / Decisions / Risks。
+- Notion「📋 需求描述」永久保存 raw original + confirmed refined brief；plan.md 只保留 refined brief。
+- Notion 暫時失敗時，`.spec/{slug}/.cache/intake.md` 暫存 original/refined，成功補同步後刪除，不算永久 artifact。
+
+完整 contract 見 [references/intake-refinement.md](references/intake-refinement.md)。
+
+---
+
 ## Feature lifecycle
 
 <!-- crew:diagram feature-lifecycle -->
@@ -96,7 +130,7 @@ v2 task 的核心檔案：
 └── deploy.sql    # 有 DB migration 時才存在
 ```
 
-`files.md`、`log.md`、`handoff.md`、`.spec/_index.md` 等 v1 artifact 不再是 v2 runtime contract。
+`files.md`、`log.md`、`handoff.md`、`.spec/_index.md` 等 v1 artifact 不再是 v2 runtime contract。Notion intake 尚未成功持久化時可暫存 `.spec/{slug}/.cache/intake.md`；它 gitignored、同步成功後刪除，不是永久 runtime artifact。
 
 ---
 
@@ -175,7 +209,7 @@ Portable root：
 |---|---|
 | `/plan-setup` | 建立/更新 Feature portable config |
 | `/plan-stack` | 掃描專案並建立自訂 stack definition |
-| `/plan-start <任務>` | 建立 Notion + `.spec/` + Git branch |
+| `/plan-start <任務>` | Refine raw request → Human confirm → 建立 Notion + `.spec/` + Git branch |
 | `/plan-explore` | 想法探索、問題調查、方案比較 |
 | `/plan-browse` | 深讀/比較既有規劃 |
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 approval loop |
@@ -344,6 +378,7 @@ Removal eligibility：
 - [Config Resolver](references/config-resolver.md)
 - [UAT Gate](references/uat-gate.md)
 - [Verify Memory Contract](references/verify-memory.md)
+- [Intake Refinement Contract](references/intake-refinement.md)
 
 ## 授權
 

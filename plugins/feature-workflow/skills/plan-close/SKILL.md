@@ -284,7 +284,7 @@ commit 後跑 `git status --short .spec/{slug}/` 確認沒有意外被加入的�
 
 | Notion 區塊 | 來源 | 條件 |
 |-------------|------|------|
-| 📋 需求描述 | `plan.md`「目標與範圍」＋「驗收條件」（`AC-n` 原樣） | 必有 |
+| 📋 需求描述 | 保留 intake prefix（`### 原始需求`＋`### 確認後任務描述`）＋更新 `plan.md`「目標與範圍」＋「驗收條件」（`AC-n` 原樣） | 必有 |
 | 📐 技術規格 | `plan.md`「決策紀錄」＋「已知取捨與風險」＋「指路」（錨點原樣，不展開內容） | 必有 |
 | 🗄️ 資料庫設計 → 遷移 SQL | `deploy.sql` 全文 | `deploy.sql` 存在 |
 | 🚀 部署狀態 | 由 `deploy.sql` 的 `-- Step N` 初始化（見 6-2a），每筆預設「待執行」 | `deploy.sql` 存在 |
@@ -292,7 +292,9 @@ commit 後跑 `git status --short .spec/{slug}/` 確認沒有意外被加入的�
 | 📝 開發日誌 | `plan.md`「檢查報告摘要」節的條目 ＋ 追加結案紀錄：<br>`### [{日期}] 開發完成`<br>`- **分支**：{branch}`<br>`- **Commit 數**：{N}`<br>`- **蓋章**：verified_at_commit {sha}`<br>`- **變更摘要**：{分層變更摘要}` | 必有 |
 
 - **原樣搬運，不重寫**：章節內容照抄，不要「順手潤稿」或補充 —— 那會讓 Notion 與 plan.md 講不同的話。
-- **📋 需求描述 的原始需求原文要保留**：使用者貼的長需求原文留在該區塊（plan.md 只放萃取後的目標與驗收條件）。同步時**附加在原文之後**，不覆蓋原文。
+- **📋 需求描述 intake prefix 永久保留**：`### 原始需求` 與 `### 確認後任務描述` 不由 plan.md 重建。只更新其後的 `### 目標與範圍` / `### 驗收條件`。
+- 若頁面缺 intake prefix 且 `.spec/{slug}/.cache/intake.md` 存在 → 用 cache 補回 original/refined；Notion update + fetch 驗證成功後刪 cache。
+- 若頁面缺 intake prefix且 cache 也不存在（legacy task）→ 保留既有需求內容，**不得猜原始 prompt**；必要時要求 Human 補充。
 - **對應表兩處要一致**：`/plan-sync`（中途同步）用同一組區塊。改這張表時要同步確認 `plan-sync` 的版本，否則同一份 plan.md 會在中途同步與結案同步落到不同區塊。
 
 🔴 **不再同步**（來源檔案已廢除）：spec／db／arch 三份設計文件、上線前置作業 checklist、檔案清單文件、review／security／verify 全文報告。
@@ -488,5 +490,5 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 - **diff 過大（> 500 行）**：僅摘要檔案清單和分層變更
 - **知識庫 ID 為空**：跳過知識庫同步
 - **來源 feature 的 Notion 頁面不存在**：跳過關聯更新，提示使用者
-- **Notion API 失敗**：顯示已完成和失敗的步驟，建議用 `/plan-sync` 重試（此時 git commit 與蓋章已完成，不需重跑漂移檢查）
+- **Notion API 失敗**：顯示已完成和失敗的步驟，建議用 `/plan-sync` 重試（此時 git commit 與蓋章已完成，不需重跑漂移檢查）；若 intake cache 尚未成功持久化，必須保留 cache，不得提前刪除
 - **project_instructions 無 Git Flow 描述**：使用通用提示
