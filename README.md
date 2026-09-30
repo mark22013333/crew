@@ -307,7 +307,7 @@ Feature 主流程：
 |---|---|
 | `/plan-setup` | 建立/更新 portable Feature config |
 | `/plan-stack` | 建立自訂 stack definition |
-| `/plan-start <任務>` | 建立 Notion + `.spec/` + Git branch |
+| `/plan-start <任務>` | 先由 Intake Refiner 潤飾 raw request 並 Human 確認，再建立 Notion + `.spec/` + Git branch |
 | `/plan-explore` | 自由探索與方案比較 |
 | `/plan-browse` | 深讀/比較既有 `.spec/` |
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 Human approval loop |

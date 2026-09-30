@@ -46,8 +46,10 @@ description: 手動中途同步 .spec/ 目錄當前進度到 Notion（含 deploy
 ### 2. 檢查 Notion 頁面
 
 若 `notion.page_id` 為空（例如 `/plan-start` 時 Notion 建立失敗）：
-- 詢問使用者是否要補建 Notion 條目
-- 若是，執行與 `/plan-start` 的「建立 Notion 條目」步驟相同的建立邏輯
+- 詢問使用者是否要補建 Notion 條目。
+- 若是，執行與 `/plan-start` 的「建立 Notion 條目」步驟相同的建立邏輯。
+- 若 `.spec/{slug}/.cache/intake.md` 存在，必須用其中的 `original_request` / `refined_request` 建立「📋 需求描述」intake prefix。
+- 若 cache 不存在（舊任務）且無法從既有 Notion 內容恢復 original request，**不得猜原文**；詢問 Human 是否補上，或明確標記「原始需求不可恢復」。
 - 建立後把頁面 ID 交給單一寫者寫回（🔴 不要手改 `state.json`）：
 
   ```bash
@@ -56,7 +58,7 @@ description: 手動中途同步 .spec/ 目錄當前進度到 Notion（含 deploy
 
 ### 3. 確定同步範圍
 
-掃描 `.spec/{slug}/` 目錄。可同步的只有兩個檔：
+掃描 `.spec/{slug}/` 目錄。可同步的核心產物只有兩個檔；`.cache/intake.md` 若存在只是 offline recovery metadata，不算 workflow artifact：
 
 ```
 可同步的產物：
@@ -77,18 +79,22 @@ description: 手動中途同步 .spec/ 目錄當前進度到 Notion（含 deploy
 
 **4-2. 更新內容**（1 次 `notion-update-page` content）
 
-將選定的產物寫入對應 Notion 區塊（區塊標題以 plugin 根目錄 `references/notion-page-template.md`，相對 SKILL.md 為 `../../references/`，的 8 區塊模板為準）：
+將選定的產物寫入對應 Notion 區塊（區塊標題以 plugin 根目錄 `references/notion-page-template.md`，相對 SKILL.md 為 `../../references/`，的 5 區塊模板為準）：
 
 | 本地來源 | Notion 區塊 |
 |---------|------------|
-| `plan.md`「目標與範圍」＋「驗收條件」 | 📋 需求描述 |
+| `plan.md`「目標與範圍」＋「驗收條件」 | 📋 需求描述中的 `### 目標與範圍` ＋ `### 驗收條件` |
 | `plan.md`「決策紀錄」＋「已知取捨與風險」＋「指路」 | 📐 技術規格 |
 | `plan.md`「檢查報告摘要」 | 📝 開發日誌 |
 | `deploy.sql` 全文 | 🗄️ 資料庫設計 → 遷移 SQL |
 
-- **原樣搬運，不重寫**：章節內容照抄，不要在同步時「順手潤稿」或補充 —— 那會讓 Notion 與 plan.md 講不同的話。
+- **Intake prefix immutable**：`### 原始需求` 與 `### 確認後任務描述` 由 `/plan-start` intake 擁有；本 skill 不得用 plan.md 覆蓋它們。
+- 若既有頁面缺 intake prefix 且 `.cache/intake.md` 存在 → 先用 cache 補回 original/refined，再更新 spec projection。
+- 若既有頁面已有 intake prefix → 原文逐字保留，只更新 `### 目標與範圍`、`### 驗收條件`。
+- **原樣搬運，不重寫**：plan.md 章節內容照抄，不要在同步時「順手潤稿」或補充 —— 那會讓 Notion 與 plan.md 講不同的話。
 - 「指路」節的 `@code:` / `@sql:` 錨點照原文寫入，🔴 **不要**把錨點指到的程式碼展開貼進 Notion。
 - 本 skill 只同步使用者選定的項目，且不建立「🚀 部署狀態」區塊（該區塊僅由 `/plan-close` 初始化）。
+- Notion update 成功後重新 fetch/確認 `### 原始需求` + `### 確認後任務描述` 都存在；若本次使用了 `.cache/intake.md`，確認成功後才刪除 cache。
 
 **4-3. 更新 Properties**（1 次 `notion-update-page` properties）
 
@@ -129,7 +135,7 @@ sync 組——本 skill 是「未結案的中途同步」；結案批次同步�
 
 - **中途同步不更新知識庫**：`plan-sync` 只更新 Notion 任務頁面的內容和 Properties，知識庫同步是 `plan-close` 的工作。回傳結果中需明確提示「知識庫將在結案時同步」。
 - **`notion.page_id` 為空時的模板選擇**：補建 Notion 條目時，需從 `plan.md` frontmatter 的 `type` 欄位（`feature` / `bug`）判斷套用哪個模板。若 frontmatter 解析失敗讀不到 `type`，應詢問使用者而非預設。
-- **同步是單向的（本地 → Notion）**：使用者在 Notion 頁面直接編輯的內容，下次 `/plan-sync` 會被本地覆蓋。plan.md 才是事實來源，要改內容請改 plan.md（用 Edit 對錨點，不整檔改寫）。
+- **同步是單向的（本地 → Notion），但 intake prefix 例外**：spec projection 以 plan.md 為事實來源；`### 原始需求` / `### 確認後任務描述` 是 intake-owned persistent source，不得被 plan.md 覆蓋。
 - **對應表兩處要一致**：`/plan-close` 也把 plan.md ＋ deploy.sql 同步到同一組 Notion 區塊。改本節的對應表時要同步確認 `plan-close` 的版本，否則同一份 plan.md 會在中途同步與結案同步落到不同區塊。
 
 ---
@@ -139,5 +145,5 @@ sync 組——本 skill 是「未結案的中途同步」；結案批次同步�
 - **`notion.page_id` 為空**：引導補建 Notion 條目
 - **plan.md 六章節都還是空的**：提示先執行 `/plan` 產出規劃內容
 - **`state.json` 缺失或壞掉**：跑 `crew-state.py rebuild --slug {slug}`，並在回報中標「狀態為推測」
-- **Notion 頁面內容與模板不符**：嘗試模糊匹配區塊標題，找不到則附加在頁面最後
+- **Notion 頁面內容與模板不符**：先保護現有原始需求內容；有 intake cache 時可補成新模板，沒有時不得猜原文，再嘗試模糊匹配其他區塊
 - **Notion API 失敗**：顯示具體錯誤，建議檢查網路或稍後重試
