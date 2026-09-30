@@ -81,6 +81,9 @@ REQUIRED = {
         "codex plugin marketplace upgrade crew",
         ".crew/verify-memory.md",
         "Human UAT 在 `/plan-close` 內取得",
+        "feature-intake-refiner",
+        ".cache/intake.md",
+        "references/intake-refinement.md",
         "2026-10-26",
     ),
 }
@@ -112,6 +115,7 @@ MERMAID_REQUIRED = {
         "plan-build-orchestration",
         "plan-review-orchestration",
         "plan-verify-flow",
+        "intake-refinement-flow",
     ),
 }
 
