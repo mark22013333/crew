@@ -83,18 +83,19 @@ description: 手動中途同步 .spec/ 目錄當前進度到 Notion（含 deploy
 
 | 本地來源 | Notion 區塊 |
 |---------|------------|
-| `plan.md`「目標與範圍」＋「驗收條件」 | 📋 需求描述中的 `### 目標與範圍` ＋ `### 驗收條件` |
+| Feature：`plan.md`「目標與範圍」＋「驗收條件」 | 📋 需求描述中的 `### 目標與範圍` ＋ `### 驗收條件` |
+| Bug：`plan.md`「目標與範圍」＋「驗收條件」 | 🔴 問題描述中保留 `### 原始通報` / `### 確認後問題描述`，在其後更新 spec projection |
 | `plan.md`「決策紀錄」＋「已知取捨與風險」＋「指路」 | 📐 技術規格 |
 | `plan.md`「檢查報告摘要」 | 📝 開發日誌 |
 | `deploy.sql` 全文 | 🗄️ 資料庫設計 → 遷移 SQL |
 
-- **Intake prefix immutable**：`### 原始需求` 與 `### 確認後任務描述` 由 `/plan-start` intake 擁有；本 skill 不得用 plan.md 覆蓋它們。
+- **Intake prefix immutable**：Feature 的 `### 原始需求` / `### 確認後任務描述`，以及 Bug 的 `### 原始通報` / `### 確認後問題描述`，都由 `/plan-start` intake 擁有；本 skill 不得用 plan.md 覆蓋。
 - 若既有頁面缺 intake prefix 且 `.cache/intake.md` 存在 → 先用 cache 補回 original/refined，再更新 spec projection。
 - 若既有頁面已有 intake prefix → 原文逐字保留，只更新 `### 目標與範圍`、`### 驗收條件`。
 - **原樣搬運，不重寫**：plan.md 章節內容照抄，不要在同步時「順手潤稿」或補充 —— 那會讓 Notion 與 plan.md 講不同的話。
 - 「指路」節的 `@code:` / `@sql:` 錨點照原文寫入，🔴 **不要**把錨點指到的程式碼展開貼進 Notion。
 - 本 skill 只同步使用者選定的項目，且不建立「🚀 部署狀態」區塊（該區塊僅由 `/plan-close` 初始化）。
-- Notion update 成功後重新 fetch/確認 `### 原始需求` + `### 確認後任務描述` 都存在；若本次使用了 `.cache/intake.md`，確認成功後才刪除 cache。
+- Notion update 成功後重新 fetch/確認目前 type 對應的兩個 intake headings 都存在；若本次使用了 `.cache/intake.md`，確認成功後才刪除 cache。
 
 **4-3. 更新 Properties**（1 次 `notion-update-page` properties）
 
