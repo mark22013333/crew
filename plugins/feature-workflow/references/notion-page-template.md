@@ -3,7 +3,7 @@
 此模板由 `/plan-start` 使用，建立新功能時自動填入頁面內容（共 **5 個區塊**）。
 
 `/plan-sync`（中途同步）與 `/plan-close`（結案同步）都以這裡的**區塊標題**為契約，
-把 `.spec/{slug}/plan.md` 與 `deploy.sql` 的內容寫進對應區塊 —— 改標題就要同步改那兩個 skill。
+把 `.spec/{slug}/plan.md` 與 `deploy.sql` 的內容寫進對應區塊 —— 改標題就要同步改那兩個 skill。對「📋 需求描述」而言，`### 原始需求` 與 `### 確認後任務描述` 是 intake-owned immutable prefix；sync/close 只能更新其後的 spec projection。
 
 ---
 
@@ -11,7 +11,7 @@
 
 | 區塊 | 內容來源 | 寫入者 |
 |------|---------|--------|
-| 📋 需求描述 | 使用者的**原始需求原文**（建立時填，plan.md 不收原文）＋ plan.md「目標與範圍」「驗收條件」 | plan-start（原文）／plan-sync／plan-close |
+| 📋 需求描述 | 使用者的**原始需求原文**＋Human 確認後的 refined brief（建立時填，plan.md 不收原文）＋ plan.md「目標與範圍」「驗收條件」 | plan-start（intake）／plan-sync／plan-close |
 | 📐 技術規格 | plan.md「決策紀錄」「已知取捨與風險」「指路」（錨點原樣，不展開內容） | plan-sync／plan-close |
 | 🗄️ 資料庫設計 | `deploy.sql` 全文（唯一 SQL 事實來源）寫入「遷移 SQL」 | plan-sync／plan-close |
 | 📁 程式碼清單 | `git diff --name-status` ＋ 分層變更摘要 | plan-close |
@@ -34,14 +34,17 @@
 
 ```markdown
 ## 📋 需求描述
-（原始需求原文貼在此處；規劃後由 plan-sync / plan-close 在其後附加目標與驗收條件，不覆蓋原文）
-- **功能目的**：
-- **目標使用者**：
-- **業務價值**：
-- **使用情境**：
-  1. ...
-- **驗收條件**：
-  - [ ] AC-1 ...
+### 原始需求
+（ORIGINAL_REQUEST 原封不動貼在此處）
+
+### 確認後任務描述
+（REFINED_REQUEST；已由 Human 明確確認）
+
+### 目標與範圍
+（plan.md「目標與範圍」projection；plan-sync / plan-close 只更新此段）
+
+### 驗收條件
+（plan.md「驗收條件」projection；AC-n 原樣；plan-sync / plan-close 只更新此段）
 
 ---
 ## 📐 技術規格
