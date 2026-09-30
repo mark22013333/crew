@@ -43,6 +43,10 @@ REQUIRED = {
         "claude plugin update bug-workflow@company-marketplace",
         "claude plugin update feature-workflow@company-marketplace",
         "codex plugin marketplace upgrade crew",
+        "feature-intake-refiner",
+        ".cache/intake.md",
+        "Intake Refinement Contract",
+        "zero side effect",
         "2026-10-26",
     ),
     "plugins/bug-workflow/README.md": (
@@ -106,6 +110,7 @@ MERMAID_REQUIRED = {
         "feature-lifecycle",
         "bug-lifecycle",
         "capability-fallback",
+        "intake-refinement-flow",
     ),
     "plugins/bug-workflow/README.md": (
         "bug-lifecycle",
