@@ -158,6 +158,48 @@ Resolver 讀取時可支援既有 legacy fallback；新寫入一律走 canonical
 
 ---
 
+## 需求入口：Intake Refinement
+
+`/plan-start` 不會拿到 raw prompt 就立刻建立任務。任何 Notion、`.spec/`、state 或 Git branch side effect 之前，先由唯讀 `feature-intake-refiner` 整理需求，再由 Human 明確確認。
+
+<!-- crew:diagram intake-refinement-flow -->
+```mermaid
+flowchart TD
+    Raw["Raw user request"] --> Refiner["feature-intake-refiner<br/>requirement_analysis + STANDARD"]
+    Refiner --> Blocking{"Blocking ambiguity?"}
+    Blocking -- "yes" --> Ask["Ask Human<br/>最多 3 個問題"]
+    Ask --> Refiner
+    Blocking -- "no" --> Confirm{"Human confirms intent?"}
+    Confirm -- "修改 / 補充" --> Refiner
+    Confirm -- "取消" --> Stop["Stop<br/>zero side effect"]
+    Confirm -- "確認" --> Start["/plan-start side effects"]
+    Start --> Original["Notion<br/>保存 original request"]
+    Start --> Refined["plan.md<br/>保存 confirmed refined brief"]
+    Original --> Spec["/plan spec"]
+    Refined --> Spec
+    Spec --> Analyst["feature-spec-analyst<br/>Goal / AC / Decisions / Risks"]
+```
+
+兩個 Agent 的責任不同：
+
+- **Intake Refiner**：回答「使用者到底想做什麼？」；只改善表達、列限制與歧義，不產 AC、DB/API/架構或實作方案。
+- **feature-spec-analyst**：任務建立後才把 confirmed brief 工程化成 Goal / AC / Decisions / Risks。
+- Host 沒有 `delegate_readonly` 時，主 Agent inline 執行同一份唯讀 refinement contract；**Human confirmation 不能省略**。
+
+Human 可以接受 refined brief、補充後重跑、改用原始需求，或取消。取消時必須 **zero side effect**。
+
+需求保存規則：
+
+- Feature Notion「📋 需求描述」保留 `### 原始需求` 與 `### 確認後任務描述`。
+- Bug 由 `/plan-start` 建立時，對應保留 `### 原始通報` 與 `### 確認後問題描述`。
+- `plan.md` 只保存 Human 確認後的 refined brief，不複製長篇 raw prompt。
+- Notion 暫時不可用時，使用 `.spec/{slug}/.cache/intake.md` 暫存 original/refined；`/plan-sync` 或 `/plan-close` 成功持久化後才刪除。
+- 後續同步只能更新 intake prefix 後方的 spec projection，不得覆蓋原始需求。
+
+完整 contract 見 [Intake Refinement Contract](plugins/feature-workflow/references/intake-refinement.md)。
+
+---
+
 ## State、Approval Gate 與斷點續跑
 
 每個 v2 任務的唯一流程狀態是：
@@ -300,7 +342,7 @@ Bug 主流程：
 Feature 主流程：
 
 ```text
-/plan-start → /plan → /plan-build → /plan-security → /plan-verify → /plan-review → /plan-close
+raw request → /plan-start（refine + Human confirm） → /plan → /plan-build → /plan-security → /plan-verify → /plan-review → /plan-close
 ```
 
 | 指令 | 說明 |
@@ -359,6 +401,7 @@ Feature v1 任務目前仍支援。Removal eligibility：
 | Host Capability Contract | [plugins/bug-workflow/references/host-capabilities.md](plugins/bug-workflow/references/host-capabilities.md) |
 | Model Policy | [plugins/bug-workflow/references/model-policy.md](plugins/bug-workflow/references/model-policy.md) |
 | Portable Config Contract | [plugins/bug-workflow/references/config-contract.md](plugins/bug-workflow/references/config-contract.md) |
+| Intake Refinement Contract | [plugins/feature-workflow/references/intake-refinement.md](plugins/feature-workflow/references/intake-refinement.md) |
 
 ## 授權
 
