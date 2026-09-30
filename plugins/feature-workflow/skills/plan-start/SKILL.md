@@ -238,6 +238,12 @@ Git Repo 識別碼解析規則：
 
 ```
 ## 🔴 問題描述
+### 原始通報
+{ORIGINAL_REQUEST}
+
+### 確認後問題描述
+{REFINED_REQUEST}
+
 - **通報來源**：
 - **發生時間**：{當前日期時間}
 - **重現步驟**：
@@ -287,7 +293,7 @@ Git Repo 識別碼解析規則：
 - **如何預防**：
 ```
 
-建立方式同 Feature 的兩步法（Step A + Step B），但 Step B 追加的是上方內嵌模板，而非 `references/notion-page-template.md`。
+建立方式同 Feature 的兩步法（Step A + Step B），但 Step B 追加的是上方內嵌模板，而非 `references/notion-page-template.md`。其中 `### 原始通報` / `### 確認後問題描述` 是 Bug intake prefix；後續同步不得覆蓋。若 Step A/B 失敗，同樣使用 `.spec/{slug}/.cache/intake.md` 保存 original/refined。
 
 ### 7. 建立 .spec/{slug}/ 本地任務目錄
 
