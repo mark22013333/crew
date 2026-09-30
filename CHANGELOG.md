@@ -8,6 +8,47 @@
 
 ---
 
+## [feature-workflow@5.0.4] - 2026-09-30
+
+> **Human-confirmed intake refinement。** `/plan-start` 在任何 Notion / `.spec` / Git side effect 前，先用唯讀 Intake Refiner 整理 raw request，Human 明確確認後才正式進入 CREW lifecycle。
+
+### Added
+
+- 新增 `agents/feature-intake-refiner.md`：
+  - 唯讀整理 raw request
+  - 產出 refined title / brief / constraints / ambiguities
+  - blocking questions 最多 3 個
+  - 不產 AC、DB/API/架構或 implementation plan
+- 新增 `references/intake-refinement.md`，定義 original/refined 分離、Human confirmation hard boundary、Notion/plan persistence 與 offline recovery。
+- Feature README 新增 `intake-refinement-flow` Mermaid。
+
+### Changed
+
+- `/plan-start` 新流程：
+  `raw request → feature-intake-refiner → Human confirm → Notion/.spec/branch → /plan spec`。
+- type 判斷仍由 deterministic control/keyword 規則決定；Refiner 的 `type_hint` 只是 advisory。
+- confirmed refined brief 成為 `plan.md` 初始 brief；正式 Goal / AC / Decisions 仍由後續 `feature-spec-analyst` 產出。
+- `/plan-setup` Agent 清單 4 → 5，納入 intake refiner。
+
+### Persistence
+
+- Feature Notion「📋 需求描述」固定保留：
+  - `### 原始需求`
+  - `### 確認後任務描述`
+- Bug intake 對應保留：
+  - `### 原始通報`
+  - `### 確認後問題描述`
+- `/plan-sync` / `/plan-close` 只能更新 intake prefix 後方的 spec projection，不得覆蓋原始 prompt。
+- Notion 暫時失敗時用 `.spec/{slug}/.cache/intake.md` recovery cache；成功持久化後刪除，cache 不進 Git、不成為 workflow truth。
+
+### Guardrails
+
+- `lint-skill-contract.py` 驗證 Human confirmation 必須早於 Notion / `.spec` / Git side effects，並驗證 agent、contract、sync/close preservation。
+- `lint-agent-model.py` 將 intake refiner 固定為唯讀 agent adapter policy，`/plan-start` 核心 routing 使用 `requirement_analysis + STANDARD`。
+- `lint-readme-architecture.py` 要求保留 intake Mermaid 與公開 contract。
+
+---
+
 ## [feature-workflow@5.0.3] - 2026-09-29
 
 > **plan-verify portable convergence。** 收斂 browser adapter、plugin root、verify memory 與 Human UAT 邊界；不改 Feature lifecycle 本身。
