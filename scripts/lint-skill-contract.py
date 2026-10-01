@@ -430,6 +430,8 @@ def check_bug_start_intake_contract() -> list[str]:
             errors.append(f"{BUG_INTAKE_AGENT.relative_to(REPO)} 缺 Bug intake agent marker：{marker}")
 
     contract = BUG_INTAKE_CONTRACT.read_text(encoding="utf-8")
+    if "若 intake headings 已完整存在 → 刪 cache" in contract:
+        errors.append(f"{BUG_INTAKE_CONTRACT.relative_to(REPO)} 不得只驗證 intake headings 就刪 recovery cache；必須同時驗證五個標準 Bug sections")
     for marker in (
         "Feature / Plan:",
         "Bug:",
