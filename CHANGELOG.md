@@ -20,6 +20,10 @@
   - Host 不支援 → inline / sequential fallback。
 - Feature / root README 明確說明 Intake Refiner 不會出現在 Slash Skill 清單。
 
+### Fixed
+
+- `/plan-start`、`/plan-sync`、`/plan-close` 對 CREW scripts 改為統一解析 `CREW_PLUGIN_ROOT`，移除 active lifecycle 內直接使用 `${CLAUDE_PLUGIN_ROOT}/scripts/...` 的 Host coupling。
+
 ### Compatibility
 
 - `/plan-start` 行為仍是 `feature-intake-refiner → Human confirm → side effects`。
@@ -54,14 +58,16 @@
 
 ### Recovery
 
-- Human confirmation 後建立 `.spec/{slug}/.cache/intake.md` 暫存 original/refined。
-- 只有 Notion body 成功寫入並重新 fetch 確認 intake headings 存在後才刪除 cache。
-- Notion 暫時失敗時保留 cache，避免 original/refined 遺失。
-- 同 slug 的 pending Bug state + matching intake cache 會先詢問是否沿用，不直接建立重複 task。
+- Human confirmation + slug 決定後，`.spec/{slug}/.cache/intake.md` 成為**第一個 post-confirmation task side effect**，在 Notion create / state init 前先保存 original/refined/title。
+- cache 新增 `notion_page_id`；Notion page create 成功後會在 state init 前立即寫回，避免「page 已建立、state init 中斷」後重跑產生 duplicate page。
+- 同 slug 的 cache-only pending task 或 pending Bug state，matching intake 時都先詢問是否沿用，不直接建立重複 task。
+- `/bug-investigate`、`/bug-update`、`/bug-close` 新增 **Bug intake recovery preflight**：以 cache 補回缺少的 intake prefix / 標準 Bug sections，fetch 驗證成功後才刪 cache。
+- `/bug-start` Step 6 若 template/intake 尚未修復完成，會停止 Step 7–9 的後續 Notion mutation，保留 recovery cache。
+- `/bug-close` 新增 page-id → unique state/slug deterministic binding，再執行 UAT gate；同時改用 `CREW_PLUGIN_ROOT` 呼叫 state writer。
 
 ### Guardrails
 
-- `lint-skill-contract.py` 驗證 Bug Human confirmation 必須早於 Notion/state side effects。
+- `lint-skill-contract.py` 驗證 Bug Human confirmation 必須早於 Notion/state side effects、recovery cache/page-id contract、三個 Bug lifecycle recovery preflight，以及 Plan intake lifecycle 不得直接使用 Claude-only script path。
 - `lint-agent-model.py` 驗證 `bug-start = requirement_analysis + STANDARD`，active Skill 不綁 provider model。
 - `check-shared-refs.py` / `sync-shared-refs.sh` 把 intake contract 納入共用 reference。
 - README architecture lint 要求 Bug intake Mermaid 與公開 contract 持續存在。
