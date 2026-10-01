@@ -293,7 +293,10 @@ commit 後跑 `git status --short .spec/{slug}/` 確認沒有意外被加入的�
 
 - **原樣搬運，不重寫**：章節內容照抄，不要「順手潤稿」或補充 —— 那會讓 Notion 與 plan.md 講不同的話。
 - **📋 需求描述 intake prefix 永久保留**：`### 原始需求` 與 `### 確認後任務描述` 不由 plan.md 重建。只更新其後的 `### 目標與範圍` / `### 驗收條件`。
-- 若頁面缺 intake prefix 且 `.spec/{slug}/.cache/intake.md` 存在 → 用 cache 補回 original/refined；Notion update + fetch 驗證成功後刪 cache。
+- 若 `.spec/{slug}/.cache/intake.md` 存在：
+  - 先讀 cache 的 `notion_page_id`；非空時必須與 state 的 `notion.page_id` 一致，不一致就 **BLOCK**，不得猜 page。
+  - 頁面缺 intake prefix → 用 cache 補回 original/refined。
+  - Notion update 後重新 fetch；只有 intake prefix 完整、state page ID 與本輪 page 一致、cache page ID 為空或一致時才刪 cache。
 - 若頁面缺 intake prefix且 cache 也不存在（legacy task）→ 保留既有需求內容，**不得猜原始 prompt**；必要時要求 Human 補充。
 - **對應表兩處要一致**：`/plan-sync`（中途同步）用同一組區塊。改這張表時要同步確認 `plan-sync` 的版本，否則同一份 plan.md 會在中途同步與結案同步落到不同區塊。
 
@@ -482,7 +485,7 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 
 ## 邊界情況
 
-- **`notion.page_id` 為空**：建議先用 `/plan-sync` 建立 Notion 條目
+- **`notion.page_id` 為空**：先用 `/plan-sync` 執行 intake cache/page recovery；不要在 `/plan-close` 直接建立第二個 page
 - **plan.md 不存在（v1 舊任務，只有 README.md）**：本 skill 的 v2 流程不適用 —— 明說「該任務仍是 v1 格式」，不要當成通過、也不要跑漂移檢查（沒有錨點可檢查）
 - **plan.md 存在但零錨點**：script 回 D7 WARN（過渡期），照 WARN 流程請使用者放行；放行後照常蓋章
 - **`drift_policy: off`**：不檢查、不蓋章，照常結案，回報明寫「未檢查」
