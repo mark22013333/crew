@@ -113,7 +113,7 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 完整契約見 `../../references/uat-gate.md`。為了避免沿用前一次結案嘗試的 stale approval，**每次進入本節先重設本輪 UAT**：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status pending --by crew \
   --reason "plan-close requires fresh human acceptance for current delivery"
 ```
@@ -131,7 +131,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 只有使用者在**本輪**明確表示接受，才可以執行：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status approved --by human \
   --reason "user explicitly accepted current feature delivery"
 ```
@@ -139,7 +139,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 若使用者不接受或提出修改：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status rejected --by human \
   --reason "user requested additional feature changes"
 ```
@@ -154,7 +154,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 UAT 通過後先做 exit check：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
 ```
 
 ### 5. 漂移硬關卡（文件硬關卡，🔴 不可跳過）
@@ -162,7 +162,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --r
 **必須在 `git add -f` 與任何 Notion 呼叫之前執行。** Human UAT 與文件漂移現在都是正式硬關卡：UAT 管「人是否接受」，漂移管「文件是否可信」。
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
+python3 "${CREW_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
   --spec .spec/{slug}/plan.md --format json
 echo "exit=$?"
 ```
@@ -245,7 +245,7 @@ verified_at: 2026-07-28
 `deploy-checklist.md` 已廢除（它是 `deploy.sql` 的 derived view，會自己過期）。部署進度改記在 `state.json`：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
   --deploy-total {deploy.sql 的 -- Step N 數量} --deploy-confirmed 0
 ```
 
@@ -415,11 +415,11 @@ Bug 頁面用的是 `/plan-start` 的 Bug 模板（🔴 問題描述 / 🔍 調�
 Notion 同步完成後寫回狀態，**不手寫任何欄位**。`close=done` 受 runtime UAT hard gate 保護，若 gate 不是 `approved` / `waived`，這一步必須失敗：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
   --step close --status done --phase close \
   --last-commit "$(git rev-parse HEAD)" \
   --mirrored-status "{Notion 上的狀態字串，例：測試中}" --synced-now
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase close
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase close
 ```
 
 - `steps.close.status = done` 就是「已結案」的唯一判準；`/plan-status`、`/plan-next`、SessionStart 提醒都讀這裡。
