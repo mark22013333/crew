@@ -364,7 +364,7 @@ drift_policy: normal
 流程狀態不寫進 plan.md，一律由單一寫者 `crew-state.py` 建立與更新：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" init \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" init \
   --slug {slug} --name "{CONFIRMED_TITLE}" --type {feature|bug} \
   --notion-page-id {Notion 頁面 ID，沒有就省略} \
   --commit "$(git rev-parse HEAD 2>/dev/null)"
@@ -438,7 +438,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" init \
 2. 更新 Notion 條目的「修復分支」欄位
 3. 寫回狀態（**不要**手寫任何欄位）：
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set \
+   python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set \
      --slug {slug} --branch {分支名} --base {prod_branch}
    ```
 
@@ -454,7 +454,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" init \
 - 對本地狀態的驗證，**一律用 script 判定**，不用肉眼看檔案：
 
   ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase start
+  python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase start
   ```
 
 #### 自動驗證項目
