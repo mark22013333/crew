@@ -32,6 +32,7 @@ SHARED_FILES=(
   host-capabilities.md
   model-routing.json
   config-contract.md
+  intake-refinement.md
 )
 SRC_DIR="$REPO_ROOT/plugins/bug-workflow/references"
 DST_DIR="$REPO_ROOT/plugins/feature-workflow/references"
@@ -57,7 +58,7 @@ usage() {
 
 權威來源：plugins/bug-workflow/（只改這份，改完跑本腳本同步）
 同步目標：plugins/feature-workflow/
-共用 reference：prerequisites.md、db-templates.md、discipline-preamble.md、notion-backend.md、state-discipline.md、model-policy.md、host-capabilities.md、model-routing.json、config-contract.md
+共用 reference：prerequisites.md、db-templates.md、discipline-preamble.md、notion-backend.md、state-discipline.md、model-policy.md、host-capabilities.md、model-routing.json、config-contract.md、intake-refinement.md
 共用 script：scripts/crew-state.py、scripts/crew-model-route.py、scripts/crew-config.py（來源尚未建立時跳過；目標目錄自動 mkdir -p）
 EOF
 }

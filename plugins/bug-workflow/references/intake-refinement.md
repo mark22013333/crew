@@ -145,6 +145,8 @@ Bug state 的 `name` 使用 `CONFIRMED_TITLE`，不把 raw prompt 塞進 state s
 
 若重跑 `/bug-start` 遇到同 slug 且現有 state 為 `type=bug, phase=start`、`notion.page_id` 空白、intake cache 與本輪 confirmed intake 相符，應先詢問 Human 是否沿用該 pending task；不要直接建立數字後綴的第二份 task。
 
+若 original request 無法恢復，**不得猜原文**；詢問 Human 或標記 unavailable。
+
 ## Existing-task rule
 
 以下情況**不重新 refine**：

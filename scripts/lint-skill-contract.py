@@ -76,6 +76,12 @@ INTAKE_AGENT = REPO / "plugins" / "feature-workflow" / "agents" / "feature-intak
 INTAKE_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "intake-refinement.md"
 NOTION_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "notion-page-template.md"
 
+BUG_START = REPO / "plugins" / "bug-workflow" / "skills" / "bug-start" / "SKILL.md"
+BUG_INVESTIGATE = REPO / "plugins" / "bug-workflow" / "skills" / "bug-investigate" / "SKILL.md"
+BUG_SETUP = REPO / "plugins" / "bug-workflow" / "skills" / "bug-setup" / "SKILL.md"
+BUG_INTAKE_AGENT = REPO / "plugins" / "bug-workflow" / "agents" / "bug-intake-refiner.md"
+BUG_INTAKE_CONTRACT = REPO / "plugins" / "bug-workflow" / "references" / "intake-refinement.md"
+
 
 def parse_frontmatter(text: str) -> dict | None:
     m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
@@ -327,8 +333,90 @@ def check_plan_start_intake_contract() -> list[str]:
             errors.append(f"{close_rel} 缺 intake close marker：{marker}")
 
     setup = PLAN_SETUP.read_text(encoding="utf-8")
-    if "5 個獨立 Agent" not in setup or "feature-intake-refiner" not in setup:
-        errors.append(f"{PLAN_SETUP.relative_to(REPO)} 未把 intake refiner 納入 Agent setup")
+    for marker in ("Agent availability", "feature-intake-refiner", "不是 Slash Skills", "inline / sequential fallback"):
+        if marker not in setup:
+            errors.append(f"{PLAN_SETUP.relative_to(REPO)} 缺 Host-dependent Agent marker：{marker}")
+
+    return errors
+
+
+def check_bug_start_intake_contract() -> list[str]:
+    errors: list[str] = []
+    required_files = (
+        BUG_START,
+        BUG_INVESTIGATE,
+        BUG_SETUP,
+        BUG_INTAKE_AGENT,
+        BUG_INTAKE_CONTRACT,
+    )
+    for path in required_files:
+        if not path.is_file():
+            errors.append(f"{path.relative_to(REPO)} 不存在")
+    if errors:
+        return errors
+
+    start = BUG_START.read_text(encoding="utf-8")
+    start_rel = BUG_START.relative_to(REPO)
+    for marker in (
+        "role=`bug-intake-refiner`",
+        "task=`requirement_analysis`",
+        "profile=`STANDARD`",
+        "ORIGINAL_REQUEST",
+        "REFINED_REQUEST",
+        "CONFIRMED_TITLE",
+        "Human intake confirmation",
+        "zero side effect",
+        ".cache/intake.md",
+        "../../references/intake-refinement.md",
+        "### 原始通報",
+        "### 確認後問題描述",
+    ):
+        if marker not in start:
+            errors.append(f"{start_rel} 缺 Bug intake marker：{marker}")
+
+    confirm_at = start.find("#### 1-4. Human intake confirmation")
+    notion_at = start.find("### 5. 建立 Notion 條目")
+    state_at = start.find("### 5.5 建立最小 Bug Runtime State")
+    if min(confirm_at, notion_at, state_at) < 0:
+        errors.append(f"{start_rel} 缺 Bug intake/side-effect 章節，無法驗證順序")
+    elif not (confirm_at < notion_at < state_at):
+        errors.append(f"{start_rel} Human confirmation 必須早於 Notion/state side effects")
+
+    agent = BUG_INTAKE_AGENT.read_text(encoding="utf-8")
+    for marker in (
+        "name: bug-intake-refiner",
+        "model: sonnet",
+        "不做根因分析",
+        "全程唯讀",
+        "blocking_questions",
+    ):
+        if marker not in agent:
+            errors.append(f"{BUG_INTAKE_AGENT.relative_to(REPO)} 缺 Bug intake agent marker：{marker}")
+
+    contract = BUG_INTAKE_CONTRACT.read_text(encoding="utf-8")
+    for marker in (
+        "Feature / Plan:",
+        "Bug:",
+        "feature-intake-refiner",
+        "bug-intake-refiner",
+        "ORIGINAL_REQUEST",
+        "REFINED_REQUEST",
+        ".cache/intake.md",
+        "不得猜原文",
+        "zero side effect",
+    ):
+        if marker not in contract:
+            errors.append(f"{BUG_INTAKE_CONTRACT.relative_to(REPO)} 缺 shared intake contract marker：{marker}")
+
+    investigate = BUG_INVESTIGATE.read_text(encoding="utf-8")
+    for marker in ("Bug Intake Refiner + Human confirmation", "既有 Bug 不重新跑 intake refinement"):
+        if marker not in investigate:
+            errors.append(f"{BUG_INVESTIGATE.relative_to(REPO)} 缺 Bug intake handoff marker：{marker}")
+
+    setup = BUG_SETUP.read_text(encoding="utf-8")
+    for marker in ("Agent availability", "bug-intake-refiner", "不是 Slash Skill", "inline"):
+        if marker not in setup:
+            errors.append(f"{BUG_SETUP.relative_to(REPO)} 缺 Bug Agent availability marker：{marker}")
 
     return errors
 
@@ -354,6 +442,7 @@ def main() -> int:
     errors.extend(check_crew_upgrade_contract())
     errors.extend(check_plan_verify_contract())
     errors.extend(check_plan_start_intake_contract())
+    errors.extend(check_bug_start_intake_contract())
 
     for e in errors:
         print(f"❌ {e}")
