@@ -359,7 +359,7 @@ exit gate：
 
 「實際行為」可用 `REFINED_REQUEST` 中明確描述的症狀預填，但不得把 ambiguity 或推測根因寫成事實。
 
-Step 6 寫入／修復完成後必須重新 fetch；只有確認 `### 原始通報` 與 `### 確認後問題描述` 都存在，才能刪除 `.cache/intake.md`。若沿用既有 page，依 shared intake contract 的 **Bug intake recovery preflight** 保留既有內容並補缺少 section。
+Step 6 寫入／修復完成後必須重新 fetch；只有確認 `### 原始通報`、`### 確認後問題描述` **以及五個標準 Bug sections 全部存在**，才能刪除 `.cache/intake.md`。若沿用既有 page，依 shared intake contract 的 **Bug intake recovery preflight** 保留既有內容並補缺少 section。
 
 🔴 **Step 6 completion gate**：
 
