@@ -78,7 +78,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" list --all --format json
 
 - 保留既有頁面內容。
 - 補回 intake prefix / 缺少的標準 Bug sections。
-- fetch 驗證 `### 原始通報` + `### 確認後問題描述` 後才刪 cache。
+- fetch 驗證兩個 intake headings **以及五個標準 Bug sections** 全部存在後才刪 cache。
 - recovery 失敗 → **BLOCK close**，保留 cache，不得進 UAT/結案。
 
 ### 4. 退出驗證門檻
