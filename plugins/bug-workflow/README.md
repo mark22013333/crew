@@ -62,7 +62,8 @@ flowchart TD
     Blocking -- "no" --> Confirm{"Human confirms intent?"}
     Confirm -- "modify" --> Refiner
     Confirm -- "cancel" --> Stop["Stop<br/>zero side effect"]
-    Confirm -- "confirmed" --> Start["/bug-start<br/>Notion + minimal bug state"]
+    Confirm -- "confirmed" --> Cache[".cache/intake.md<br/>first post-confirmation side effect"]
+    Cache --> Start["/bug-start<br/>Notion + minimal bug state"]
     Start --> Investigate["/bug-investigate"]
 ```
 
@@ -73,8 +74,12 @@ flowchart TD
 - 已存在的 Bug、`/bug-investigate --resume`、`/bug-update`、`/bug-fix`、`/bug-close` 不重新 refine。
 - Host 支援 named sub-agent 時使用 `bug-intake-refiner`；不支援時 inline 執行同一 shared contract。
 - Human confirmation 前禁止 Notion/state/`.spec` side effect。
+- Human confirmation + slug 決定後，`.spec/{slug}/.cache/intake.md` 是**第一個 post-confirmation task side effect**；固定保存 original/refined/title 與 `notion_page_id`。
+- Notion page create 成功後，page ID 會在 state init 前先寫回 cache；即使 state init 中斷，重跑也能沿用既有 page，不建立 duplicate task/page。
 - Notion「🔴 問題描述」保存 `### 原始通報` + `### 確認後問題描述`。
-- Notion 暫時失敗時保留 `.spec/{slug}/.cache/intake.md`，成功持久化並 fetch 驗證後才刪除。
+- `/bug-investigate`、`/bug-update`、`/bug-close` 都執行 **Bug intake recovery preflight**：保留既有內容、補缺少的 intake/template sections，重新 fetch 驗證成功後才刪 cache。
+- `/bug-close` 先以 Notion page ID deterministic 綁定唯一 Bug state / slug，再進 UAT gate；找不到或多筆都 BLOCK。
+- CREW scripts 一律先解析 `CREW_PLUGIN_ROOT`，不直接依賴 Claude marketplace path。
 
 完整 contract 見 [references/intake-refinement.md](references/intake-refinement.md)。
 
