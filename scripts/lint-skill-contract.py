@@ -263,8 +263,6 @@ def check_plan_start_intake_contract() -> list[str]:
         "Human intake confirmation",
         "零 side effect",
         ".cache/intake.md",
-        "notion_page_id",
-        "第一個 post-confirmation side effect",
         "../../references/intake-refinement.md",
     )
     for marker in start_required:
@@ -381,6 +379,9 @@ def check_bug_start_intake_contract() -> list[str]:
         "Human intake confirmation",
         "zero side effect",
         ".cache/intake.md",
+        "notion_page_id",
+        "第一個 post-confirmation side effect",
+        "Step 6 completion gate",
         "../../references/intake-refinement.md",
         "### 原始通報",
         "### 確認後問題描述",
