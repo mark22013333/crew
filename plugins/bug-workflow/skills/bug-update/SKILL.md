@@ -32,6 +32,8 @@ description: 調查 Bug 過程中隨時將 log、SQL、判斷、截圖更新到�
 
 參照 plugin 根目錄 `references/locate-bug.md`（相對 SKILL.md 為 `../../references/`）。選定後，使用 `notion-fetch` 取得頁面完整內容，以便後續 `update_content` 操作。
 
+定位成功後 **跳到 Step 1.5**；不要執行 1-B。1.5 recovery 完成後，一般更新模式進 Step 2。
+
 ### 1-B. 定位目標 Bug 頁面（Reopen 模式）
 
 Reopen 模式需要定位「測試中」或「已完成」的 Bug。
@@ -104,7 +106,11 @@ Recovery 若需要補頁面：
 - 再次 `notion-fetch` 確認兩個 intake headings 後才刪 cache。
 - recovery 失敗 → **BLOCK 本輪 mutation**，保留 cache。
 
-**定位成功後，執行 Reopen 操作**：
+完成後依模式分流：
+- 一般更新 → 直接進 **Step 2**。
+- Reopen → 執行下方 Reopen 操作，完成後回傳，不再進一般更新 Step 2–5。
+
+**Reopen 模式：執行 Reopen 操作**：
 
 1. **更新狀態**：使用 `notion-update-page` 將狀態從「測試中/已完成」改回「進行中」
 2. **新增復發紀錄**：使用 `notion-update-page` 的 `update_content`，在「驗證」區塊之前插入「復發紀錄」區塊：
