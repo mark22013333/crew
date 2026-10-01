@@ -23,6 +23,18 @@ description: 手動中途同步 .spec/ 目錄當前進度到 Notion（含 deploy
 
 > **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定目錄 + 專案註冊）。
 
+解析 plugin root：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+[ -n "$CREW_PLUGIN_ROOT" ] || {
+  echo "無法解析 plugin root"
+  exit 1
+}
+```
+
+後續所有 CREW script 都使用 `$CREW_PLUGIN_ROOT/scripts/...`，不得直接依賴 Host marketplace/cache path。
+
 ---
 
 ## 使用方式
@@ -53,7 +65,7 @@ description: 手動中途同步 .spec/ 目錄當前進度到 Notion（含 deploy
 - 建立後把頁面 ID 交給單一寫者寫回（🔴 不要手改 `state.json`）：
 
   ```bash
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --notion-page-id {page_id}
+  python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --notion-page-id {page_id}
   ```
 
 ### 3. 確定同步範圍
@@ -103,7 +115,7 @@ description: 手動中途同步 .spec/ 目錄當前進度到 Notion（含 deploy
 寫完後把鏡射結果記回狀態檔，讓下次同步知道 Notion 上目前顯示什麼：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set \
   --slug {slug} --mirrored-status "{寫進 Notion 的開發階段字串}" --synced-now
 ```
 
