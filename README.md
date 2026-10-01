@@ -176,10 +176,11 @@ flowchart TD
     Blocking -- "no" --> Confirm{"Human confirms intent?"}
     Confirm -- "修改 / 補充" --> Retry
     Confirm -- "取消" --> Stop["Stop<br/>zero side effect"]
-    Confirm -- "確認" --> Create{"Create task"}
-    Create -- "Feature / Plan" --> Plan["/plan-start side effects<br/>Notion / .spec / branch"]
-    Create -- "Bug" --> Cache[".cache/intake.md<br/>first Bug side effect"]
-    Cache --> Bug["/bug-start<br/>Notion / bug state"]
+    Confirm -- "確認" --> Guard["Persistence security preflight<br/>redact credentials + .spec gitignore safeguard"]
+    Guard --> PlanCache["Plan .cache/intake.md<br/>page-aware recovery journal"]
+    Guard --> BugCache["Bug .cache/intake.md<br/>page-aware recovery journal"]
+    PlanCache --> Plan["/plan-start<br/>Notion / state / plan.md / branch"]
+    BugCache --> Bug["/bug-start<br/>Notion / bug state"]
     Plan --> Spec["/plan spec<br/>feature-spec-analyst"]
     Bug --> Investigate["/bug-investigate"]
 ```
@@ -191,14 +192,18 @@ flowchart TD
 - Human confirmation 是 hard gate；確認前禁止 Notion create/update、`.spec`、state init、Git branch mutation。
 - Host 沒有 `delegate_readonly` / named sub-agent 時，主 Agent inline 執行同一份 shared intake contract；**Human confirmation 不能省略**。
 - 已存在的 task、`/bug-investigate --resume`、後續 plan/bug lifecycle 不重新 refine。
+- Human 確認後、任何 persistence 前做 **security preflight**：疑似 password/token/API key/private key/Cookie 等 credential 必須先請 Human 提供 redacted 版本，不寫進 cache、Notion、plan.md 或 state。
+- 在 Git repo 內建立 intake cache/state 前先確認 `.spec/` 已被 `.gitignore` 保護。
 
 Persistence / recovery：
 
 - Feature Notion 保留 `### 原始需求` + `### 確認後任務描述`；`plan.md` 只保存 confirmed refined brief。
+- Plan 在 Human confirmation + slug 決定後先建立 `.spec/{slug}/.cache/intake.md` recovery journal，保存 original/refined/title/type 與 `notion_page_id`。Notion page create 成功後先把 page ID 寫回 cache，再進 state init。
+- Plan 重跑若遇到 matching cache 且 state 不存在或仍在 `start`，會先詢問是否沿用 pending task；cache 有 page ID 時先 fetch 並沿用，避免 duplicate page/task。
+- `/plan-sync` 會先做 cache/page/state reconciliation：page ID 先寫 cache，再由 state writer 綁定，fetch 驗證 intake prefix 後才清 cache；`/plan-close` 遇到 page ID 不一致會 BLOCK，不猜 page。
 - Bug Notion 保留 `### 原始通報` + `### 確認後問題描述`；Bug state `name` 使用 confirmed title。
-- Bug 在 Human confirmation + slug 決定後，**先寫 `.spec/{slug}/.cache/intake.md`，再做 Notion/state**。cache 保存 original/refined/title 與 `notion_page_id`；Notion page create 成功後，會在 state init 前把 page ID 寫回 cache。
-- `/bug-investigate`、`/bug-update`、`/bug-close` 定位既有 Bug 後都會執行 **Bug intake recovery preflight**：若 cache 尚在，就補回缺少的 intake prefix / 標準 template sections，重新 fetch 驗證後才刪 cache。
-- Feature 的 Notion/body 暫時失敗仍使用 `.spec/{slug}/.cache/intake.md`；由 `/plan-sync` / `/plan-close` 成功補同步後刪除。
+- Bug recovery journal 同樣保存 `notion_page_id`；`/bug-investigate`、`/bug-update`、`/bug-close` 都執行 **Bug intake recovery preflight**。
+- Bug cache 只有在重新 fetch 確認兩個 intake headings **以及五個標準 Bug sections（調查過程／根因分析／修復方案／驗證／經驗教訓）**都存在後才刪除。
 - CREW 內建 scripts 透過 `CREW_PLUGIN_ROOT` / `plugin_root` capability 解析，不依賴某一家 Host marketplace/cache path。
 - Refiner 不是 Slash Skill，所以不會出現在 `/` command list；workflow 會自動使用。
 
