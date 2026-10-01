@@ -173,7 +173,38 @@ Git Repo 識別碼解析規則：
 從 `CONFIRMED_TITLE` 產生英文 slug：
 - 中文 → 翻譯為簡短英文（如「推播標籤查詢」→ `push-tag-query`）
 - 已經是英文 → 轉為 kebab-case
-- 確認 `.spec/{slug}/` 不存在，若存在則加數字後綴
+- 若 `.spec/{slug}/` 不存在 → 使用此 slug。
+- 若 directory 已存在，檢查 `.cache/intake.md`：
+  - cache 與本輪 `ORIGINAL_REQUEST / REFINED_REQUEST / CONFIRMED_TITLE / type` 相符，且 `state.json` 不存在或仍是同 type 的 `phase=start` → 詢問 Human 是否沿用 pending task。
+  - Human 確認沿用 → `REUSE_PENDING_TASK=true`，保留同 slug。
+  - cache 不相符、state 已進入後續 phase、或 Human 不沿用 → 才加數字後綴。
+- 🔴 不使用 `crew-state.py init --force` 覆蓋既有 task。
+
+### 4.5 建立 intake recovery cache（第一個 post-confirmation task side effect）
+
+slug 決定後，在 Notion create / state init 之前建立：
+
+```text
+.spec/{slug}/.cache/intake.md
+```
+
+固定保存：
+
+```text
+original_request: {ORIGINAL_REQUEST}
+refined_request: {REFINED_REQUEST}
+refined_title: {CONFIRMED_TITLE}
+task_type: {feature|bug}
+notion_page_id: ""
+```
+
+規則：
+
+- 這是 Human confirmation 後第一個 task side effect；confirmation 前仍是 zero side effect。
+- 若沿用 pending task，保留既有 cache，僅在內容與本輪 confirmed intake 相符時繼續。
+- cache 的 `notion_page_id` 非空時，後續 Step 6 必須先 fetch 驗證並優先沿用，不得重複 create。
+- Notion create 一成功，**在 state init 前立即把 page ID 寫回 cache**。
+- cache 只有在 Notion intake prefix 已 fetch 驗證成功，且 state 已成功綁定同一 page ID（或 Notion unavailable 而明確維持 pending sync）後才能刪除。
 
 ### 5. 偵測負責人
 
@@ -209,16 +240,21 @@ Git Repo 識別碼解析規則：
 
 #### 兩步法建立頁面
 
-**Step A**：使用 `post-page` 建立頁面（僅 properties，不帶 children）。
+**Step A**：
+
+- 若 `REUSE_PENDING_TASK=true` 且 cache 的 `notion_page_id` 非空 → 先 `notion-fetch` 驗證該 page；存在就沿用，不再 create。
+- 若既有 `state.json` 的 `notion.page_id` 非空 → 與 cache page ID 交叉確認；一致時沿用，衝突時 **BLOCK**，不得猜哪一個正確。
+- 否則使用 `post-page` 建立頁面（僅 properties，不帶 children）。
+- page create 成功後，先把 `NOTION_PAGE_ID` 寫回 `.cache/intake.md`，成功後才進 Step B / state init。cache 寫入失敗 → **BLOCK**，避免重跑時建立 duplicate page。
 
 > **database_id 解析**：`config.md` 中的 Data Source ID 不能直接用於 `post-page` 的 `parent.database_id`。需先依照 plugin 根目錄 `references/plan-common.md`（相對 SKILL.md 為 `../../references/`）的「Notion database_id 解析」邏輯，呼叫 `retrieve-a-data-source` 取得底層 `database_id`。
 
 **Step B**：取得 `page_id` 後，使用 `patch-block-children` 追加 plugin 根目錄 `references/notion-page-template.md`（相對 SKILL.md 為 `../../references/`）的標準 5 區塊模板。Feature 的「📋 需求描述」必須先寫入 `ORIGINAL_REQUEST` 與 Human 確認後的 `REFINED_REQUEST`；後續 plan-sync/plan-close 只能更新它們之後的 spec projection。
 
 **錯誤處理**：
-- Step A 失敗 → 本地 `.spec/` 目錄照常建立，`notion.page_id` 留空；建立本地 task 後把 original/refined intake 暫存到 `.spec/{slug}/.cache/intake.md`
-- Step B 失敗 → 頁面已建立（有 properties 無 body）；同樣暫存 `.cache/intake.md`，提示可用 `/plan-sync` 補寫
-- Step B 成功且已確認 Notion 中 original/refined intake 都存在 → 不需要建立 intake cache
+- Step A 失敗 → `notion.page_id` 留空，保留既有 `.cache/intake.md`；本地 task 可繼續建立，稍後由 `/plan-sync` 補建。
+- Step B 失敗 → page ID 已在 cache 中；保留 cache，提示用 `/plan-sync` 補寫 body。
+- Step B 成功 → 重新 fetch 驗證 original/refined intake prefix；**此時仍先不要刪 cache**，要等 Step 7-3 state 綁定/驗證完成。
 
 #### Bug 類型
 
@@ -293,7 +329,7 @@ Git Repo 識別碼解析規則：
 - **如何預防**：
 ```
 
-建立方式同 Feature 的兩步法（Step A + Step B），但 Step B 追加的是上方內嵌模板，而非 `references/notion-page-template.md`。其中 `### 原始通報` / `### 確認後問題描述` 是 Bug intake prefix；後續同步不得覆蓋。若 Step A/B 失敗，同樣使用 `.spec/{slug}/.cache/intake.md` 保存 original/refined。
+建立方式同 Feature 的兩步法（Step A + Step B），但 Step B 追加的是上方內嵌模板，而非 `references/notion-page-template.md`。其中 `### 原始通報` / `### 確認後問題描述` 是 Bug intake prefix；後續同步不得覆蓋。cache / page reuse / page ID journal 規則完全沿用 Step A 的 durable recovery contract。
 
 ### 7. 建立 .spec/{slug}/ 本地任務目錄
 
@@ -312,7 +348,9 @@ Git Repo 識別碼解析規則：
 mkdir -p .spec/{slug}
 ```
 
-用 **Write** 建立 `.spec/{slug}/plan.md`，內容**就是**下方骨架（六個章節、六個 HTML 錨點註解，各節留空）。
+若 `REUSE_PENDING_TASK=true` 且 `plan.md` 已存在 → 不重寫；先確認 frontmatter `slug/name/type` 與本輪 confirmed task 相符，再沿用。
+
+否則用 **Write** 建立 `.spec/{slug}/plan.md`，內容**就是**下方骨架（六個章節、六個 HTML 錨點註解，各節留空）。
 `type` 依步驟 1 的推斷填 `feature` 或 `bug`；`verified_at_commit` 與 `verified_at` **留空**（只有 `/plan-drift` 與 `/plan-close` 能寫）。
 
 ```markdown
@@ -346,22 +384,14 @@ drift_policy: normal
 🔴 **不要**在骨架裡塞需求全文、API 表、欄位清單或範例錨點 —— 章節內容由 `/plan` 的三個 pass 依 `references/plan-common.md`「章節契約」填入。
 🔴 **不建立**其他任何永久文件檔；一個任務的永久 artifact 只有 `plan.md` ＋ `state.json`（＋ DB 階段才產生的 `deploy.sql`）。
 
-若 Notion Step A/B 沒有成功持久化 intake，允許建立**暫存 recovery cache**：
+Step 4.5 的 `.cache/intake.md` 是 recovery journal，不是永久 artifact；不得因 plan.md 已建立就提前刪除。
 
-```text
-.spec/{slug}/.cache/intake.md
-```
+#### 7-3. 建立／沿用 state.json（唯一權威）
 
-內容固定保存：
-- `original_request`：`ORIGINAL_REQUEST` 原文
-- `refined_request`：Human 確認後的 `REFINED_REQUEST`
-- `refined_title`：`CONFIRMED_TITLE`
+流程狀態不寫進 plan.md，一律由單一寫者 `crew-state.py` 建立與更新。
 
-此檔屬 `.cache/`、不進 Git，不是 workflow truth；`/plan-sync` 或 `/plan-close` 成功補進 Notion 後刪除。
-
-#### 7-3. 建立 state.json（唯一權威）
-
-流程狀態不寫進 plan.md，一律由單一寫者 `crew-state.py` 建立與更新：
+- `REUSE_PENDING_TASK=true` 且 `state.json` 已存在 → **不要重新 init**；先確認 type/phase，若 state page ID 空而 cache/Notion 已有 page ID，使用 `crew-state.py set --notion-page-id` 綁回。
+- state 不存在 → 執行：
 
 ```bash
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" init \
@@ -370,7 +400,13 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" init \
   --commit "$(git rev-parse HEAD 2>/dev/null)"
 ```
 
-`init` 會把 `start` 標為 done、`phase` 設為 `start`。exit 1（slug 已存在）→ 確認是否重複建立；exit 3（環境問題）→ 修好再重跑，**不要**改用手寫 JSON。
+接著必須 validate，並交叉確認 state 的 `notion.page_id` 與 cache/本輪 page ID 一致（Notion unavailable 時可同為空）。
+
+- Notion page 存在：只有「state 綁定成功」且重新 fetch 確認對應 intake prefix 完整後，才刪 `.cache/intake.md`。
+- Notion unavailable：保留 cache，標記 pending sync；不要刪。
+- 任一步驟失敗：保留 cache，讓重跑可沿用同一 task/page。
+
+`init` exit 1 但本輪不是已確認的 pending reuse → 視為 collision，回 Step 4；exit 3（環境問題）→ 修好再重跑，**不要**改用手寫 JSON。
 
 #### 7-4. Bug 自動關聯 Feature
 
