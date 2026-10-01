@@ -1,6 +1,6 @@
 # CREW Intake Refinement Contract
 
-> 所有「新的 raw request」在建立 CREW task 之前，都先經過唯讀 intake refinement 與 Human confirmation。Feature/Plan 與 Bug 使用相同語意 contract，但各 plugin 帶自己的 named Agent 定義，維持可獨立安裝。
+> 所有新的 raw user request / raw issue 在建立 CREW task 之前，都先經過唯讀 intake refinement 與 Human confirmation。Feature/Plan 與 Bug 使用相同語意 contract，但各 plugin 帶自己的 named Agent 定義，維持可獨立安裝。
 
 ## 入口
 
