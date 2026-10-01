@@ -1,12 +1,12 @@
 ---
 name: bug-start
-description: 在 Notion 任務追蹤工具建立 Bug 條目並建立最小 .spec/{slug}/state.json（不建立 plan.md、不建立新 Git branch）。當使用者提到 /bug-start、「建立 bug 條目」、「記錄 bug 到 Notion」、「bug 通報」時觸發此 Skill。
+description: 先用唯讀 Bug Intake Refiner 整理 raw issue 並取得 Human 明確確認，再在 Notion 建立 Bug 條目與最小 .spec/{slug}/state.json（不建立 plan.md、不建立新 Git branch）。當使用者提到 /bug-start、「建立 bug 條目」、「記錄 bug 到 Notion」、「bug 通報」時觸發此 Skill。
 argument-hint: "<問題簡述> [環境] [優先順序]"
 ---
 
 # Bug Start — 建立 Bug 條目與最小 Runtime State
 
-在 Notion「任務追蹤工具」資料庫建立一筆 Bug 條目，自動填入標準化頁面模板並關聯對應專案；同時建立最小 `.spec/{slug}/state.json` 作為 Bug lifecycle 的 runtime 斷點。**不建立 `plan.md`、不建立新 Git branch。**
+先把 raw issue 經唯讀 `bug-intake-refiner` 整理並由 Human 確認，再在 Notion「任務追蹤工具」建立 Bug 條目與最小 `.spec/{slug}/state.json`。**Human confirmation 前 zero side effect；不建立 `plan.md`、不建立新 Git branch。**
 
 ---
 
@@ -14,16 +14,87 @@ argument-hint: "<問題簡述> [環境] [優先順序]"
 
 > **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
-### 1. 解析使用者輸入
+### 1. Intake refinement（任何 side effect 之前）
 
-使用者會以以下格式觸發：
+完整 contract 見 `../../references/intake-refinement.md`。
 
+使用格式：
+
+```text
+/bug-start <問題簡述> [環境] [優先順序]
 ```
-/bug-start <問題簡述>
+
+#### 1-1. 分離 control metadata 與原始問題
+
+- 移除 `/bug-start`。
+- 若尾端 token 明確等於環境 `測試|UAT|正式` 或優先順序 `高|中|低`，視為 control metadata。
+- 其餘自然語言內容原封不動保存為 `ORIGINAL_REQUEST`；不得先潤稿再宣稱是原文。
+- 若無自然語言內容 → BLOCK，要求使用者提供問題描述。
+
+#### 1-2. 呼叫 Bug Intake Refiner
+
+先取得 routing：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
+  --task requirement_analysis --risk low --complexity low \
+  --host portable --format json
 ```
 
-從使用者輸入中擷取：
-- **問題簡述**（必填）：作為「任務名稱」
+依 `../../references/host-capabilities.md` 呼叫 `delegate_readonly`：
+- role=`bug-intake-refiner`
+- task=`requirement_analysis`
+- profile=`STANDARD`
+- risk=`low`
+- complexity=`low`
+
+Host 無 named sub-agent / delegation 時，主 Agent inline 執行同一份唯讀 contract；**不得跳過 refinement 或 Human confirmation**。
+
+輸入：
+- `ORIGINAL_REQUEST`
+- environment / priority control metadata
+- `project_instructions`
+- blocking question 的 Human 補充回答（若有）
+
+輸出：
+- `refined_title`
+- `refined_request`
+- `known_constraints`
+- `ambiguities`
+- `blocking_questions`（最多 3）
+- `type_hint=bug`（advisory）
+
+#### 1-3. Blocking ambiguity
+
+若 `blocking_questions` 非空：
+1. 問 Human。
+2. 把回答連同 `ORIGINAL_REQUEST` 再交給 refiner。
+3. 重新產 refined result。
+4. 此時仍禁止 Notion/state/.spec side effect。
+
+#### 1-4. Human intake confirmation（硬邊界）
+
+顯示 original + refined，讓 Human 選：
+
+```text
+1. 確認，建立 Bug
+2. 我要修改／補充（重新 refine）
+3. 不採用潤飾，使用原始問題作 confirmed brief
+4. 取消
+```
+
+只有本輪明確選 1 或 3 才能繼續：
+- 選 1 → `CONFIRMED_TITLE=refined_title`、`REFINED_REQUEST=refined_request`
+- 選 2 → 合併補充後重跑 refiner，再次確認
+- 選 3 → `REFINED_REQUEST=ORIGINAL_REQUEST`，標題只做最小短標題化
+- 選 4 → 結束，**zero side effect**
+
+🔴 confirmation 前禁止：
+- Notion create/update
+- mkdir `.spec`
+- `crew-state.py init`
+- Git branch mutation
 
 ### 2. 偵測環境資訊（自動專案對應）
 
@@ -72,11 +143,13 @@ git remote get-url origin 2>/dev/null || echo ""
 
 ### 3.5 產生 runtime slug
 
-沿用 `/plan-start` 的 slug 規則，從問題簡述產生可重現的英文 slug：
+沿用 `/plan-start` 的 slug 規則，從 `CONFIRMED_TITLE` 產生可重現的英文 slug：
 
 - 中文 → 翻譯為簡短英文
 - 已經是英文 → 轉為 kebab-case
-- 確認 `.spec/{slug}/` 不存在；若存在則加數字後綴
+- 先確認 `.spec/{slug}/` 是否存在。
+- 若已存在且其 state 為 `type=bug, phase=start`、`notion.page_id` 空白，且 `.cache/intake.md` 與本輪 confirmed intake 相符 → 詢問 Human 是否沿用 pending task；確認沿用時不要重新 init。
+- 其他 collision 才加數字後綴
 - 🔴 不使用 Notion page ID 當 slug
 - 🔴 不使用 `crew-state.py init --force` 覆蓋既有任務
 
@@ -107,7 +180,7 @@ git remote get-url origin 2>/dev/null || echo ""
 
 | 欄位 | 值 |
 |------|-----|
-| 任務名稱 | 使用者提供的問題簡述 |
+| 任務名稱 | `CONFIRMED_TITLE` |
 | 任務類型 | `["🐞 錯誤"]` |
 | 狀態 | `進行中` |
 | 優先順序 | 使用者選擇（預設「中」） |
@@ -133,7 +206,7 @@ CURRENT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
 CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" init \
   --slug {slug} \
-  --name "{問題簡述}" \
+  --name "{CONFIRMED_TITLE}" \
   --type bug \
   ${CURRENT_BRANCH:+--branch "$CURRENT_BRANCH"} \
   ${CURRENT_COMMIT:+--commit "$CURRENT_COMMIT"} \
@@ -160,12 +233,32 @@ exit gate：
 >
 > Notion API 失敗不阻擋本地 state 建立：省略 `--notion-page-id`，並在回傳結果提示稍後補同步。
 
+### 5.6 保存 intake recovery cache
+
+Human confirmation 後、state 建立成功後，建立：
+
+```text
+.spec/{slug}/.cache/intake.md
+```
+
+內容固定保存 `original_request`、`refined_request`、`refined_title`。此檔 gitignored、不是 workflow truth。
+
+- Notion page/body 尚未成功寫入 → 保留 cache。
+- Step 6 成功後重新 fetch，確認 `### 原始通報` + `### 確認後問題描述` 都存在 → 才刪除 cache。
+- 不得在「CLI 沒報錯但未 fetch 驗證」時提前刪除。
+
 ### 6. 填入頁面模板
 
 頁面的 content 使用以下標準模板：
 
 ```
 ## 🔴 問題描述
+### 原始通報
+{ORIGINAL_REQUEST}
+
+### 確認後問題描述
+{REFINED_REQUEST}
+
 - **通報來源**：
 - **發生時間**：{當前日期時間}
 - **重現步驟**：
@@ -215,7 +308,9 @@ exit gate：
 - **如何預防**：
 ```
 
-若使用者在初始輸入中已提供問題描述內容，將其預填入「問題描述」區塊的「實際行為」欄位。
+「實際行為」可用 `REFINED_REQUEST` 中明確描述的症狀預填，但不得把 ambiguity 或推測根因寫成事實。
+
+Step 6 寫入成功後必須重新 fetch；只有確認 `### 原始通報` 與 `### 確認後問題描述` 都存在，才能刪除 `.cache/intake.md`。
 
 ### 7. 初始證據收集（自動，不需使用者介入）
 
@@ -307,7 +402,7 @@ start 組 —— 本 skill 建立 Notion Bug + **最小 state.json**；需要完
 - **設定檔不存在**：提示使用者先執行 `/bug-setup` 完成初始設定
 - **不在 Git repo 中**：跳過分支與專案自動偵測，修復分支留空；進入互動式選擇專案；「偵測來源 Feature Branch」跳過
 - **使用者未指定專案**：列出進行中的專案供選擇；若只有一個專案則自動選定
-- **Notion API 失敗**：仍建立本地 `state.json`（`notion.page_id` 留空），顯示錯誤訊息並提示稍後補同步；不要因此讓 Bug lifecycle 沒有 runtime state
+- **Notion API 失敗**：仍建立本地 `state.json`（`notion.page_id` 留空）並保留 `.cache/intake.md`；不要因此讓 Bug lifecycle 沒有 runtime state，也不要遺失 original/refined intake
 - **「相關任務」欄位不存在**（舊版資料庫）：「自動關聯來源 Feature」的 patch-page 會失敗，靜默跳過並提示使用者執行 `/bug-setup` 更新 schema
 - **專案無任何 Feature 條目**：「自動關聯來源 Feature」的 query 結果為空，跳過關聯
 - **Bug 標題全是停詞**（如「錯誤修復」）：關鍵字擷取為空，跳過「自動關聯來源 Feature」

@@ -307,6 +307,14 @@ mkdir -p "$(dirname "$BUG_CONFIG_WRITE_PATH")"
 
 ### 5. 回傳結果
 
+### Agent availability（Host-dependent）
+
+`bug-workflow` plugin bundle 內含 `bug-intake-refiner` named Agent 定義。它**不是 Slash Skill**，使用者不需要手動呼叫：
+
+- Host 支援 named sub-agent / `delegate_readonly` → `/bug-start` 自動使用 `bug-intake-refiner`。
+- Host 不支援 → 主 Agent inline 執行相同 `references/intake-refinement.md` contract。
+- `/bug-investigate --resume` 與既有 Bug 不重新跑 intake。
+
 向使用者顯示：
 
 ```

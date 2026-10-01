@@ -146,9 +146,13 @@ BUG_CONFIG_JSON="$(python3 "${CREW_PLUGIN_ROOT}/scripts/crew-config.py" resolve 
 
 設定檔產出後，自動詢問是否執行 `/project-add` 新增當前專案。
 
-### 5. Agent 安裝（選用）
+### 5. Agent availability（Host-dependent）
 
-詢問是否安裝 5 個獨立 Agent（feature-intake-refiner / feature-spec-analyst / feature-db-designer / feature-backend-designer / feature-code-generator）。
+plugin bundle 內含 feature-intake-refiner / feature-spec-analyst / feature-db-designer / feature-backend-designer / feature-code-generator 的 Agent 定義。它們不是 Slash Skills，不需要使用者逐一呼叫。
+
+- Host 支援 named sub-agent / delegation → workflow 自動使用對應 Agent。
+- Host 不支援 → 依 Host Capability Contract inline / sequential fallback。
+- `/plan-start` 會自動使用 intake refinement；後續 `/plan spec|db|arch` 使用各自角色，不需手動啟動 Agent。
 
 ### 6. Chrome DevTools MCP 安裝（選用）
 

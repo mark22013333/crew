@@ -25,7 +25,7 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 ## 前置條件
 
 - 已使用 `/bug-start` 建立 Bug 條目（Notion 有「進行中」的 🐞 錯誤）
-- 或使用者直接描述 bug 症狀（此時先執行 /bug-start 再進入調查）
+- 或使用者直接描述新的 bug 症狀（此時先執行 `/bug-start`；它會自動跑 Bug Intake Refiner + Human confirmation，再進入調查）
 
 > **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
@@ -47,7 +47,7 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 
 與 `/bug-update` 相同邏輯：參照 plugin 根目錄 `references/locate-bug.md`（相對 SKILL.md 為 `../../references/`）。
 
-若使用 `--resume`：讀取已有的「調查過程」區塊，從中斷點繼續。
+若使用 `--resume`：讀取已有的「調查過程」區塊，從中斷點繼續；**既有 Bug 不重新跑 intake refinement**。
 
 #### 1.1 綁定 Bug Runtime State（必須）
 
