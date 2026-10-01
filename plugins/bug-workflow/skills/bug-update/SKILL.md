@@ -103,7 +103,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" list --all --format json
 
 Recovery 若需要補頁面：
 - 保留既有內容，只補 intake prefix / 缺少的標準 Bug sections。
-- 再次 `notion-fetch` 確認兩個 intake headings 後才刪 cache。
+- 再次 `notion-fetch`，確認兩個 intake headings **以及五個標準 Bug sections（調查過程／根因分析／修復方案／驗證／經驗教訓）**全部存在後才刪 cache。
 - recovery 失敗 → **BLOCK 本輪 mutation**，保留 cache。
 
 完成後依模式分流：
