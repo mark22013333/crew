@@ -1,4 +1,4 @@
-# Feature Workflow Plugin `v5.0.4`
+# Feature Workflow Plugin `v5.0.5`
 
 跨 Host 的 Feature lifecycle：本地 `.spec/` 規劃、Human approval gates、正式實作、安全/驗證/review、Human UAT 與結案同步。核心 contract 不依賴單一 Host 的 team、subagent 或 provider model 名稱。
 
@@ -52,7 +52,7 @@ codex plugin list
 
 ## Intake refinement
 
-`/plan-start` 在任何 Notion / `.spec` / Git side effect 前，先用唯讀 `feature-intake-refiner` 把 raw request 整理成短標題與 task brief，再由 Human 明確確認。
+`/plan-start` 在任何 Notion / `.spec` / Git side effect 前，先用唯讀 `feature-intake-refiner` 把 raw request 整理成短標題與 task brief，再由 Human 明確確認。Bug plugin 也依同一 shared contract 使用 `bug-intake-refiner`；兩者都不是 Slash Skill。
 
 <!-- crew:diagram intake-refinement-flow -->
 ```mermaid
@@ -64,21 +64,26 @@ flowchart TD
     Blocking -- "no" --> Confirm{"Human confirms intent?"}
     Confirm -- "modify" --> Refiner
     Confirm -- "cancel" --> Stop["Stop<br/>zero side effect"]
-    Confirm -- "confirmed" --> Start["Create Notion / .spec / branch"]
-    Start --> PersistOriginal["Notion<br/>original_request"]
-    Start --> PersistRefined["plan.md<br/>refined_request"]
-    PersistOriginal --> Spec["/plan spec"]
-    PersistRefined --> Spec
+    Confirm -- "confirmed" --> Guard["Persistence security preflight<br/>redact credentials + .spec gitignore safeguard"]
+    Guard --> Cache[".cache/intake.md<br/>original / refined / type / notion_page_id"]
+    Cache --> Start["Create / reuse Notion + state + plan.md + branch"]
+    Start --> Spec["/plan spec"]
     Spec --> Analyst["feature-spec-analyst<br/>Goal / AC / Decisions / Risks"]
 ```
 
-責任分界：
+責任分界與 durability：
 
 - Intake Refiner：回答「使用者到底想做什麼？」；不產 AC、不做 DB/API/架構設計。
 - Human：確認 refined intent；沉默不算核准。
-- `feature-spec-analyst`：任務建立後才把 confirmed brief 工程化成 Goal / AC / Decisions / Risks。
+- persistence 前若疑似含 credential，先要求 Human 提供 redacted 版本；不把 secret 寫進 cache / Notion / plan.md / state。
+- Git repo 內建立 cache/state 前先確認 `.spec/` 已被 `.gitignore` 保護。
+- `feature-spec-analyst`：task 建立後才把 confirmed brief 工程化成 Goal / AC / Decisions / Risks。
 - Notion「📋 需求描述」永久保存 raw original + confirmed refined brief；plan.md 只保留 refined brief。
-- Notion 暫時失敗時，`.spec/{slug}/.cache/intake.md` 暫存 original/refined，成功補同步後刪除，不算永久 artifact。
+- Plan intake cache 是 page-aware recovery journal，保存 `notion_page_id`；Notion create 成功後先 journal page ID，再 init state。
+- 重跑遇到 matching pending task 會先詢問是否沿用；cache 有 page ID 時 fetch/沿用，不建立 duplicate page。
+- `/plan-sync` 會 reconcile cache/page/state 後補建/補寫；只有 state/page/intake 全部一致才刪 cache。`/plan-close` 發現 cache/state page ID 衝突會 BLOCK。
+- `/plan-start`、`/plan-sync`、`/plan-close` 呼叫 CREW scripts 時都先解析 `CREW_PLUGIN_ROOT`；不直接依賴 Claude marketplace/cache path。
+- Shared intake contract 同時定義 Bug durable recovery；Bug cache 必須在 intake headings + 五個標準 Bug sections 全部 fetch 驗證完成後才可刪除，只有 headings 完整仍不夠。Feature plugin 保留同步副本是為了兩個 plugin 都可獨立安裝且 contract 不漂移。
 
 完整 contract 見 [references/intake-refinement.md](references/intake-refinement.md)。
 

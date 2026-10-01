@@ -8,6 +8,80 @@
 
 ---
 
+## [feature-workflow@5.0.5] - 2026-10-01
+
+> **Shared intake contract。** Feature / Plan 與 Bug 的新 raw request 都自動經過 intake refinement + Human confirmation；named Agent 是 workflow 內部執行元件，不是 Slash Skill。
+
+### Changed
+
+- `references/intake-refinement.md` 泛化為 Bug/Feature 共用 contract，並納入 shared-ref SHA256 防漂移。
+- `/plan-setup` 改為 Host-dependent Agent availability 說明：
+  - Host 支援 named sub-agent / delegation → workflow 自動使用。
+  - Host 不支援 → inline / sequential fallback。
+- Feature / root README 明確說明 Intake Refiner 不會出現在 Slash Skill 清單。
+
+### Fixed
+
+- `/plan-start`、`/plan-sync`、`/plan-close` 對 CREW scripts 改為統一解析 `CREW_PLUGIN_ROOT`，移除 active lifecycle 內直接使用 `${CLAUDE_PLUGIN_ROOT}/scripts/...` 的 Host coupling。
+- Plan intake recovery 改為 page-aware durable journal：
+  - Human confirmation 後先做 credential redaction preflight 與 `.spec/` gitignore safeguard。
+  - `.cache/intake.md` 保存 original/refined/title/type + `notion_page_id`。
+  - Notion create 後先寫 cache page ID，再 init/bind state。
+  - matching pending task 可沿用；`/plan-sync` reconcile cache/page/state，`/plan-close` 遇到 page ID 衝突直接 BLOCK。
+  - Notion unavailable / pending sync 時一律保留 cache，不因 plan.md/state 已存在就提前清除。
+
+### Compatibility
+
+- `/plan-start` 行為仍是 `feature-intake-refiner → Human confirm → side effects`。
+- 已存在 task 與後續 `/plan spec|db|arch|build|...` 不重新跑 intake。
+
+---
+
+## [bug-workflow@4.0.3] - 2026-10-01
+
+> **Automatic Bug intake refinement。** 新 Bug 先經 `bug-intake-refiner` 與 Human confirmation，再建立 Notion/state；`/bug-investigate <新問題>` 也透過 `/bug-start` 自動取得同一層 intake。
+
+### Added
+
+- 新增 `agents/bug-intake-refiner.md`：
+  - 唯讀 issue refinement。
+  - `requirement_analysis + STANDARD`。
+  - blocking questions 最多 3 個。
+  - 不做 evidence collection、root-cause analysis 或 fix。
+- Bug plugin 新增 shared `references/intake-refinement.md`。
+- Bug README 新增 `intake-refinement-flow` Mermaid。
+
+### Changed
+
+- `/bug-start`：
+  - 保存 `ORIGINAL_REQUEST`。
+  - 自動呼叫 Bug Intake Refiner（或 inline fallback）。
+  - Human 明確確認後才允許 Notion / state / `.spec` side effects。
+  - title/state name 使用 `CONFIRMED_TITLE`。
+  - Notion「🔴 問題描述」保存 `### 原始通報` + `### 確認後問題描述`。
+- `/bug-investigate <新問題>` 先進 `/bug-start`；`--resume` / 已存在 Bug 不重新 refine。
+- `/bug-setup` 明確說明 named Agent 不是 Slash Skill，不需使用者手動呼叫。
+
+### Recovery
+
+- Human confirmation 後、任何 persistence 前先做 credential redaction preflight；疑似 password/token/API key/private key/Cookie 等 secret 不寫入 cache/Notion/state。
+- Git repo 中先確認 `.spec/` 已被 `.gitignore` 保護，再建立 recovery cache。
+- Human confirmation + slug 決定後，`.spec/{slug}/.cache/intake.md` 成為第一個 task artifact，在 Notion create / state init 前先保存 original/refined/title。
+- cache 新增 `notion_page_id`；Notion page create 成功後會在 state init 前立即寫回，避免「page 已建立、state init 中斷」後重跑產生 duplicate page。
+- 同 slug 的 cache-only pending task 或 pending Bug state，matching intake 時都先詢問是否沿用，不直接建立重複 task。
+- `/bug-investigate`、`/bug-update`、`/bug-close` 新增 **Bug intake recovery preflight**：以 cache 補回缺少的 intake prefix / 標準 Bug sections；只有 fetch 確認兩個 intake headings + 五個標準 sections 全部存在後才刪 cache。
+- `/bug-start` Step 6 若 template/intake 尚未修復完成，會停止 Step 7–9 的後續 Notion mutation，保留 recovery cache。
+- `/bug-close` 新增 page-id → unique state/slug deterministic binding，再執行 UAT gate；同時改用 `CREW_PLUGIN_ROOT` 呼叫 state writer。
+
+### Guardrails
+
+- `lint-skill-contract.py` 驗證 Bug Human confirmation 必須早於 Notion/state side effects、recovery cache/page-id contract、三個 Bug lifecycle recovery preflight，以及 Plan intake lifecycle 不得直接使用 Claude-only script path。
+- `lint-agent-model.py` 驗證 `bug-start = requirement_analysis + STANDARD`，active Skill 不綁 provider model。
+- `check-shared-refs.py` / `sync-shared-refs.sh` 把 intake contract 納入共用 reference。
+- README architecture lint 要求 Bug intake Mermaid 與公開 contract 持續存在。
+
+---
+
 ## [feature-workflow@5.0.4] - 2026-09-30
 
 > **Human-confirmed intake refinement。** `/plan-start` 在任何 Notion / `.spec` / Git side effect 前，先用唯讀 Intake Refiner 整理 raw request，Human 明確確認後才正式進入 CREW lifecycle。

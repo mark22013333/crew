@@ -59,6 +59,28 @@ git diff HEAD~1..HEAD
 3. 若有多個候選 → 列出清單讓使用者選擇
 4. 若無候選 → 提示使用者先用 `/bug-start` 建立
 
+### 3.5 綁定 Bug Runtime State + intake recovery
+
+取得選定 Notion page ID，解析 plugin root：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" list --all --format json
+```
+
+找出 `state.notion.page_id == 目前 Bug page id` 的 `{slug}`：
+
+- 唯一匹配 → 確認 `type=bug`，後續 UAT/close gate 全部使用此 slug。
+- 找到多筆 → **BLOCK**，列出候選，不得猜。
+- 找不到 → **BLOCK**；`/bug-close` 需要 deterministic state/UAT gate，不得只靠 Notion 結案。
+
+綁定後，若 `.spec/{slug}/.cache/intake.md` 存在，先執行 `../../references/intake-refinement.md`「Bug intake recovery preflight」：
+
+- 保留既有頁面內容。
+- 補回 intake prefix / 缺少的標準 Bug sections。
+- fetch 驗證兩個 intake headings **以及五個標準 Bug sections** 全部存在後才刪 cache。
+- recovery 失敗 → **BLOCK close**，保留 cache，不得進 UAT/結案。
+
 ### 4. 退出驗證門檻
 
 結案前執行 4 項檢查，確保修復品質達標：
@@ -105,7 +127,7 @@ git diff HEAD~1..HEAD
 為避免沿用前一次結案嘗試的 stale approval，每次進入本節先重設本輪 UAT：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status pending --by crew \
   --reason "bug-close requires fresh human acceptance for current fix"
 ```
@@ -125,7 +147,7 @@ C1-C4、編譯／測試、迴歸測試、Git diff 都只是**修復證據**，�
 只有使用者在**本輪**明確表示接受，才可以執行：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status approved --by human \
   --reason "user explicitly accepted current bug fix"
 ```
@@ -133,7 +155,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 若使用者不接受或提出修改：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status rejected --by human \
   --reason "user requested additional bug-fix changes"
 ```
@@ -272,8 +294,8 @@ mkdir -p "$(dirname "${LEARNING_FILE}")"
 把 `.spec/{slug}/state.json` 的 close 步驟標為完成（見 `../../references/state-discipline.md`）：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set \
   --slug {slug} --step close --status done
 ```
 

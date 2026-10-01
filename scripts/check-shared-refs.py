@@ -31,6 +31,7 @@ SHARED_REFS = [
     "references/host-capabilities.md",
     "references/model-routing.json",
     "references/config-contract.md",
+    "references/intake-refinement.md",
 ]
 
 # 共用 script（權威 = bug-workflow，同步到 feature-workflow）。

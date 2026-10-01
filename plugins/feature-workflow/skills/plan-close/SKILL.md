@@ -113,7 +113,7 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 完整契約見 `../../references/uat-gate.md`。為了避免沿用前一次結案嘗試的 stale approval，**每次進入本節先重設本輪 UAT**：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status pending --by crew \
   --reason "plan-close requires fresh human acceptance for current delivery"
 ```
@@ -131,7 +131,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 只有使用者在**本輪**明確表示接受，才可以執行：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status approved --by human \
   --reason "user explicitly accepted current feature delivery"
 ```
@@ -139,7 +139,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 若使用者不接受或提出修改：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
   --name uat --status rejected --by human \
   --reason "user requested additional feature changes"
 ```
@@ -154,7 +154,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 UAT 通過後先做 exit check：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --require-gate uat
 ```
 
 ### 5. 漂移硬關卡（文件硬關卡，🔴 不可跳過）
@@ -162,7 +162,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --r
 **必須在 `git add -f` 與任何 Notion 呼叫之前執行。** Human UAT 與文件漂移現在都是正式硬關卡：UAT 管「人是否接受」，漂移管「文件是否可信」。
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
+python3 "${CREW_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
   --spec .spec/{slug}/plan.md --format json
 echo "exit=$?"
 ```
@@ -245,7 +245,7 @@ verified_at: 2026-07-28
 `deploy-checklist.md` 已廢除（它是 `deploy.sql` 的 derived view，會自己過期）。部署進度改記在 `state.json`：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
   --deploy-total {deploy.sql 的 -- Step N 數量} --deploy-confirmed 0
 ```
 
@@ -293,7 +293,10 @@ commit 後跑 `git status --short .spec/{slug}/` 確認沒有意外被加入的�
 
 - **原樣搬運，不重寫**：章節內容照抄，不要「順手潤稿」或補充 —— 那會讓 Notion 與 plan.md 講不同的話。
 - **📋 需求描述 intake prefix 永久保留**：`### 原始需求` 與 `### 確認後任務描述` 不由 plan.md 重建。只更新其後的 `### 目標與範圍` / `### 驗收條件`。
-- 若頁面缺 intake prefix 且 `.spec/{slug}/.cache/intake.md` 存在 → 用 cache 補回 original/refined；Notion update + fetch 驗證成功後刪 cache。
+- 若 `.spec/{slug}/.cache/intake.md` 存在：
+  - 先讀 cache 的 `notion_page_id`；非空時必須與 state 的 `notion.page_id` 一致，不一致就 **BLOCK**，不得猜 page。
+  - 頁面缺 intake prefix → 用 cache 補回 original/refined。
+  - Notion update 後重新 fetch；只有 intake prefix 完整、state page ID 與本輪 page 一致、cache page ID 為空或一致時才刪 cache。
 - 若頁面缺 intake prefix且 cache 也不存在（legacy task）→ 保留既有需求內容，**不得猜原始 prompt**；必要時要求 Human 補充。
 - **對應表兩處要一致**：`/plan-sync`（中途同步）用同一組區塊。改這張表時要同步確認 `plan-sync` 的版本，否則同一份 plan.md 會在中途同步與結案同步落到不同區塊。
 
@@ -415,11 +418,11 @@ Bug 頁面用的是 `/plan-start` 的 Bug 模板（🔴 問題描述 / 🔍 調�
 Notion 同步完成後寫回狀態，**不手寫任何欄位**。`close=done` 受 runtime UAT hard gate 保護，若 gate 不是 `approved` / `waived`，這一步必須失敗：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
   --step close --status done --phase close \
   --last-commit "$(git rev-parse HEAD)" \
   --mirrored-status "{Notion 上的狀態字串，例：測試中}" --synced-now
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase close
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --expect-phase close
 ```
 
 - `steps.close.status = done` 就是「已結案」的唯一判準；`/plan-status`、`/plan-next`、SessionStart 提醒都讀這裡。
@@ -482,7 +485,7 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 
 ## 邊界情況
 
-- **`notion.page_id` 為空**：建議先用 `/plan-sync` 建立 Notion 條目
+- **`notion.page_id` 為空**：先用 `/plan-sync` 執行 intake cache/page recovery；不要在 `/plan-close` 直接建立第二個 page
 - **plan.md 不存在（v1 舊任務，只有 README.md）**：本 skill 的 v2 流程不適用 —— 明說「該任務仍是 v1 格式」，不要當成通過、也不要跑漂移檢查（沒有錨點可檢查）
 - **plan.md 存在但零錨點**：script 回 D7 WARN（過渡期），照 WARN 流程請使用者放行；放行後照常蓋章
 - **`drift_policy: off`**：不檢查、不蓋章，照常結案，回報明寫「未檢查」

@@ -32,6 +32,8 @@ description: 調查 Bug 過程中隨時將 log、SQL、判斷、截圖更新到�
 
 參照 plugin 根目錄 `references/locate-bug.md`（相對 SKILL.md 為 `../../references/`）。選定後，使用 `notion-fetch` 取得頁面完整內容，以便後續 `update_content` 操作。
 
+定位成功後 **跳到 Step 1.5**；不要執行 1-B。1.5 recovery 完成後，一般更新模式進 Step 2。
+
 ### 1-B. 定位目標 Bug 頁面（Reopen 模式）
 
 Reopen 模式需要定位「測試中」或「已完成」的 Bug。
@@ -84,7 +86,31 @@ Reopen 模式需要定位「測試中」或「已完成」的 Bug。
   3. 切換到當初的修復分支後重試
 ```
 
-**定位成功後，執行 Reopen 操作**：
+### 1.5 Bug intake recovery preflight（一般更新 / Reopen 共用）
+
+定位到 Notion page 後，先取得 page ID，解析：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" list --all --format json
+```
+
+以 `state.notion.page_id == 目前 page id` 綁定 `{slug}`：
+
+- 唯一匹配 → 若 `.spec/{slug}/.cache/intake.md` 存在，執行 `../../references/intake-refinement.md`「Bug intake recovery preflight」。
+- 找到多筆 → **BLOCK**，不得猜 slug。
+- 找不到 → 視為 legacy page；可繼續既有 update/reopen 流程，但不得猜不存在的 intake original。
+
+Recovery 若需要補頁面：
+- 保留既有內容，只補 intake prefix / 缺少的標準 Bug sections。
+- 再次 `notion-fetch`，確認兩個 intake headings **以及五個標準 Bug sections（調查過程／根因分析／修復方案／驗證／經驗教訓）**全部存在後才刪 cache。
+- recovery 失敗 → **BLOCK 本輪 mutation**，保留 cache。
+
+完成後依模式分流：
+- 一般更新 → 直接進 **Step 2**。
+- Reopen → 執行下方 Reopen 操作，完成後回傳，不再進一般更新 Step 2–5。
+
+**Reopen 模式：執行 Reopen 操作**：
 
 1. **更新狀態**：使用 `notion-update-page` 將狀態從「測試中/已完成」改回「進行中」
 2. **新增復發紀錄**：使用 `notion-update-page` 的 `update_content`，在「驗證」區塊之前插入「復發紀錄」區塊：

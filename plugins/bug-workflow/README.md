@@ -1,4 +1,4 @@
-# Bug Workflow Plugin `v4.0.2`
+# Bug Workflow Plugin `v4.0.3`
 
 跨 Host 的 Bug lifecycle：建立狀態、蒐集證據、驗證根因、修復、回歸測試，最後由 Human UAT 決定是否結案。核心流程依賴 CREW Host Capability Contract，而不是某一家的 agent/team 工具。
 
@@ -48,12 +48,52 @@ codex plugin list
 
 ---
 
+## Intake refinement
+
+新的 Bug raw issue 會先經唯讀 `bug-intake-refiner`，再由 Human 明確確認；使用者不需要手動呼叫 Refiner，它不是 Slash Skill。
+
+<!-- crew:diagram intake-refinement-flow -->
+```mermaid
+flowchart TD
+    Raw["Raw bug report"] --> Refiner["bug-intake-refiner<br/>requirement_analysis + STANDARD"]
+    Refiner --> Blocking{"Blocking ambiguity?"}
+    Blocking -- "yes" --> Ask["Ask Human<br/>max 3 questions"]
+    Ask --> Refiner
+    Blocking -- "no" --> Confirm{"Human confirms intent?"}
+    Confirm -- "modify" --> Refiner
+    Confirm -- "cancel" --> Stop["Stop<br/>zero side effect"]
+    Confirm -- "confirmed" --> Guard["Persistence security preflight<br/>redact credentials + .spec gitignore safeguard"]
+    Guard --> Cache[".cache/intake.md<br/>page-aware recovery journal"]
+    Cache --> Start["/bug-start<br/>Notion + minimal bug state"]
+    Start --> Investigate["/bug-investigate"]
+```
+
+規則：
+
+- `/bug-start <問題>` 自動使用 intake refinement；`/bug-investigate <新問題>` 會先進 `/bug-start`。
+- 已存在的 Bug、`/bug-investigate --resume`、`/bug-update`、`/bug-fix`、`/bug-close` 不重新 refine。
+- Host 支援 named sub-agent 時使用 `bug-intake-refiner`；不支援時 inline 執行同一 shared contract。
+- Human confirmation 前禁止 Notion/state/`.spec` side effect。
+- confirmation 後、持久化前做 credential preflight；疑似 secret 必須先由 Human 提供 redacted 版本。
+- 在 Git repo 內寫 cache/state 前先確認 `.spec/` 已被 `.gitignore` 保護。
+- cache 固定保存 original/refined/title 與 `notion_page_id`；Notion page create 後 page ID 先寫 cache，再進 state init，所以中斷重跑能沿用既有 page。
+- Notion「🔴 問題描述」保存 `### 原始通報` + `### 確認後問題描述`。
+- `/bug-investigate`、`/bug-update`、`/bug-close` 都執行 **Bug intake recovery preflight**：只補缺少內容、不覆蓋既有內容。
+- cache 只有在重新 fetch 確認 intake headings + **五個標準 Bug sections**（調查過程／根因分析／修復方案／驗證／經驗教訓）全部存在後才刪除；若只有 headings 完整，仍必須補齊缺少 section，不得提前清 cache。
+- `/bug-close` 先以 Notion page ID deterministic 綁定唯一 Bug state / slug，再進 UAT gate；找不到或多筆都 BLOCK。
+- CREW scripts 一律先解析 `CREW_PLUGIN_ROOT`，不直接依賴 Claude marketplace path。
+
+完整 contract 見 [references/intake-refinement.md](references/intake-refinement.md)。
+
+---
+
 ## 核心流程
 
 <!-- crew:diagram bug-lifecycle -->
 ```mermaid
 flowchart LR
-    A["發現問題"] --> B["/bug-investigate"]
+    A["raw issue"] --> S["/bug-start<br/>refine + Human confirm"]
+    S --> B["/bug-investigate"]
     B --> C["根因確認"]
     C --> D["/bug-fix"]
     D --> E["build/test/回歸 evidence"]
@@ -153,7 +193,7 @@ Bug 相關 logical keys：
 | Skill | 說明 |
 |---|---|
 | `/bug-setup` | 建立/更新 Bug portable config |
-| `/bug-start <問題>` | 建立 Bug + minimal runtime state |
+| `/bug-start <問題>` | 自動 intake refine + Human confirm，再建立 Bug + minimal runtime state |
 | `/bug-investigate` | 假說驅動調查；可 `--resume` |
 | `/bug-update` | 補充調查資訊 / reopen |
 | `/bug-fix` | 三段 resumable 修復 + 回歸驗證 |
@@ -186,6 +226,7 @@ Claude Code adapter 會執行 `python3 scripts/crew-state.py session-brief`：
 - [State Discipline](references/state-discipline.md)
 - [Portable Config Contract](references/config-contract.md)
 - [Learning Schema](references/learnings-schema.md)
+- [Intake Refinement Contract](references/intake-refinement.md)
 
 ## 授權
 

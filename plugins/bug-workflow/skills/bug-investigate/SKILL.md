@@ -25,7 +25,7 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 ## 前置條件
 
 - 已使用 `/bug-start` 建立 Bug 條目（Notion 有「進行中」的 🐞 錯誤）
-- 或使用者直接描述 bug 症狀（此時先執行 /bug-start 再進入調查）
+- 或使用者直接描述新的 bug 症狀（此時先執行 `/bug-start`；它會自動跑 Bug Intake Refiner + Human confirmation，再進入調查）
 
 > **前置檢查**：參照 plugin 根目錄 `references/prerequisites.md`（相對 SKILL.md 為 `../../references/`）執行完整前置檢查（專案指令 + 設定檔 + 專案註冊）。
 
@@ -47,7 +47,7 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 
 與 `/bug-update` 相同邏輯：參照 plugin 根目錄 `references/locate-bug.md`（相對 SKILL.md 為 `../../references/`）。
 
-若使用 `--resume`：讀取已有的「調查過程」區塊，從中斷點繼續。
+若使用 `--resume`：讀取已有的「調查過程」區塊，從中斷點繼續；**既有 Bug 不重新跑 intake refinement**。
 
 #### 1.1 綁定 Bug Runtime State（必須）
 
@@ -63,6 +63,15 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 ```bash
 CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 ```
+
+#### 1.2 Bug intake recovery preflight
+
+依 `../../references/intake-refinement.md`「Bug intake recovery preflight」：
+
+- 若 `.spec/{slug}/.cache/intake.md` 不存在 → 直接繼續。
+- cache 存在 → fetch 目前 Notion page；缺 intake prefix/template section 時，以 cache 補回且保留既有內容。
+- 再 fetch 確認兩個 intake headings **以及五個標準 Bug sections（調查過程／根因分析／修復方案／驗證／經驗教訓）**全部存在後才刪 cache。
+- recovery 失敗 → **BLOCK**，保留 cache；不得先開始新的 investigate 寫入，避免把不完整頁面繼續往後推。
 
 正常開始（非 `--resume`）時，先寫入調查階段與第一個可恢復工作單元：
 
