@@ -199,7 +199,7 @@ Human confirmation + slug 決定後，先完成 `.spec/` gitignore safeguard；�
 
 1. `.spec/{slug}/.cache/intake.md` 不存在 → 直接繼續。
 2. cache 存在 → `notion-fetch` 目前 page。
-3. 若 intake headings 已完整存在 → 刪 cache，繼續。
+3. 若 intake headings **以及五個標準 Bug sections** 已完整存在 → 才可刪 cache，繼續；只有 headings 完整但任一標準 section 缺失時仍必須進 recovery。
 4. 若缺 intake prefix 或標準 Bug template section：
    - 以 cache 的 original/refined 為來源。
    - 保留既有頁面內容。
