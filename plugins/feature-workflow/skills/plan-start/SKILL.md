@@ -137,6 +137,14 @@ Host 無 delegation 能力時，主 Agent inline 執行**同一份唯讀 contrac
 
 🔴 在 confirmation 之前禁止：Notion create/update、mkdir `.spec`、`crew-state.py init`、建立/切換 Git branch。
 
+#### 1-5. Persistence security preflight
+
+Human confirmation 後、任何 cache / Notion / plan.md persistence 前，依 `../../references/intake-refinement.md`：
+
+- 若 original/refined 疑似含 password、token、API key、private key、Cookie、connection-string secret → **BLOCK persistence**。
+- 要求 Human 提供 redacted 版本；只有 redacted 後的文字可以成為持久化的 `ORIGINAL_REQUEST / REFINED_REQUEST`。
+- 不得把 secret 寫進 cache、Notion、plan.md 或 state。
+
 ### 2. 偵測環境資訊（自動專案對應）
 
 自動偵測環境：
@@ -180,9 +188,18 @@ Git Repo 識別碼解析規則：
   - cache 不相符、state 已進入後續 phase、或 Human 不沿用 → 才加數字後綴。
 - 🔴 不使用 `crew-state.py init --force` 覆蓋既有 task。
 
-### 4.5 建立 intake recovery cache（第一個 post-confirmation task side effect）
+### 4.5 Gitignore safeguard + intake recovery cache
 
-slug 決定後，在 Notion create / state init 之前建立：
+slug 決定後，在 Notion create / state init 之前：
+
+1. 若目前是 Git repo，先確認專案 `.gitignore` 已包含 `.spec/`；沒有就於 Human confirmation 後追加：
+
+   ```text
+   # Local spec files (managed by plan-* / bug-* skills)
+   .spec/
+   ```
+
+2. 再建立 recovery cache：
 
 ```text
 .spec/{slug}/.cache/intake.md
@@ -200,7 +217,7 @@ notion_page_id: ""
 
 規則：
 
-- 這是 Human confirmation 後第一個 task side effect；confirmation 前仍是 zero side effect。
+- `.gitignore` safeguard 是 post-confirmation repo hygiene；`.cache/intake.md` 是第一個 task artifact。confirmation 前仍是 zero side effect。
 - 若沿用 pending task，保留既有 cache，僅在內容與本輪 confirmed intake 相符時繼續。
 - cache 的 `notion_page_id` 非空時，後續 Step 6 必須先 fetch 驗證並優先沿用，不得重複 create。
 - Notion create 一成功，**在 state init 前立即把 page ID 寫回 cache**。
@@ -333,14 +350,12 @@ notion_page_id: ""
 
 ### 7. 建立 .spec/{slug}/ 本地任務目錄
 
-#### 7-1. 確保 .gitignore 包含 .spec/
+#### 7-1. 驗證 .gitignore safeguard
 
-檢查專案根目錄的 `.gitignore`，若不包含 `.spec/` 則追加：
+Step 4.5 已在 cache 建立前處理 `.spec/` ignore。本節只做 idempotent 驗證：
 
-```
-# Local spec files (managed by plan-* skills)
-.spec/
-```
+- Git repo 中若 `.spec/` 仍未被 ignore → **BLOCK**，先修正 `.gitignore`，不得繼續寫 plan/state。
+- 非 Git repo → 跳過。
 
 #### 7-2. 建立目錄與 plan.md 骨架
 
