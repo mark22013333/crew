@@ -96,6 +96,14 @@ Host 無 named sub-agent / delegation 時，主 Agent inline 執行同一份唯�
 - `crew-state.py init`
 - Git branch mutation
 
+#### 1-5. Persistence security preflight
+
+Human confirmation 後、任何 cache / Notion persistence 前：
+
+- 若 original/refined 疑似含 password、token、API key、private key、Cookie、connection-string secret → **BLOCK persistence**。
+- 要求 Human 提供 redacted 版本；只有 redacted 後的文字可寫入 `ORIGINAL_REQUEST / REFINED_REQUEST`。
+- 不得把 secret 寫進 cache、Notion 或 state。
+
 ### 2. 偵測環境資訊（自動專案對應）
 
 取得 branch 名稱、當前工作目錄與 Git Repo 識別碼：
@@ -158,9 +166,18 @@ git remote get-url origin 2>/dev/null || echo ""
 
 這個 slug 只用於最小 runtime state；本 skill **不建立 `plan.md` 或新 branch**。
 
-### 3.6 建立 intake recovery cache（第一個 post-confirmation side effect）
+### 3.6 Gitignore safeguard + intake recovery cache
 
-slug 決定後，在 **Notion create / state init 之前**建立：
+slug 決定後，在 Notion create / state init 之前：
+
+1. 若目前是 Git repo，先確認專案 `.gitignore` 已包含 `.spec/`；沒有就於 Human confirmation 後追加：
+
+   ```text
+   # Local CREW runtime/spec files
+   .spec/
+   ```
+
+2. 再建立 recovery cache：
 
 ```text
 .spec/{slug}/.cache/intake.md
@@ -177,11 +194,12 @@ notion_page_id: ""
 
 規則：
 
+- `.gitignore` safeguard 是 post-confirmation repo hygiene；`.cache/intake.md` 是第一個 task artifact。
 - directory 可以先於 `state.json` 存在；`crew-state.py init` 只把既有 state 視為 collision。
 - 若沿用 pending task，更新/確認 cache 內容與本輪 confirmed intake 一致，不建立第二份 cache。
 - `notion_page_id` 初始為空；Notion page 一旦建立成功，**在 state init 前立即寫回 cache**。
 - 後續任一步驟失敗都保留 cache。
-- 只有 Notion body 重新 fetch 並確認 intake headings 存在後才可刪除。
+- 只有 Notion body 重新 fetch，確認 intake headings **以及五個標準 Bug sections** 全部存在後才可刪除。
 
 ### 4. 偵測負責人
 
