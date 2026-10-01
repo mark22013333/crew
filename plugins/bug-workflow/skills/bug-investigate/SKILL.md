@@ -64,6 +64,15 @@ AI 主動調查 Bug 根因：收集證據、比對已知模式、建立假說、
 CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 ```
 
+#### 1.2 Bug intake recovery preflight
+
+依 `../../references/intake-refinement.md`「Bug intake recovery preflight」：
+
+- 若 `.spec/{slug}/.cache/intake.md` 不存在 → 直接繼續。
+- cache 存在 → fetch 目前 Notion page；缺 intake prefix/template section 時，以 cache 補回且保留既有內容。
+- 再 fetch 確認 `### 原始通報` + `### 確認後問題描述` 都存在後才刪 cache。
+- recovery 失敗 → **BLOCK**，保留 cache；不得先開始新的 investigate 寫入，避免把不完整頁面繼續往後推。
+
 正常開始（非 `--resume`）時，先寫入調查階段與第一個可恢復工作單元：
 
 ```bash
