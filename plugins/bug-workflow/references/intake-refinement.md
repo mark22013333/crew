@@ -149,7 +149,7 @@ Human confirmation + slug 決定後，**在 Notion create / state init 之前**�
 .spec/{slug}/.cache/intake.md
 ```
 
-固定保存 `original_request`、`refined_request`、`refined_title`。這個 directory 可以先於 `state.json` 存在；`crew-state.py init` 只把既有 `state.json` 視為 collision。
+固定保存 `original_request`、`refined_request`、`refined_title`、`notion_page_id`。其中 `notion_page_id` 初始為空；Notion create 一成功就必須在 state init 前立即寫回 cache。這個 directory 可以先於 `state.json` 存在；`crew-state.py init` 只把既有 `state.json` 視為 collision。
 
 因此任何後續失敗都至少保留 confirmed intake：
 
@@ -167,8 +167,10 @@ Human confirmation + slug 決定後，**在 Notion create / state init 之前**�
 2. 若已有 `type=bug, phase=start` state 且 intake cache 相符 → 詢問是否沿用，不論 `notion.page_id` 是否已存在。
 3. 沿用時：
    - state 已存在 → 不重新 `init`
-   - page ID 已存在 → 不建立第二個 Notion page
-   - page ID 為空 → 建立 page 後用 `crew-state.py set --notion-page-id` 綁回既有 state
+   - state page ID 非空 → 沿用該 page
+   - state 尚未存在但 cache `notion_page_id` 非空 → fetch 驗證後沿用該 page
+   - state page ID 與 cache page ID 都為空 → 才建立新 page
+   - 建立 page 後先把 page ID 寫回 cache；若 state 已存在，再用 `crew-state.py set --notion-page-id` 綁回 state
 4. cache 不相符或 Human 不沿用 → 才產生數字後綴的新 slug。
 
 #### Bug intake recovery preflight
