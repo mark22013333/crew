@@ -160,43 +160,45 @@ Resolver 讀取時可支援既有 legacy fallback；新寫入一律走 canonical
 
 ## 需求入口：Intake Refinement
 
-`/plan-start` 不會拿到 raw prompt 就立刻建立任務。任何 Notion、`.spec/`、state 或 Git branch side effect 之前，先由唯讀 `feature-intake-refiner` 整理需求，再由 Human 明確確認。
+新的 Feature / Plan 與 Bug raw request 都會先經 intake refinement；使用者不需要手動呼叫 Refiner。Named Agent 是 workflow 內部執行元件，不是 Slash Skill。
 
 <!-- crew:diagram intake-refinement-flow -->
 ```mermaid
 flowchart TD
-    Raw["Raw user request"] --> Refiner["feature-intake-refiner<br/>requirement_analysis + STANDARD"]
-    Refiner --> Blocking{"Blocking ambiguity?"}
+    Raw["New raw request"] --> Kind{"Entry"}
+    Kind -- "/plan-start" --> FRefiner["feature-intake-refiner<br/>requirement_analysis + STANDARD"]
+    Kind -- "/bug-start<br/>or new /bug-investigate" --> BRefiner["bug-intake-refiner<br/>requirement_analysis + STANDARD"]
+    FRefiner --> Blocking{"Blocking ambiguity?"}
+    BRefiner --> Blocking
     Blocking -- "yes" --> Ask["Ask Human<br/>最多 3 個問題"]
-    Ask --> Refiner
+    Ask --> Retry["Re-run same refiner"]
+    Retry --> Blocking
     Blocking -- "no" --> Confirm{"Human confirms intent?"}
-    Confirm -- "修改 / 補充" --> Refiner
+    Confirm -- "修改 / 補充" --> Retry
     Confirm -- "取消" --> Stop["Stop<br/>zero side effect"]
-    Confirm -- "確認" --> Start["/plan-start side effects"]
-    Start --> Original["Notion<br/>保存 original request"]
-    Start --> Refined["plan.md<br/>保存 confirmed refined brief"]
-    Original --> Spec["/plan spec"]
-    Refined --> Spec
-    Spec --> Analyst["feature-spec-analyst<br/>Goal / AC / Decisions / Risks"]
+    Confirm -- "確認" --> Create{"Create task"}
+    Create -- "Feature / Plan" --> Plan["/plan-start side effects<br/>Notion / .spec / branch"]
+    Create -- "Bug" --> Bug["/bug-start side effects<br/>Notion / bug state"]
+    Plan --> Spec["/plan spec<br/>feature-spec-analyst"]
+    Bug --> Investigate["/bug-investigate"]
 ```
 
-兩個 Agent 的責任不同：
+共用規則：
 
-- **Intake Refiner**：回答「使用者到底想做什麼？」；只改善表達、列限制與歧義，不產 AC、DB/API/架構或實作方案。
-- **feature-spec-analyst**：任務建立後才把 confirmed brief 工程化成 Goal / AC / Decisions / Risks。
-- Host 沒有 `delegate_readonly` 時，主 Agent inline 執行同一份唯讀 refinement contract；**Human confirmation 不能省略**。
+- **Feature / Plan** 使用 `feature-intake-refiner`；**Bug** 使用 `bug-intake-refiner`。
+- 兩者都只回答「使用者想做什麼／問題是什麼」，不提前產 AC、DB/API/架構、根因或 implementation。
+- Human confirmation 是 hard gate；確認前禁止 Notion create/update、`.spec`、state init、Git branch mutation。
+- Host 沒有 `delegate_readonly` / named sub-agent 時，主 Agent inline 執行同一份 shared intake contract；**Human confirmation 不能省略**。
+- 已存在的 task、`/bug-investigate --resume`、後續 plan/bug lifecycle 不重新 refine。
 
-Human 可以接受 refined brief、補充後重跑、改用原始需求，或取消。取消時必須 **zero side effect**。
+Persistence：
 
-需求保存規則：
+- Feature Notion 保留 `### 原始需求` + `### 確認後任務描述`；`plan.md` 只保存 confirmed refined brief。
+- Bug Notion 保留 `### 原始通報` + `### 確認後問題描述`；Bug state `name` 使用 confirmed title。
+- Notion 暫時不可用時，以 `.spec/{slug}/.cache/intake.md` 保存 original/refined recovery data；成功持久化後才刪除。
+- Refiner 不是 Slash Skill，所以不會出現在 `/` command list；workflow 會自動使用。
 
-- Feature Notion「📋 需求描述」保留 `### 原始需求` 與 `### 確認後任務描述`。
-- Bug 由 `/plan-start` 建立時，對應保留 `### 原始通報` 與 `### 確認後問題描述`。
-- `plan.md` 只保存 Human 確認後的 refined brief，不複製長篇 raw prompt。
-- Notion 暫時不可用時，使用 `.spec/{slug}/.cache/intake.md` 暫存 original/refined；`/plan-sync` 或 `/plan-close` 成功持久化後才刪除。
-- 後續同步只能更新 intake prefix 後方的 spec projection，不得覆蓋原始需求。
-
-完整 contract 見 [Intake Refinement Contract](plugins/feature-workflow/references/intake-refinement.md)。
+完整 shared contract 見 [Intake Refinement Contract](plugins/bug-workflow/references/intake-refinement.md)。
 
 ---
 
@@ -317,13 +319,13 @@ flowchart LR
 Bug 主流程：
 
 ```text
-發現問題 → /bug-investigate → /bug-fix → /bug-close
+raw issue → /bug-start（refine + Human confirm） → /bug-investigate → /bug-fix → /bug-close
 ```
 
 | 指令 | 說明 |
 |---|---|
 | `/bug-setup` | 建立/更新 portable Bug config |
-| `/bug-start <問題>` | 僅建立 Bug + minimal runtime state |
+| `/bug-start <問題>` | 自動 Bug Intake Refiner + Human confirm，再建立 Bug + minimal runtime state |
 | `/bug-investigate` | 證據蒐集、假說驗證、根因確認，可 resume |
 | `/bug-update` | 更新調查資訊或重新開啟 Bug |
 | `/bug-fix` | 修復、回歸測試、deterministic 驗證，可 resume |
@@ -401,7 +403,7 @@ Feature v1 任務目前仍支援。Removal eligibility：
 | Host Capability Contract | [plugins/bug-workflow/references/host-capabilities.md](plugins/bug-workflow/references/host-capabilities.md) |
 | Model Policy | [plugins/bug-workflow/references/model-policy.md](plugins/bug-workflow/references/model-policy.md) |
 | Portable Config Contract | [plugins/bug-workflow/references/config-contract.md](plugins/bug-workflow/references/config-contract.md) |
-| Intake Refinement Contract | [plugins/feature-workflow/references/intake-refinement.md](plugins/feature-workflow/references/intake-refinement.md) |
+| Intake Refinement Contract | [plugins/bug-workflow/references/intake-refinement.md](plugins/bug-workflow/references/intake-refinement.md) |
 
 ## 授權
 

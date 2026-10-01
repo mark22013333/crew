@@ -44,6 +44,7 @@ REQUIRED = {
         "claude plugin update feature-workflow@company-marketplace",
         "codex plugin marketplace upgrade crew",
         "feature-intake-refiner",
+        "bug-intake-refiner",
         ".cache/intake.md",
         "Intake Refinement Contract",
         "zero side effect",
@@ -66,6 +67,10 @@ REQUIRED = {
         "claude plugin marketplace update company-marketplace",
         "claude plugin update bug-workflow@company-marketplace",
         "codex plugin marketplace upgrade crew",
+        "bug-intake-refiner",
+        ".cache/intake.md",
+        "references/intake-refinement.md",
+        "zero side effect",
     ),
     "plugins/feature-workflow/README.md": (
         "Host Capability Contract",
@@ -114,6 +119,7 @@ MERMAID_REQUIRED = {
     ),
     "plugins/bug-workflow/README.md": (
         "bug-lifecycle",
+        "intake-refinement-flow",
     ),
     "plugins/feature-workflow/README.md": (
         "feature-lifecycle",
