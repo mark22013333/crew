@@ -107,6 +107,8 @@ type_hint: feature|bug|unknown   # advisory only
 
 ### Feature / Plan
 
+Plan intake 也使用 durable recovery；`/plan-start` Human confirmation + slug 決定後，先建立 `.spec/{slug}/.cache/intake.md`，再做 Notion / state side effect。cache 固定保存 `original_request`、`refined_request`、`refined_title`、`task_type`、`notion_page_id`。
+
 Notion「📋 需求描述」固定保留：
 
 ```markdown
@@ -125,7 +127,16 @@ Notion「📋 需求描述」固定保留：
 
 `plan.md` 只保存 confirmed refined brief；raw prompt 留在 Notion。
 
-Notion 暫時失敗時，可用 `.spec/{slug}/.cache/intake.md` 暫存；`/plan-sync` 或 `/plan-close` 成功持久化後刪除。
+Plan pending-task recovery：
+
+1. 同 slug 有 matching intake cache、且 state 不存在或仍是 `phase=start` → 先問 Human 是否沿用，不直接加數字後綴。
+2. cache 的 `notion_page_id` 非空 → 先 fetch 驗證並沿用既有 page；不要重複 create。
+3. Notion create 成功 → 在 state init 前先把 page ID 寫回 cache。
+4. state 已存在 → 不重新 init；state 不存在才 init。
+5. 只有「Notion intake prefix 已 fetch 驗證成功」且「state 已成功綁定同一 page ID（或 Notion unavailable 時明確維持 pending sync）」後，才可刪 cache。
+6. `/plan-sync` 補建/補寫 Notion 時也遵守同一順序：page ID 先寫 cache → state writer 綁定 → fetch 驗證 intake → 刪 cache。
+
+Notion 暫時失敗時保留 cache；不得因 plan.md/state 已存在就宣稱 intake 已持久化。
 
 ### Bug
 
@@ -185,8 +196,16 @@ Human confirmation + slug 決定後，**在 Notion create / state init 之前**�
    - 保留既有頁面內容。
    - 補回 `### 原始通報`、`### 確認後問題描述`。
    - 缺少 `🔍 調查過程`、`🧠 根因分析`、`✅ 修復方案`、`🧪 驗證`、`📝 經驗教訓` 時，只補缺少的 section，不覆蓋既有內容。
-5. 再次 `notion-fetch`；確認兩個 intake headings 都存在後才刪 cache。
-6. recovery 失敗 → 保留 cache，停止會覆寫/結案的後續動作並回報；不得假裝已持久化。
+5. 再次 `notion-fetch`；必須同時確認：
+   - `### 原始通報`
+   - `### 確認後問題描述`
+   - `## 🔍 調查過程`
+   - `## 🧠 根因分析`
+   - `## ✅ 修復方案`
+   - `## 🧪 驗證`
+   - `## 📝 經驗教訓`
+   全部存在後才刪 cache。
+6. recovery 失敗或任一標準 section 仍缺 → 保留 cache，停止會覆寫/結案的後續動作並回報；不得假裝已持久化。
 
 `/bug-investigate`、`/bug-update`、`/bug-close` 都套用此 preflight。Legacy task 若無可綁定 state/cache，可維持原流程；不得猜不存在的 original request。
 
