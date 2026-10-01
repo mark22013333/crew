@@ -55,18 +55,32 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 `type` 從 `.spec/{slug}/plan.md` 的 frontmatter 讀；Notion 頁面 ID 從 `.spec/{slug}/state.json` 的
 `notion.page_id` **唯讀**取得（`crew-state.py list` 的 JSON 不含此欄位，別去那裡找）。
 
-### 2. 檢查 Notion 頁面
+### 2. 檢查／恢復 Notion 頁面
 
-若 `notion.page_id` 為空（例如 `/plan-start` 時 Notion 建立失敗）：
-- 詢問使用者是否要補建 Notion 條目。
-- 若是，執行與 `/plan-start` 的「建立 Notion 條目」步驟相同的建立邏輯。
-- 若 `.spec/{slug}/.cache/intake.md` 存在，必須用其中的 `original_request` / `refined_request` 建立「📋 需求描述」intake prefix。
-- 若 cache 不存在（舊任務）且無法從既有 Notion 內容恢復 original request，**不得猜原文**；詢問 Human 是否補上，或明確標記「原始需求不可恢復」。
-- 建立後把頁面 ID 交給單一寫者寫回（🔴 不要手改 `state.json`）：
+先檢查 `.spec/{slug}/.cache/intake.md`（若存在），取得 original/refined/title/type 與可選的 `notion_page_id`。
 
-  ```bash
-  python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --notion-page-id {page_id}
-  ```
+若 state 的 `notion.page_id` 為空：
+
+1. **cache page ID 非空** → 先 `notion-fetch` 驗證該 page：
+   - page 存在 → 沿用，不得 create duplicate。
+   - page 不存在 → 清除 cache 中失效的 page ID，再進建立流程。
+2. **cache page ID 也為空** → 詢問使用者是否補建 Notion 條目。
+3. 建立新 page 時：
+   - 使用 cache 的 `original_request / refined_request` 建立 intake prefix。
+   - create 成功後，**先把 page ID 寫回 cache**；cache write 失敗就 BLOCK，不得先改 state。
+   - 再把 page ID 交給單一 state writer：
+
+   ```bash
+   python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --notion-page-id {page_id}
+   ```
+
+若 state page ID 非空且 cache page ID 也非空：
+- 兩者一致 → 正常繼續。
+- 不一致 → **BLOCK**，不得猜哪個 page 正確。
+
+若 cache 不存在（legacy task）且無法恢復 original request，**不得猜原文**；詢問 Human 是否補上，或明確標記「原始需求不可恢復」。
+
+🔴 cache 仍存在時，本節結束後**不要刪除**；要等 Step 4 content update + fetch 驗證與 state page ID 一致性都通過。
 
 ### 3. 確定同步範圍
 
@@ -107,7 +121,12 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 - **原樣搬運，不重寫**：plan.md 章節內容照抄，不要在同步時「順手潤稿」或補充 —— 那會讓 Notion 與 plan.md 講不同的話。
 - 「指路」節的 `@code:` / `@sql:` 錨點照原文寫入，🔴 **不要**把錨點指到的程式碼展開貼進 Notion。
 - 本 skill 只同步使用者選定的項目，且不建立「🚀 部署狀態」區塊（該區塊僅由 `/plan-close` 初始化）。
-- Notion update 成功後重新 fetch/確認目前 type 對應的兩個 intake headings 都存在；若本次使用了 `.cache/intake.md`，確認成功後才刪除 cache。
+- Notion update 成功後重新 fetch/確認目前 type 對應的兩個 intake headings 都存在。
+- 若 `.cache/intake.md` 存在，還要確認：
+  1. state 的 `notion.page_id` 與本輪 page ID 一致；
+  2. cache 的 `notion_page_id` 為空或與本輪 page ID 一致；
+  3. intake headings 已重新 fetch 驗證成功。
+  三者都成立後才刪 cache；任一失敗就保留 cache 並 BLOCK 宣稱 intake 已持久化。
 
 **4-3. 更新 Properties**（1 次 `notion-update-page` properties）
 
@@ -155,7 +174,7 @@ sync 組——本 skill 是「未結案的中途同步」；結案批次同步�
 
 ## 邊界情況
 
-- **`notion.page_id` 為空**：引導補建 Notion 條目
+- **`notion.page_id` 為空**：先讀 intake cache 的 `notion_page_id` 嘗試沿用既有 page；沒有才補建，避免 duplicate
 - **plan.md 六章節都還是空的**：提示先執行 `/plan` 產出規劃內容
 - **`state.json` 缺失或壞掉**：跑 `crew-state.py rebuild --slug {slug}`，並在回報中標「狀態為推測」
 - **Notion 頁面內容與模板不符**：先保護現有原始需求內容；有 intake cache 時可補成新模板，沒有時不得猜原文，再嘗試模糊匹配其他區塊
