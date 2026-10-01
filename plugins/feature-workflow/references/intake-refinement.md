@@ -141,9 +141,52 @@ Bug Notion「🔴 問題描述」固定保留：
 
 Bug state 的 `name` 使用 `CONFIRMED_TITLE`，不把 raw prompt 塞進 state schema。
 
-`/bug-start` 在 Human confirmation 後建立 `.spec/{slug}/.cache/intake.md` 作為 recovery cache；只有 Notion 頁面已成功寫入並重新確認兩個 intake headings 都存在時才刪除。Notion 暫時失敗時保留 cache，避免 original/refined 遺失。
+#### Recovery cache：第一個 post-confirmation side effect
 
-若重跑 `/bug-start` 遇到同 slug 且現有 state 為 `type=bug, phase=start`、`notion.page_id` 空白、intake cache 與本輪 confirmed intake 相符，應先詢問 Human 是否沿用該 pending task；不要直接建立數字後綴的第二份 task。
+Human confirmation + slug 決定後，**在 Notion create / state init 之前**先建立：
+
+```text
+.spec/{slug}/.cache/intake.md
+```
+
+固定保存 `original_request`、`refined_request`、`refined_title`。這個 directory 可以先於 `state.json` 存在；`crew-state.py init` 只把既有 `state.json` 視為 collision。
+
+因此任何後續失敗都至少保留 confirmed intake：
+
+- Notion create 失敗
+- state init 失敗
+- Notion body/template 寫入失敗
+
+只有 Notion 頁面已重新 fetch 並確認 `### 原始通報` + `### 確認後問題描述` 存在後，才能刪除 cache。
+
+#### Pending task reuse
+
+重跑 `/bug-start` 遇到同 slug 時：
+
+1. 若沒有 `state.json`、但有 matching intake cache → 詢問 Human 是否沿用這個 pre-init pending task。
+2. 若已有 `type=bug, phase=start` state 且 intake cache 相符 → 詢問是否沿用，不論 `notion.page_id` 是否已存在。
+3. 沿用時：
+   - state 已存在 → 不重新 `init`
+   - page ID 已存在 → 不建立第二個 Notion page
+   - page ID 為空 → 建立 page 後用 `crew-state.py set --notion-page-id` 綁回既有 state
+4. cache 不相符或 Human 不沿用 → 才產生數字後綴的新 slug。
+
+#### Bug intake recovery preflight
+
+任何正常 lifecycle command 在定位既有 Bug 後，若能綁到唯一 `{slug}`，都先做：
+
+1. `.spec/{slug}/.cache/intake.md` 不存在 → 直接繼續。
+2. cache 存在 → `notion-fetch` 目前 page。
+3. 若 intake headings 已完整存在 → 刪 cache，繼續。
+4. 若缺 intake prefix 或標準 Bug template section：
+   - 以 cache 的 original/refined 為來源。
+   - 保留既有頁面內容。
+   - 補回 `### 原始通報`、`### 確認後問題描述`。
+   - 缺少 `🔍 調查過程`、`🧠 根因分析`、`✅ 修復方案`、`🧪 驗證`、`📝 經驗教訓` 時，只補缺少的 section，不覆蓋既有內容。
+5. 再次 `notion-fetch`；確認兩個 intake headings 都存在後才刪 cache。
+6. recovery 失敗 → 保留 cache，停止會覆寫/結案的後續動作並回報；不得假裝已持久化。
+
+`/bug-investigate`、`/bug-update`、`/bug-close` 都套用此 preflight。Legacy task 若無可綁定 state/cache，可維持原流程；不得猜不存在的 original request。
 
 若 original request 無法恢復，**不得猜原文**；詢問 Human 或標記 unavailable。
 
