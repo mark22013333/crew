@@ -103,11 +103,20 @@ type_hint: feature|bug|unknown   # advisory only
 
 取消必須是 **zero side effect**。
 
+### Persistence security preflight
+
+Human confirmation 後、任何 cache / Notion / plan.md persistence 前：
+
+1. 若 raw/refined 內容疑似包含 password、token、API key、private key、Cookie、connection string secret 等 credential → **BLOCK persistence**。
+2. 要求 Human 提供 redacted 版本（例如以 `<REDACTED>` 取代 secret）；新的 redacted 文字才成為可持久化的 `ORIGINAL_REQUEST / REFINED_REQUEST`。
+3. 不得把偵測到的 secret 寫進 `.cache/intake.md`、Notion、plan.md 或 state。
+4. 在 Git repo 內寫 `.spec/` 前，先確認 `.spec/` 會被 ignore；若專案 `.gitignore` 尚未包含，於 Human confirmation 後補上 `.spec/` 規則，再建立 cache/state。
+
 ## Persistence contract
 
 ### Feature / Plan
 
-Plan intake 也使用 durable recovery；`/plan-start` Human confirmation + slug 決定後，先建立 `.spec/{slug}/.cache/intake.md`，再做 Notion / state side effect。cache 固定保存 `original_request`、`refined_request`、`refined_title`、`task_type`、`notion_page_id`。
+Plan intake 也使用 durable recovery；`/plan-start` Human confirmation + slug 決定後，先完成 `.spec/` gitignore safeguard，再建立 `.spec/{slug}/.cache/intake.md`，才做 Notion / state side effect。cache 固定保存 `original_request`、`refined_request`、`refined_title`、`task_type`、`notion_page_id`。
 
 Notion「📋 需求描述」固定保留：
 
@@ -133,7 +142,7 @@ Plan pending-task recovery：
 2. cache 的 `notion_page_id` 非空 → 先 fetch 驗證並沿用既有 page；不要重複 create。
 3. Notion create 成功 → 在 state init 前先把 page ID 寫回 cache。
 4. state 已存在 → 不重新 init；state 不存在才 init。
-5. 只有「Notion intake prefix 已 fetch 驗證成功」且「state 已成功綁定同一 page ID（或 Notion unavailable 時明確維持 pending sync）」後，才可刪 cache。
+5. 只有「Notion intake prefix 已 fetch 驗證成功」且「state 已成功綁定同一 page ID」後，才可刪 cache；**Notion unavailable / pending sync 時一律保留 cache**。
 6. `/plan-sync` 補建/補寫 Notion 時也遵守同一順序：page ID 先寫 cache → state writer 綁定 → fetch 驗證 intake → 刪 cache。
 
 Notion 暫時失敗時保留 cache；不得因 plan.md/state 已存在就宣稱 intake 已持久化。
@@ -152,9 +161,9 @@ Bug Notion「🔴 問題描述」固定保留：
 
 Bug state 的 `name` 使用 `CONFIRMED_TITLE`，不把 raw prompt 塞進 state schema。
 
-#### Recovery cache：第一個 post-confirmation side effect
+#### Recovery cache：第一個 post-confirmation task artifact
 
-Human confirmation + slug 決定後，**在 Notion create / state init 之前**先建立：
+Human confirmation + slug 決定後，先完成 `.spec/` gitignore safeguard；接著**在 Notion create / state init 之前**建立：
 
 ```text
 .spec/{slug}/.cache/intake.md
@@ -168,7 +177,7 @@ Human confirmation + slug 決定後，**在 Notion create / state init 之前**�
 - state init 失敗
 - Notion body/template 寫入失敗
 
-只有 Notion 頁面已重新 fetch 並確認 `### 原始通報` + `### 確認後問題描述` 存在後，才能刪除 cache。
+只有 Notion 頁面已重新 fetch，確認兩個 intake headings **以及五個標準 Bug sections** 全部存在後，才能刪除 cache。
 
 #### Pending task reuse
 
