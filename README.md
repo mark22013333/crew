@@ -178,7 +178,8 @@ flowchart TD
     Confirm -- "取消" --> Stop["Stop<br/>zero side effect"]
     Confirm -- "確認" --> Create{"Create task"}
     Create -- "Feature / Plan" --> Plan["/plan-start side effects<br/>Notion / .spec / branch"]
-    Create -- "Bug" --> Bug["/bug-start side effects<br/>Notion / bug state"]
+    Create -- "Bug" --> Cache[".cache/intake.md<br/>first Bug side effect"]
+    Cache --> Bug["/bug-start<br/>Notion / bug state"]
     Plan --> Spec["/plan spec<br/>feature-spec-analyst"]
     Bug --> Investigate["/bug-investigate"]
 ```
@@ -191,11 +192,14 @@ flowchart TD
 - Host 沒有 `delegate_readonly` / named sub-agent 時，主 Agent inline 執行同一份 shared intake contract；**Human confirmation 不能省略**。
 - 已存在的 task、`/bug-investigate --resume`、後續 plan/bug lifecycle 不重新 refine。
 
-Persistence：
+Persistence / recovery：
 
 - Feature Notion 保留 `### 原始需求` + `### 確認後任務描述`；`plan.md` 只保存 confirmed refined brief。
 - Bug Notion 保留 `### 原始通報` + `### 確認後問題描述`；Bug state `name` 使用 confirmed title。
-- Notion 暫時不可用時，以 `.spec/{slug}/.cache/intake.md` 保存 original/refined recovery data；成功持久化後才刪除。
+- Bug 在 Human confirmation + slug 決定後，**先寫 `.spec/{slug}/.cache/intake.md`，再做 Notion/state**。cache 保存 original/refined/title 與 `notion_page_id`；Notion page create 成功後，會在 state init 前把 page ID 寫回 cache。
+- `/bug-investigate`、`/bug-update`、`/bug-close` 定位既有 Bug 後都會執行 **Bug intake recovery preflight**：若 cache 尚在，就補回缺少的 intake prefix / 標準 template sections，重新 fetch 驗證後才刪 cache。
+- Feature 的 Notion/body 暫時失敗仍使用 `.spec/{slug}/.cache/intake.md`；由 `/plan-sync` / `/plan-close` 成功補同步後刪除。
+- CREW 內建 scripts 透過 `CREW_PLUGIN_ROOT` / `plugin_root` capability 解析，不依賴某一家 Host marketplace/cache path。
 - Refiner 不是 Slash Skill，所以不會出現在 `/` command list；workflow 會自動使用。
 
 完整 shared contract 見 [Intake Refinement Contract](plugins/bug-workflow/references/intake-refinement.md)。
