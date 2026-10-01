@@ -79,7 +79,7 @@ flowchart TD
 - cache 固定保存 original/refined/title 與 `notion_page_id`；Notion page create 後 page ID 先寫 cache，再進 state init，所以中斷重跑能沿用既有 page。
 - Notion「🔴 問題描述」保存 `### 原始通報` + `### 確認後問題描述`。
 - `/bug-investigate`、`/bug-update`、`/bug-close` 都執行 **Bug intake recovery preflight**：只補缺少內容、不覆蓋既有內容。
-- cache 只有在重新 fetch 確認 intake headings + **五個標準 Bug sections**（調查過程／根因分析／修復方案／驗證／經驗教訓）全部存在後才刪除。
+- cache 只有在重新 fetch 確認 intake headings + **五個標準 Bug sections**（調查過程／根因分析／修復方案／驗證／經驗教訓）全部存在後才刪除；若只有 headings 完整，仍必須補齊缺少 section，不得提前清 cache。
 - `/bug-close` 先以 Notion page ID deterministic 綁定唯一 Bug state / slug，再進 UAT gate；找不到或多筆都 BLOCK。
 - CREW scripts 一律先解析 `CREW_PLUGIN_ROOT`，不直接依賴 Claude marketplace path。
 
