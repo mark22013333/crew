@@ -343,6 +343,12 @@ exit gate：
 
 Step 6 寫入／修復完成後必須重新 fetch；只有確認 `### 原始通報` 與 `### 確認後問題描述` 都存在，才能刪除 `.cache/intake.md`。若沿用既有 page，依 shared intake contract 的 **Bug intake recovery preflight** 保留既有內容並補缺少 section。
 
+🔴 **Step 6 completion gate**：
+
+- page 存在時，若 intake prefix 或標準 Bug sections 仍無法修復完整 → 保留 cache，停止本輪 `/bug-start` 後續 Notion mutation；**不得執行 Step 7–9**。
+- page 尚未建立（Notion unavailable）→ 保留 cache，可保留 local state，但 Step 7–9 的 Notion mutation 全部跳過並回報 pending sync。
+- 只有 page/template 已可安全寫入時才進 Step 7。
+
 ### 7. 初始證據收集（自動，不需使用者介入）
 
 建立 Notion 頁面後，自動收集環境資訊寫入「調查過程」區塊。
