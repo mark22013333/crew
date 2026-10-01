@@ -78,6 +78,8 @@ NOTION_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "notion
 
 BUG_START = REPO / "plugins" / "bug-workflow" / "skills" / "bug-start" / "SKILL.md"
 BUG_INVESTIGATE = REPO / "plugins" / "bug-workflow" / "skills" / "bug-investigate" / "SKILL.md"
+BUG_UPDATE = REPO / "plugins" / "bug-workflow" / "skills" / "bug-update" / "SKILL.md"
+BUG_CLOSE = REPO / "plugins" / "bug-workflow" / "skills" / "bug-close" / "SKILL.md"
 BUG_SETUP = REPO / "plugins" / "bug-workflow" / "skills" / "bug-setup" / "SKILL.md"
 BUG_INTAKE_AGENT = REPO / "plugins" / "bug-workflow" / "agents" / "bug-intake-refiner.md"
 BUG_INTAKE_CONTRACT = REPO / "plugins" / "bug-workflow" / "references" / "intake-refinement.md"
@@ -261,6 +263,8 @@ def check_plan_start_intake_contract() -> list[str]:
         "Human intake confirmation",
         "零 side effect",
         ".cache/intake.md",
+        "notion_page_id",
+        "第一個 post-confirmation side effect",
         "../../references/intake-refinement.md",
     )
     for marker in start_required:
@@ -320,6 +324,14 @@ def check_plan_start_intake_contract() -> list[str]:
         if marker not in sync:
             errors.append(f"{sync_rel} 缺 intake preservation marker：{marker}")
 
+    for portable_skill in (PLAN_START, PLAN_SYNC, PLAN_CLOSE):
+        portable_text = portable_skill.read_text(encoding="utf-8")
+        if '${CLAUDE_PLUGIN_ROOT}/scripts/' in portable_text:
+            errors.append(
+                f"{portable_skill.relative_to(REPO)} intake lifecycle 不得直接使用 "
+                "${CLAUDE_PLUGIN_ROOT}/scripts/；請先解析 CREW_PLUGIN_ROOT"
+            )
+
     close = PLAN_CLOSE.read_text(encoding="utf-8")
     close_rel = PLAN_CLOSE.relative_to(REPO)
     for marker in (
@@ -345,6 +357,8 @@ def check_bug_start_intake_contract() -> list[str]:
     required_files = (
         BUG_START,
         BUG_INVESTIGATE,
+        BUG_UPDATE,
+        BUG_CLOSE,
         BUG_SETUP,
         BUG_INTAKE_AGENT,
         BUG_INTAKE_CONTRACT,
@@ -375,7 +389,7 @@ def check_bug_start_intake_contract() -> list[str]:
             errors.append(f"{start_rel} 缺 Bug intake marker：{marker}")
 
     confirm_at = start.find("#### 1-4. Human intake confirmation")
-    notion_at = start.find("### 5. 建立 Notion 條目")
+    notion_at = start.find("### 5. 建立／沿用 Notion 條目")
     state_at = start.find("### 5.5 建立最小 Bug Runtime State")
     if min(confirm_at, notion_at, state_at) < 0:
         errors.append(f"{start_rel} 缺 Bug intake/side-effect 章節，無法驗證順序")
@@ -404,14 +418,38 @@ def check_bug_start_intake_contract() -> list[str]:
         ".cache/intake.md",
         "不得猜原文",
         "zero side effect",
+        "Recovery cache：第一個 post-confirmation side effect",
+        "Bug intake recovery preflight",
+        "notion_page_id",
     ):
         if marker not in contract:
             errors.append(f"{BUG_INTAKE_CONTRACT.relative_to(REPO)} 缺 shared intake contract marker：{marker}")
 
     investigate = BUG_INVESTIGATE.read_text(encoding="utf-8")
-    for marker in ("Bug Intake Refiner + Human confirmation", "既有 Bug 不重新跑 intake refinement"):
+    for marker in (
+        "Bug Intake Refiner + Human confirmation",
+        "既有 Bug 不重新跑 intake refinement",
+        "Bug intake recovery preflight",
+    ):
         if marker not in investigate:
-            errors.append(f"{BUG_INVESTIGATE.relative_to(REPO)} 缺 Bug intake handoff marker：{marker}")
+            errors.append(f"{BUG_INVESTIGATE.relative_to(REPO)} 缺 Bug intake handoff/recovery marker：{marker}")
+
+    update = BUG_UPDATE.read_text(encoding="utf-8")
+    for marker in ("Bug intake recovery preflight", "state.notion.page_id == 目前 page id", "CREW_PLUGIN_ROOT"):
+        if marker not in update:
+            errors.append(f"{BUG_UPDATE.relative_to(REPO)} 缺 Bug intake recovery marker：{marker}")
+
+    close = BUG_CLOSE.read_text(encoding="utf-8")
+    for marker in (
+        "綁定 Bug Runtime State + intake recovery",
+        "state.notion.page_id == 目前 Bug page id",
+        "Bug intake recovery preflight",
+        "CREW_PLUGIN_ROOT",
+    ):
+        if marker not in close:
+            errors.append(f"{BUG_CLOSE.relative_to(REPO)} 缺 Bug close state/recovery marker：{marker}")
+    if '${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py' in close:
+        errors.append(f"{BUG_CLOSE.relative_to(REPO)} 不得直接用 CLAUDE_PLUGIN_ROOT 呼叫 crew-state.py")
 
     setup = BUG_SETUP.read_text(encoding="utf-8")
     for marker in ("Agent availability", "bug-intake-refiner", "不是 Slash Skill", "inline"):
