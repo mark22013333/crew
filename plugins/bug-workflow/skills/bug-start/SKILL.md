@@ -148,12 +148,38 @@ git remote get-url origin 2>/dev/null || echo ""
 - 中文 → 翻譯為簡短英文
 - 已經是英文 → 轉為 kebab-case
 - 先確認 `.spec/{slug}/` 是否存在。
-- 若已存在且其 state 為 `type=bug, phase=start`、`notion.page_id` 空白，且 `.cache/intake.md` 與本輪 confirmed intake 相符 → 詢問 Human 是否沿用 pending task；確認沿用時不要重新 init。
-- 其他 collision 才加數字後綴
-- 🔴 不使用 Notion page ID 當 slug
-- 🔴 不使用 `crew-state.py init --force` 覆蓋既有任務
+- 若 directory 不存在 → 使用此 slug。
+- 若 `state.json` 不存在、但 `.cache/intake.md` 存在且與本輪 confirmed intake 相符 → 詢問 Human 是否沿用這個 **pre-init pending task**。
+- 若已有 state 且 `type=bug, phase=start`、intake cache 相符 → 詢問 Human 是否沿用這個 **pending Bug**，不論 `notion.page_id` 是否為空。
+- Human 確認沿用 → `REUSE_PENDING_TASK=true`；保留同 slug。
+- cache 不相符、state 不是可恢復的 pending Bug，或 Human 不沿用 → 才加數字後綴。
+- 🔴 不使用 Notion page ID 當 slug。
+- 🔴 不使用 `crew-state.py init --force` 覆蓋既有任務。
 
 這個 slug 只用於最小 runtime state；本 skill **不建立 `plan.md` 或新 branch**。
+
+### 3.6 建立 intake recovery cache（第一個 post-confirmation side effect）
+
+slug 決定後，在 **Notion create / state init 之前**建立：
+
+```text
+.spec/{slug}/.cache/intake.md
+```
+
+固定保存：
+
+```text
+original_request: {ORIGINAL_REQUEST}
+refined_request: {REFINED_REQUEST}
+refined_title: {CONFIRMED_TITLE}
+```
+
+規則：
+
+- directory 可以先於 `state.json` 存在；`crew-state.py init` 只把既有 state 視為 collision。
+- 若沿用 pending task，更新/確認 cache 內容與本輪 confirmed intake 一致，不建立第二份 cache。
+- 後續任一步驟失敗都保留 cache。
+- 只有 Notion body 重新 fetch 並確認 intake headings 存在後才可刪除。
 
 ### 4. 偵測負責人
 
@@ -170,9 +196,18 @@ git remote get-url origin 2>/dev/null || echo ""
 
 > **注意**：`notion-get-users` 回傳的使用者物件包含 `id`、`name`、`person.email` 等欄位。比對時使用 `person.email`。
 
-### 5. 建立 Notion 條目
+### 5. 建立／沿用 Notion 條目
 
-使用 `notion-create-pages` 在「任務追蹤工具」資料庫建立新條目：
+若 `REUSE_PENDING_TASK=true`：
+
+- 既有 state 的 `notion.page_id` 非空 → **沿用既有 page**，不要再 create。
+- 既有 state 的 `notion.page_id` 為空 → 建立新 page；成功後執行：
+  ```bash
+  python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --notion-page-id "{NOTION_PAGE_ID}"
+  ```
+- 尚無 state（只有 recovery cache）→ 正常建立 page，之後由 Step 5.5 init 綁定 page ID。
+
+非 pending reuse 時，使用 `notion-create-pages` 在「任務追蹤工具」資料庫建立新條目：
 
 **Data Source ID**：從設定檔的「任務追蹤工具」取得
 
@@ -200,10 +235,17 @@ CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
 CURRENT_COMMIT="$(git rev-parse HEAD 2>/dev/null || true)"
 ```
 
-再執行：
+解析 plugin root：
 
 ```bash
 CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+```
+
+若 `REUSE_PENDING_TASK=true` 且既有 state 已存在 → **不要重新 init**，直接 validate。
+
+否則執行：
+
+```bash
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" init \
   --slug {slug} \
   --name "{CONFIRMED_TITLE}" \
@@ -232,20 +274,6 @@ exit gate：
 > `init` exit 1 且提示 state 已存在 → 視為 slug collision，回到 3.5 產生數字後綴；**不得使用 `--force`**。
 >
 > Notion API 失敗不阻擋本地 state 建立：省略 `--notion-page-id`，並在回傳結果提示稍後補同步。
-
-### 5.6 保存 intake recovery cache
-
-Human confirmation 後、state 建立成功後，建立：
-
-```text
-.spec/{slug}/.cache/intake.md
-```
-
-內容固定保存 `original_request`、`refined_request`、`refined_title`。此檔 gitignored、不是 workflow truth。
-
-- Notion page/body 尚未成功寫入 → 保留 cache。
-- Step 6 成功後重新 fetch，確認 `### 原始通報` + `### 確認後問題描述` 都存在 → 才刪除 cache。
-- 不得在「CLI 沒報錯但未 fetch 驗證」時提前刪除。
 
 ### 6. 填入頁面模板
 
@@ -310,7 +338,7 @@ Human confirmation 後、state 建立成功後，建立：
 
 「實際行為」可用 `REFINED_REQUEST` 中明確描述的症狀預填，但不得把 ambiguity 或推測根因寫成事實。
 
-Step 6 寫入成功後必須重新 fetch；只有確認 `### 原始通報` 與 `### 確認後問題描述` 都存在，才能刪除 `.cache/intake.md`。
+Step 6 寫入／修復完成後必須重新 fetch；只有確認 `### 原始通報` 與 `### 確認後問題描述` 都存在，才能刪除 `.cache/intake.md`。若沿用既有 page，依 shared intake contract 的 **Bug intake recovery preflight** 保留既有內容並補缺少 section。
 
 ### 7. 初始證據收集（自動，不需使用者介入）
 
