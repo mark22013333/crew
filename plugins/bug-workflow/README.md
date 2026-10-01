@@ -62,22 +62,24 @@ flowchart TD
     Blocking -- "no" --> Confirm{"Human confirms intent?"}
     Confirm -- "modify" --> Refiner
     Confirm -- "cancel" --> Stop["Stop<br/>zero side effect"]
-    Confirm -- "confirmed" --> Cache[".cache/intake.md<br/>first post-confirmation side effect"]
+    Confirm -- "confirmed" --> Guard["Persistence security preflight<br/>redact credentials + .spec gitignore safeguard"]
+    Guard --> Cache[".cache/intake.md<br/>page-aware recovery journal"]
     Cache --> Start["/bug-start<br/>Notion + minimal bug state"]
     Start --> Investigate["/bug-investigate"]
 ```
 
 規則：
 
-- `/bug-start <問題>` 自動使用 intake refinement。
-- `/bug-investigate <新問題>` 會先進 `/bug-start`，因此也自動使用。
+- `/bug-start <問題>` 自動使用 intake refinement；`/bug-investigate <新問題>` 會先進 `/bug-start`。
 - 已存在的 Bug、`/bug-investigate --resume`、`/bug-update`、`/bug-fix`、`/bug-close` 不重新 refine。
 - Host 支援 named sub-agent 時使用 `bug-intake-refiner`；不支援時 inline 執行同一 shared contract。
 - Human confirmation 前禁止 Notion/state/`.spec` side effect。
-- Human confirmation + slug 決定後，`.spec/{slug}/.cache/intake.md` 是**第一個 post-confirmation task side effect**；固定保存 original/refined/title 與 `notion_page_id`。
-- Notion page create 成功後，page ID 會在 state init 前先寫回 cache；即使 state init 中斷，重跑也能沿用既有 page，不建立 duplicate task/page。
+- confirmation 後、持久化前做 credential preflight；疑似 secret 必須先由 Human 提供 redacted 版本。
+- 在 Git repo 內寫 cache/state 前先確認 `.spec/` 已被 `.gitignore` 保護。
+- cache 固定保存 original/refined/title 與 `notion_page_id`；Notion page create 後 page ID 先寫 cache，再進 state init，所以中斷重跑能沿用既有 page。
 - Notion「🔴 問題描述」保存 `### 原始通報` + `### 確認後問題描述`。
-- `/bug-investigate`、`/bug-update`、`/bug-close` 都執行 **Bug intake recovery preflight**：保留既有內容、補缺少的 intake/template sections，重新 fetch 驗證成功後才刪 cache。
+- `/bug-investigate`、`/bug-update`、`/bug-close` 都執行 **Bug intake recovery preflight**：只補缺少內容、不覆蓋既有內容。
+- cache 只有在重新 fetch 確認 intake headings + **五個標準 Bug sections**（調查過程／根因分析／修復方案／驗證／經驗教訓）全部存在後才刪除。
 - `/bug-close` 先以 Notion page ID deterministic 綁定唯一 Bug state / slug，再進 UAT gate；找不到或多筆都 BLOCK。
 - CREW scripts 一律先解析 `CREW_PLUGIN_ROOT`，不直接依賴 Claude marketplace path。
 
