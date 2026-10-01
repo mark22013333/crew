@@ -304,7 +304,11 @@ def check_plan_start_intake_contract() -> list[str]:
         "不得猜原文",
         "Plan pending-task recovery",
         "notion_page_id",
-        "五個標準 Bug sections",
+        "## 🔍 調查過程",
+        "## 🧠 根因分析",
+        "## ✅ 修復方案",
+        "## 🧪 驗證",
+        "## 📝 經驗教訓",
     ):
         if marker not in contract:
             errors.append(f"{contract_rel} 缺 intake contract marker：{marker}")
