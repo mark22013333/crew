@@ -1,4 +1,4 @@
-# Feature Workflow Plugin `v5.0.4`
+# Feature Workflow Plugin `v5.0.5`
 
 跨 Host 的 Feature lifecycle：本地 `.spec/` 規劃、Human approval gates、正式實作、安全/驗證/review、Human UAT 與結案同步。核心 contract 不依賴單一 Host 的 team、subagent 或 provider model 名稱。
 
