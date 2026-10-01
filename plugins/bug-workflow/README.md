@@ -1,4 +1,4 @@
-# Bug Workflow Plugin `v4.0.2`
+# Bug Workflow Plugin `v4.0.3`
 
 跨 Host 的 Bug lifecycle：建立狀態、蒐集證據、驗證根因、修復、回歸測試，最後由 Human UAT 決定是否結案。核心流程依賴 CREW Host Capability Contract，而不是某一家的 agent/team 工具。
 
