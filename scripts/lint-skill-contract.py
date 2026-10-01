@@ -263,6 +263,9 @@ def check_plan_start_intake_contract() -> list[str]:
         "Human intake confirmation",
         "零 side effect",
         ".cache/intake.md",
+        "notion_page_id",
+        "第一個 post-confirmation task side effect",
+        "REUSE_PENDING_TASK",
         "../../references/intake-refinement.md",
     )
     for marker in start_required:
@@ -299,6 +302,9 @@ def check_plan_start_intake_contract() -> list[str]:
         "REFINED_REQUEST",
         ".cache/intake.md",
         "不得猜原文",
+        "Plan pending-task recovery",
+        "notion_page_id",
+        "五個標準 Bug sections",
     ):
         if marker not in contract:
             errors.append(f"{contract_rel} 缺 intake contract marker：{marker}")
@@ -318,6 +324,8 @@ def check_plan_start_intake_contract() -> list[str]:
         "### 確認後問題描述",
         ".cache/intake.md",
         "不得猜原文",
+        "cache page ID",
+        "state 的 `notion.page_id` 與本輪 page ID 一致",
     ):
         if marker not in sync:
             errors.append(f"{sync_rel} 缺 intake preservation marker：{marker}")
@@ -338,6 +346,8 @@ def check_plan_start_intake_contract() -> list[str]:
         "### 確認後任務描述",
         ".cache/intake.md",
         "不得猜原始 prompt",
+        "cache 的 `notion_page_id`",
+        "BLOCK",
     ):
         if marker not in close:
             errors.append(f"{close_rel} 缺 intake close marker：{marker}")
@@ -431,12 +441,13 @@ def check_bug_start_intake_contract() -> list[str]:
         "Bug Intake Refiner + Human confirmation",
         "既有 Bug 不重新跑 intake refinement",
         "Bug intake recovery preflight",
+        "五個標準 Bug sections",
     ):
         if marker not in investigate:
             errors.append(f"{BUG_INVESTIGATE.relative_to(REPO)} 缺 Bug intake handoff/recovery marker：{marker}")
 
     update = BUG_UPDATE.read_text(encoding="utf-8")
-    for marker in ("Bug intake recovery preflight", "state.notion.page_id == 目前 page id", "CREW_PLUGIN_ROOT"):
+    for marker in ("Bug intake recovery preflight", "state.notion.page_id == 目前 page id", "CREW_PLUGIN_ROOT", "五個標準 Bug sections"):
         if marker not in update:
             errors.append(f"{BUG_UPDATE.relative_to(REPO)} 缺 Bug intake recovery marker：{marker}")
 
@@ -446,6 +457,7 @@ def check_bug_start_intake_contract() -> list[str]:
         "state.notion.page_id == 目前 Bug page id",
         "Bug intake recovery preflight",
         "CREW_PLUGIN_ROOT",
+        "五個標準 Bug sections",
     ):
         if marker not in close:
             errors.append(f"{BUG_CLOSE.relative_to(REPO)} 缺 Bug close state/recovery marker：{marker}")
