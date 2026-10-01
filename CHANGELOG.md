@@ -23,6 +23,12 @@
 ### Fixed
 
 - `/plan-start`、`/plan-sync`、`/plan-close` 對 CREW scripts 改為統一解析 `CREW_PLUGIN_ROOT`，移除 active lifecycle 內直接使用 `${CLAUDE_PLUGIN_ROOT}/scripts/...` 的 Host coupling。
+- Plan intake recovery 改為 page-aware durable journal：
+  - Human confirmation 後先做 credential redaction preflight 與 `.spec/` gitignore safeguard。
+  - `.cache/intake.md` 保存 original/refined/title/type + `notion_page_id`。
+  - Notion create 後先寫 cache page ID，再 init/bind state。
+  - matching pending task 可沿用；`/plan-sync` reconcile cache/page/state，`/plan-close` 遇到 page ID 衝突直接 BLOCK。
+  - Notion unavailable / pending sync 時一律保留 cache，不因 plan.md/state 已存在就提前清除。
 
 ### Compatibility
 
@@ -58,10 +64,12 @@
 
 ### Recovery
 
-- Human confirmation + slug 決定後，`.spec/{slug}/.cache/intake.md` 成為**第一個 post-confirmation task side effect**，在 Notion create / state init 前先保存 original/refined/title。
+- Human confirmation 後、任何 persistence 前先做 credential redaction preflight；疑似 password/token/API key/private key/Cookie 等 secret 不寫入 cache/Notion/state。
+- Git repo 中先確認 `.spec/` 已被 `.gitignore` 保護，再建立 recovery cache。
+- Human confirmation + slug 決定後，`.spec/{slug}/.cache/intake.md` 成為第一個 task artifact，在 Notion create / state init 前先保存 original/refined/title。
 - cache 新增 `notion_page_id`；Notion page create 成功後會在 state init 前立即寫回，避免「page 已建立、state init 中斷」後重跑產生 duplicate page。
 - 同 slug 的 cache-only pending task 或 pending Bug state，matching intake 時都先詢問是否沿用，不直接建立重複 task。
-- `/bug-investigate`、`/bug-update`、`/bug-close` 新增 **Bug intake recovery preflight**：以 cache 補回缺少的 intake prefix / 標準 Bug sections，fetch 驗證成功後才刪 cache。
+- `/bug-investigate`、`/bug-update`、`/bug-close` 新增 **Bug intake recovery preflight**：以 cache 補回缺少的 intake prefix / 標準 Bug sections；只有 fetch 確認兩個 intake headings + 五個標準 sections 全部存在後才刪 cache。
 - `/bug-start` Step 6 若 template/intake 尚未修復完成，會停止 Step 7–9 的後續 Notion mutation，保留 recovery cache。
 - `/bug-close` 新增 page-id → unique state/slug deterministic binding，再執行 UAT gate；同時改用 `CREW_PLUGIN_ROOT` 呼叫 state writer。
 
