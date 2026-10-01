@@ -79,6 +79,8 @@ flowchart TD
 - `feature-spec-analyst`：任務建立後才把 confirmed brief 工程化成 Goal / AC / Decisions / Risks。
 - Notion「📋 需求描述」永久保存 raw original + confirmed refined brief；plan.md 只保留 refined brief。
 - Notion 暫時失敗時，`.spec/{slug}/.cache/intake.md` 暫存 original/refined，成功補同步後刪除，不算永久 artifact。
+- `/plan-start`、`/plan-sync`、`/plan-close` 呼叫 CREW scripts 時都先解析 `CREW_PLUGIN_ROOT`；不直接依賴 Claude marketplace/cache path。
+- Shared intake contract 同時定義 Bug durable recovery；Feature plugin 保留同步副本是為了兩個 plugin 都可獨立安裝且 contract 不漂移。
 
 完整 contract 見 [references/intake-refinement.md](references/intake-refinement.md)。
 
