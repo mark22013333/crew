@@ -172,12 +172,14 @@ slug 決定後，在 **Notion create / state init 之前**建立：
 original_request: {ORIGINAL_REQUEST}
 refined_request: {REFINED_REQUEST}
 refined_title: {CONFIRMED_TITLE}
+notion_page_id: ""
 ```
 
 規則：
 
 - directory 可以先於 `state.json` 存在；`crew-state.py init` 只把既有 state 視為 collision。
 - 若沿用 pending task，更新/確認 cache 內容與本輪 confirmed intake 一致，不建立第二份 cache。
+- `notion_page_id` 初始為空；Notion page 一旦建立成功，**在 state init 前立即寫回 cache**。
 - 後續任一步驟失敗都保留 cache。
 - 只有 Notion body 重新 fetch 並確認 intake headings 存在後才可刪除。
 
@@ -201,13 +203,14 @@ refined_title: {CONFIRMED_TITLE}
 若 `REUSE_PENDING_TASK=true`：
 
 - 既有 state 的 `notion.page_id` 非空 → **沿用既有 page**，不要再 create。
-- 既有 state 的 `notion.page_id` 為空 → 建立新 page；成功後執行：
+- 尚無 state，但 cache 的 `notion_page_id` 非空 → **沿用 cache 指向的既有 page**，先 `notion-fetch` 確認頁面仍存在，不要再 create。
+- 既有 state 的 `notion.page_id` 為空、且 cache 也沒有 page ID → 建立新 page；成功後先把 `NOTION_PAGE_ID` 寫回 cache，再執行：
   ```bash
   python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} --notion-page-id "{NOTION_PAGE_ID}"
   ```
-- 尚無 state（只有 recovery cache）→ 正常建立 page，之後由 Step 5.5 init 綁定 page ID。
+- 尚無 state（只有 recovery cache）且 cache page ID 也為空 → 正常建立 page；成功後**先把 page ID 寫回 cache**，之後由 Step 5.5 init 綁定 page ID。
 
-非 pending reuse 時，使用 `notion-create-pages` 在「任務追蹤工具」資料庫建立新條目：
+非 pending reuse 時，使用 `notion-create-pages` 在「任務追蹤工具」資料庫建立新條目；create 成功後也必須先把 `NOTION_PAGE_ID` 寫回 `.cache/intake.md`，再進 Step 5.5：
 
 **Data Source ID**：從設定檔的「任務追蹤工具」取得
 
