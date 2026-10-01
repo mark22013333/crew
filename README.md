@@ -203,7 +203,7 @@ Persistence / recovery：
 - `/plan-sync` 會先做 cache/page/state reconciliation：page ID 先寫 cache，再由 state writer 綁定，fetch 驗證 intake prefix 後才清 cache；`/plan-close` 遇到 page ID 不一致會 BLOCK，不猜 page。
 - Bug Notion 保留 `### 原始通報` + `### 確認後問題描述`；Bug state `name` 使用 confirmed title。
 - Bug recovery journal 同樣保存 `notion_page_id`；`/bug-investigate`、`/bug-update`、`/bug-close` 都執行 **Bug intake recovery preflight**。
-- Bug cache 只有在重新 fetch 確認兩個 intake headings **以及五個標準 Bug sections（調查過程／根因分析／修復方案／驗證／經驗教訓）**都存在後才刪除。
+- Bug cache 只有在重新 fetch 確認兩個 intake headings **以及五個標準 Bug sections（調查過程／根因分析／修復方案／驗證／經驗教訓）**都存在後才刪除；只有 headings 完整但任一 section 缺失時仍進 recovery，不得提前清 cache。
 - CREW 內建 scripts 透過 `CREW_PLUGIN_ROOT` / `plugin_root` capability 解析，不依賴某一家 Host marketplace/cache path。
 - Refiner 不是 Slash Skill，所以不會出現在 `/` command list；workflow 會自動使用。
 
