@@ -61,6 +61,8 @@ PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" 
 PLAN_VERIFY_E2E_CI_POLICY = REPO / "plugins" / "feature-workflow" / "references" / "e2e-ci-policy.md"
 PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
 PLAN_VERIFY_E2E_REPORTER = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.js"
+PLAN_VERIFY_E2E_RESULTS_TOOL = REPO / "plugins" / "feature-workflow" / "scripts" / "crew-e2e-results.py"
+PLAN_VERIFY_E2E_LINTER = REPO / "plugins" / "feature-workflow" / "scripts" / "lint-playwright-e2e.py"
 PLAN_VERIFY_GENERIC_ADAPTER = REPO / "plugins" / "feature-workflow" / "adapters" / "generic-playwright.md"
 PLAN_COMMON = REPO / "plugins" / "feature-workflow" / "references" / "plan-common.md"
 
@@ -215,6 +217,8 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_E2E_CI_POLICY,
         PLAN_VERIFY_E2E_RESULT,
         PLAN_VERIFY_E2E_REPORTER,
+        PLAN_VERIFY_E2E_RESULTS_TOOL,
+        PLAN_VERIFY_E2E_LINTER,
         PLAN_VERIFY_GENERIC_ADAPTER,
         PLAN_COMMON,
     )
@@ -322,6 +326,16 @@ def check_plan_verify_contract() -> list[str]:
     for marker in ("crew-ac", "crew-blocked", "schema_version", "flaky", "module.exports = CrewReporter"):
         if marker not in reporter:
             errors.append(f"{PLAN_VERIFY_E2E_REPORTER.relative_to(REPO)} 缺 Playwright reporter marker：{marker}")
+
+    results_tool = PLAN_VERIFY_E2E_RESULTS_TOOL.read_text(encoding="utf-8")
+    for marker in ("STATUS_PRIORITY", "blocked 必須有 reason", "expected_git_sha", "never writes state.json"):
+        if marker not in results_tool:
+            errors.append(f"{PLAN_VERIFY_E2E_RESULTS_TOOL.relative_to(REPO)} 缺 E2E result tool marker：{marker}")
+
+    e2e_linter = PLAN_VERIFY_E2E_LINTER.read_text(encoding="utf-8")
+    for marker in ("TEST_ONLY", "UNRESOLVED_MARKER", "MISSING_AC", "MISSING_ASSERTION", "--strict-review"):
+        if marker not in e2e_linter:
+            errors.append(f"{PLAN_VERIFY_E2E_LINTER.relative_to(REPO)} 缺 E2E promotion linter marker：{marker}")
 
     plan_common = PLAN_COMMON.read_text(encoding="utf-8")
     for marker in (".crew/products/{product_id}.md", "e2e_adapter", "e2e.workspace", "舊欄位 `e2e_repo` / `e2e_profile`"):
