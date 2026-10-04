@@ -308,19 +308,35 @@ flowchart LR
 <!-- crew:diagram plan-verify-flow -->
 ```mermaid
 flowchart TD
-    AC["plan.md AC-n"] --> Plan["build verification plan"]
-    Plan --> Adapter{"verification adapter"}
-    Adapter --> Browser["browser capability<br/>Playwright preferred"]
-    Adapter --> API["API-only"]
-    Adapter --> E2E["E2E mapping"]
-    Browser --> Evidence["screenshots / evidence"]
-    API --> Evidence
-    E2E --> Evidence
+    AC["plan.md AC-n"] --> Router{"Verification Router"}
+    Router --> Browser["browser<br/>Playwright preferred"]
+    Router --> API["API"]
+    Router --> Backend["backend test"]
+    Router --> DB["database"]
+    Router --> Manual["manual / skip"]
+    Browser --> Pre{"precondition gate"}
+    API --> Pre
+    Backend --> Pre
+    DB --> Pre
+    Manual --> Evidence["runtime evidence"]
+    Pre -- "ready" --> Evidence
+    Pre -- "not ready" --> Blocked["AC outcome: BLOCKED"]
+    Blocked --> Evidence
+    Evidence --> IR["Verification IR"]
     Evidence --> Result["state.json results.verify"]
     Result --> Status{"PASS / WARN / FAIL"}
     Status -- "FAIL" --> Build["/plan-build"]
     Status -- "WARN" --> Recheck["/plan-verify --recheck"]
     Status -- "PASS" --> Review["/plan-review"]
+
+    IR --> Draft["E2E candidate<br/>maturity=draft"]
+    Draft --> Promote{"CI promotion gate"}
+    Promote -- "blocked" --> Draft
+    Promote -- "ci-ready" --> CI["CI runner"]
+    CI --> Artifact["crew-results.json"]
+    Artifact --> Import["/plan-verify --from-e2e"]
+    Import --> Result
+
     Review --> Close["/plan-close"]
     Close --> UAT{"Human UAT"}
     UAT -- "rejected" --> Build
@@ -329,12 +345,15 @@ flowchart TD
 
 可依環境使用：
 
+- Verification Router：Browser / API / backend-test / database / manual
 - Browser 驗收（Playwright preferred；chrome-devtools / local CDP fallback）
-- API-only
-- recheck
-- Excel report
-- Word report
-- E2E runner
+- `BLOCKED`：前置條件不成立，不誤報產品 FAIL
+- `--recheck`：重跑 FAIL + BLOCKED
+- Excel / Word report
+- `--e2e`：重用既有 E2E coverage
+- `--e2e-draft`：由 Verification IR 產 candidate
+- `--e2e-promote`：通過 static + stability gate 後才可 ci-ready
+- `--from-e2e`：消費 `crew-results.json`，不重新開瀏覽器
 
 外部 browser/DB 工具以 `tool_probe` 判斷目前 Host 是否真的可呼叫；不能用某一家 CLI listing 代替 capability probe。
 
