@@ -35,6 +35,22 @@ test-results/crew-results.json
 }
 ```
 
+## Playwright reporter convention
+
+CREW 提供 reference implementation：
+
+```text
+references/playwright/crew-reporter.js
+```
+
+E2E repo 應 vendor/copy 或自行實作相同 schema，不要讓 CI 依賴某台機器的 CREW plugin 路徑。
+
+Mapping：
+- test annotation `crew-ac`：description = `{slug}#AC-n`
+- stateful `test.step`：title 直接包含 `{slug}#AC-n`
+- precondition blocked：annotation `crew-blocked`，description = reason
+- retry 後才成功：reporter 輸出 `flaky`
+
 ## status
 
 允許：
