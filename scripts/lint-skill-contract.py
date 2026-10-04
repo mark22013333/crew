@@ -50,6 +50,14 @@ PLAN_VERIFY_WORD_REPORT = PLAN_VERIFY.parent / "phases" / "word-report.md"
 PLAN_VERIFY_MEMORY = REPO / "plugins" / "feature-workflow" / "references" / "verify-memory.md"
 PLAN_VERIFY_MCP = REPO / "plugins" / "feature-workflow" / "references" / "mcp-install.md"
 PLAN_VERIFY_PRODUCT_MEMORY = REPO / "plugins" / "feature-workflow" / "products" / "smartrobot-memory.md"
+PLAN_VERIFY_ROUTE = PLAN_VERIFY.parent / "phases" / "route-verification.md"
+PLAN_VERIFY_PRECONDITIONS = PLAN_VERIFY.parent / "phases" / "preconditions.md"
+PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verification-ir.md"
+PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
+PLAN_VERIFY_E2E_CI_POLICY = REPO / "plugins" / "feature-workflow" / "references" / "e2e-ci-policy.md"
+PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
+PLAN_VERIFY_GENERIC_ADAPTER = REPO / "plugins" / "feature-workflow" / "adapters" / "generic-playwright.md"
+PLAN_COMMON = REPO / "plugins" / "feature-workflow" / "references" / "plan-common.md"
 
 PLAN_VERIFY_REQUIRED = (
     "CREW_PLUGIN_ROOT",
@@ -58,6 +66,11 @@ PLAN_VERIFY_REQUIRED = (
     "../../references/verify-memory.md",
     "Human UAT 在 /plan-close 內取得",
     "local CDP",
+    "phases/route-verification.md",
+    "phases/preconditions.md",
+    "BLOCKED",
+    "../../references/verification-ir.md",
+    "../../references/e2e-contract.md",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -179,6 +192,14 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_MEMORY,
         PLAN_VERIFY_MCP,
         PLAN_VERIFY_PRODUCT_MEMORY,
+        PLAN_VERIFY_ROUTE,
+        PLAN_VERIFY_PRECONDITIONS,
+        PLAN_VERIFY_IR,
+        PLAN_VERIFY_E2E_CONTRACT,
+        PLAN_VERIFY_E2E_CI_POLICY,
+        PLAN_VERIFY_E2E_RESULT,
+        PLAN_VERIFY_GENERIC_ADAPTER,
+        PLAN_COMMON,
     )
     for path in required_files:
         if not path.is_file():
@@ -229,6 +250,41 @@ def check_plan_verify_contract() -> list[str]:
     product_memory = PLAN_VERIFY_PRODUCT_MEMORY.read_text(encoding="utf-8")
     if ".crew/verify-memory.md" not in product_memory:
         errors.append(f"{PLAN_VERIFY_PRODUCT_MEMORY.relative_to(REPO)} 未指向 canonical Layer 2 memory")
+
+    route = PLAN_VERIFY_ROUTE.read_text(encoding="utf-8")
+    for marker in ("browser", "backend-test", "database", "證明力優先", "一條 AC 一個主要 verifier"):
+        if marker not in route:
+            errors.append(f"{PLAN_VERIFY_ROUTE.relative_to(REPO)} 缺 verification router marker：{marker}")
+
+    preconditions = PLAN_VERIFY_PRECONDITIONS.read_text(encoding="utf-8")
+    for marker in ("BLOCKED", "前置條件失敗不等於產品功能失敗", "不計入 FAIL"):
+        if marker not in preconditions:
+            errors.append(f"{PLAN_VERIFY_PRECONDITIONS.relative_to(REPO)} 缺 precondition marker：{marker}")
+
+    ir = PLAN_VERIFY_IR.read_text(encoding="utf-8")
+    for marker in ("schema_version", ".cache/verification-ir.json", "{slug}#AC-{n}", "forbid_request"):
+        if marker not in ir:
+            errors.append(f"{PLAN_VERIFY_IR.relative_to(REPO)} 缺 Verification IR marker：{marker}")
+
+    e2e = PLAN_VERIFY_E2E_CONTRACT.read_text(encoding="utf-8")
+    for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "workspace", "不得要求某位工程師的絕對家目錄"):
+        if marker not in e2e:
+            errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} 缺 portable E2E marker：{marker}")
+
+    ci_policy = PLAN_VERIFY_E2E_CI_POLICY.read_text(encoding="utf-8")
+    for marker in ("draft", "ci-ready", "retries=0", "cleanup", "ci_eligible=false"):
+        if marker not in ci_policy:
+            errors.append(f"{PLAN_VERIFY_E2E_CI_POLICY.relative_to(REPO)} 缺 CI promotion marker：{marker}")
+
+    result_schema = PLAN_VERIFY_E2E_RESULT.read_text(encoding="utf-8")
+    for marker in ("crew-results.json", "flaky", "blocked", "CI 不直接寫"):
+        if marker not in result_schema:
+            errors.append(f"{PLAN_VERIFY_E2E_RESULT.relative_to(REPO)} 缺 E2E result marker：{marker}")
+
+    plan_common = PLAN_COMMON.read_text(encoding="utf-8")
+    for marker in (".crew/products/{product_id}.md", "e2e_adapter", "e2e.workspace", "舊欄位 `e2e_repo` / `e2e_profile`"):
+        if marker not in plan_common:
+            errors.append(f"{PLAN_COMMON.relative_to(REPO)} 缺 project-local E2E/product resolution marker：{marker}")
 
     return errors
 
