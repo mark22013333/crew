@@ -32,7 +32,7 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft|
 /plan-verify <URL>              # 指定目標頁面
 /plan-verify --api-only         # 只驗證 API（不操作 UI，不需瀏覽器）
 /plan-verify --recheck          # 僅重新驗證上次失敗的項目
-/plan-verify --e2e              # E2E Runner 模式（優先讀 portable e2e.* contract）
+/plan-verify --e2e              # E2E Runner 模式（優先讀 portable e2e_* contract）
 /plan-verify --e2e-draft        # 由 Verification IR 產 E2E candidate（draft）
 /plan-verify --e2e-promote      # 對 candidate 執行 CI promotion gate
 /plan-verify --from-e2e <file>  # 消費 crew-results.json，不重開瀏覽器
@@ -308,12 +308,12 @@ $CDP list
 
 > 📄 **執行前必讀全文**：[`phases/e2e-runner.md`](./phases/e2e-runner.md)
 
-**前提**：優先使用 `../../references/e2e-contract.md` 的 portable `e2e.*` + `e2e_adapter` 設定；舊 `e2e_repo` / `e2e_profile` 僅作 read compatibility，不得再產生使用者家目錄絕對路徑的新設定。
+**前提**：優先使用 `../../references/e2e-contract.md` 的 portable `e2e_*` + `e2e_adapter` 設定；舊 `e2e_repo` 僅作 read compatibility，不得再產生使用者家目錄絕對路徑的新設定。
 
 1. 解析 E2E workspace / adapter；project-local `.crew/adapters/{id}.md` 優先於 plugin adapter
 2. 若既有 E2E repo 尚使用 `tests/verify-map.json`，可讀取作 legacy mapping；新 mapping 應使用 `{slug}#AC-n` 穩定 join key
 3. 對每個驗收條件，嘗試匹配既有 E2E coverage
-4. 有匹配 → 依 adapter / e2e.command 執行 Playwright 測試
+4. 有匹配 → 依 adapter / `e2e_command` 執行 Playwright 測試
 5. 無匹配 → 退回 Verification Router 所選 verifier；browser 類才使用 MCP 模式
 6. 收集 JSON 結果 + 截圖；新整合應依 `../../references/e2e-result-schema.md` 產生機器可讀結果，再轉換成 verify.md 條目
 
