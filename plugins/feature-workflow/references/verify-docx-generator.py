@@ -160,7 +160,7 @@ def parse_verify_md(filepath):
                 if sk in lb: result["stats"][sk] = int(m.group(2))
 
     icon_map = {"✅": "PASS", "❌": "FAIL", "⚠️": "WARN", "🚧": "BLOCKED", "⏭️": "SKIP", "👤": "MANUAL"}
-    for m in re.finditer(r"### \[(\d+)\]\s*(✅|❌|⚠️|⏭️|👤)\s*(.+?)(?=\n### \[|\n---|\Z)", content, re.DOTALL):
+    for m in re.finditer(r"### \[(\d+)\]\s*(✅|❌|⚠️|🚧|⏭️|👤)\s*(.+?)(?=\n### \[|\n---|\Z)", content, re.DOTALL):
         idx, status, body = int(m.group(1)), icon_map.get(m.group(2).strip(), "MANUAL"), m.group(3)
         item = {"index": idx, "status": status, "name": body.split("\n")[0].strip(),
                 "type": "", "human_steps": None, "evidence": None, "screenshot": None,
@@ -528,10 +528,16 @@ def build_doc(data, cover, screenshots_dir, evidence_dir, output_path, logo_path
     themed_table(doc, ["狀態", "數量"], stats_data, T)
 
     total = sum(data["stats"].values())
-    fc = data["stats"].get("FAIL", 0); bc = data["stats"].get("BLOCKED", 0); mc = data["stats"].get("MANUAL", 0); pc = data["stats"].get("PASS", 0)
-    if fc == 0 and mc == 0: conc = f"共 {total} 項驗收條件全數通過，建議進入正式上線流程。"
-    elif fc > 0: conc = f"共 {total} 項驗收條件，{fc} 項未通過，需修正後重新驗證。"
-    else: conc = f"共 {total} 項驗收條件，{pc} 項通過、{mc} 項待人工確認。"
+    fc = data["stats"].get("FAIL", 0); bc = data["stats"].get("BLOCKED", 0)
+    wc = data["stats"].get("WARN", 0); mc = data["stats"].get("MANUAL", 0); pc = data["stats"].get("PASS", 0)
+    if fc > 0:
+        conc = f"共 {total} 項驗收條件，{fc} 項未通過，需修正後重新驗證。"
+    elif bc > 0:
+        conc = f"共 {total} 項驗收條件，{bc} 項因前置條件阻擋，排除阻擋後需重新驗證。"
+    elif wc > 0 or mc > 0:
+        conc = f"共 {total} 項驗收條件，{pc} 項通過、{wc} 項警告、{mc} 項待人工確認。"
+    else:
+        conc = f"共 {total} 項驗收條件全數通過。"
     p = doc.add_paragraph()
     themed_run(p, "結論：", T, size=11, color=T["deep_rgb"], bold=True)
     themed_run(p, conc, T, size=11)
