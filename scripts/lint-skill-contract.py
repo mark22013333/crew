@@ -65,6 +65,9 @@ PLAN_VERIFY_E2E_RESULTS_TOOL = REPO / "plugins" / "feature-workflow" / "scripts"
 PLAN_VERIFY_E2E_LINTER = REPO / "plugins" / "feature-workflow" / "scripts" / "lint-playwright-e2e.py"
 PLAN_VERIFY_GENERIC_ADAPTER = REPO / "plugins" / "feature-workflow" / "adapters" / "generic-playwright.md"
 PLAN_COMMON = REPO / "plugins" / "feature-workflow" / "references" / "plan-common.md"
+PLAN_VERIFY_CONFIG_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "config.template.md"
+PLAN_VERIFY_CONFIG_RESOLVER = REPO / "plugins" / "feature-workflow" / "references" / "config-resolver.md"
+PROJECT_ADD = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
 
 PLAN_VERIFY_REQUIRED = (
     "CREW_PLUGIN_ROOT",
@@ -221,6 +224,9 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_E2E_LINTER,
         PLAN_VERIFY_GENERIC_ADAPTER,
         PLAN_COMMON,
+        PLAN_VERIFY_CONFIG_TEMPLATE,
+        PLAN_VERIFY_CONFIG_RESOLVER,
+        PROJECT_ADD,
     )
     for path in required_files:
         if not path.is_file():
@@ -308,7 +314,7 @@ def check_plan_verify_contract() -> list[str]:
             errors.append(f"{PLAN_VERIFY_IR.relative_to(REPO)} 缺 Verification IR marker：{marker}")
 
     e2e = PLAN_VERIFY_E2E_CONTRACT.read_text(encoding="utf-8")
-    for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "workspace", "不得要求某位工程師的絕對家目錄"):
+    for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "e2e_workspace", "受測 application repo root", "不得要求某位工程師的絕對家目錄"):
         if marker not in e2e:
             errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} 缺 portable E2E marker：{marker}")
 
@@ -338,9 +344,25 @@ def check_plan_verify_contract() -> list[str]:
             errors.append(f"{PLAN_VERIFY_E2E_LINTER.relative_to(REPO)} 缺 E2E promotion linter marker：{marker}")
 
     plan_common = PLAN_COMMON.read_text(encoding="utf-8")
-    for marker in (".crew/products/{product_id}.md", "e2e_adapter", "e2e.workspace", "舊欄位 `e2e_repo` / `e2e_profile`"):
+    for marker in (".crew/products/{product_id}.md", "e2e_adapter", "e2e_workspace", "e2e_profile", "舊欄位 `e2e_repo`"):
         if marker not in plan_common:
             errors.append(f"{PLAN_COMMON.relative_to(REPO)} 缺 project-local E2E/product resolution marker：{marker}")
+
+    config_template = PLAN_VERIFY_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+    config_resolver = PLAN_VERIFY_CONFIG_RESOLVER.read_text(encoding="utf-8")
+    project_add = PROJECT_ADD.read_text(encoding="utf-8")
+    for marker in ("product_id", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command", "e2e_results"):
+        if marker not in config_template:
+            errors.append(f"{PLAN_VERIFY_CONFIG_TEMPLATE.relative_to(REPO)} 缺 project E2E 欄位：{marker}")
+        if marker not in config_resolver:
+            errors.append(f"{PLAN_VERIFY_CONFIG_RESOLVER.relative_to(REPO)} 缺 project E2E 欄位說明：{marker}")
+        if marker not in project_add:
+            errors.append(f"{PROJECT_ADD.relative_to(REPO)} 寫入 project mapping 時未保留 E2E 欄位：{marker}")
+
+    for forbidden in ("/Users/", "/home/"):
+        # 只檢查 project-add 的新寫入規則；文件可用禁止範例文字提到這些 path。
+        if f"e2e_workspace: {forbidden}" in project_add:
+            errors.append(f"{PROJECT_ADD.relative_to(REPO)} 不得硬編 E2E workspace：{forbidden}")
 
     return errors
 
