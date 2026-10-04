@@ -60,6 +60,7 @@ PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verific
 PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
 PLAN_VERIFY_E2E_CI_POLICY = REPO / "plugins" / "feature-workflow" / "references" / "e2e-ci-policy.md"
 PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
+PLAN_VERIFY_E2E_REPORTER = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.js"
 PLAN_VERIFY_GENERIC_ADAPTER = REPO / "plugins" / "feature-workflow" / "adapters" / "generic-playwright.md"
 PLAN_COMMON = REPO / "plugins" / "feature-workflow" / "references" / "plan-common.md"
 
@@ -213,6 +214,7 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_E2E_CONTRACT,
         PLAN_VERIFY_E2E_CI_POLICY,
         PLAN_VERIFY_E2E_RESULT,
+        PLAN_VERIFY_E2E_REPORTER,
         PLAN_VERIFY_GENERIC_ADAPTER,
         PLAN_COMMON,
     )
@@ -315,6 +317,11 @@ def check_plan_verify_contract() -> list[str]:
     for marker in ("crew-results.json", "flaky", "blocked", "CI 不直接寫"):
         if marker not in result_schema:
             errors.append(f"{PLAN_VERIFY_E2E_RESULT.relative_to(REPO)} 缺 E2E result marker：{marker}")
+
+    reporter = PLAN_VERIFY_E2E_REPORTER.read_text(encoding="utf-8")
+    for marker in ("crew-ac", "crew-blocked", "schema_version", "flaky", "module.exports = CrewReporter"):
+        if marker not in reporter:
+            errors.append(f"{PLAN_VERIFY_E2E_REPORTER.relative_to(REPO)} 缺 Playwright reporter marker：{marker}")
 
     plan_common = PLAN_COMMON.read_text(encoding="utf-8")
     for marker in (".crew/products/{product_id}.md", "e2e_adapter", "e2e.workspace", "舊欄位 `e2e_repo` / `e2e_profile`"):
