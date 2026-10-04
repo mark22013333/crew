@@ -12,16 +12,16 @@
 
 ```yaml
 e2e_adapter: generic-playwright
-e2e:
-  workspace: ../e2e
-  profile: uat
-  command: npx playwright test
-  results: test-results/crew-results.json
+e2e_workspace: ../e2e
+e2e_profile: uat
+e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ```
 
 規則：
-- `e2e.workspace` 必須是 repo/workspace-relative。
-- 舊 `e2e_repo` / `e2e_profile` 只作 read compatibility。
+- `e2e_workspace` 以受測 application repo root 為基準，必須是相對路徑。
+- `e2e_command` 在 E2E workspace 內執行；`e2e_results` 也以該 workspace 為基準。
+- 舊 `e2e_repo` 只作 read compatibility；`e2e_profile` 保留為 canonical 邏輯 profile 欄位。
 - Adapter resolution 見 `../../references/e2e-contract.md`。
 
 若 workspace 不存在：
