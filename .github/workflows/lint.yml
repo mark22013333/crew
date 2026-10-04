@@ -124,6 +124,17 @@ jobs:
       - name: 阻擋 active workflow 重新引入 Claude-specific orchestration
         run: python3 scripts/lint-host-portability.py --strict
 
+  playwright-e2e-policy:
+    name: Playwright E2E promotion policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 Playwright candidate linter regression
+        run: python3 plugins/feature-workflow/scripts/lint-playwright-e2e.py --self-test
+
   skill-contract:
     name: SKILL.md 內容契約
     runs-on: ubuntu-latest
