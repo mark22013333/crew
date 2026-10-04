@@ -298,7 +298,7 @@ function parseVerifyMd(filePath) {
     // 從 header 中提取狀態 emoji 和條件名稱
     const status = emojiToStatus(headerRest);
     const condition = headerRest
-      .replace(/[✅❌⚠️⏭️👤⚠⏭]/g, '')
+      .replace(/[✅❌⚠️🚧⏭️👤⚠⏭]/g, '')
       .trim();
 
     const item = {
@@ -901,7 +901,7 @@ async function main() {
   console.log('');
   console.log('✅ Excel 驗收報告產出完成！');
   console.log(`   📄 檔案：${outputPath}`);
-  console.log(`   📊 統計：✅ ${stats.pass} / ❌ ${stats.fail} / ⚠️ ${stats.warn} / ⏭️ ${stats.skip} / 👤 ${stats.manual}`);
+  console.log(`   📊 統計：✅ ${stats.pass} / ❌ ${stats.fail} / ⚠️ ${stats.warn} / 🚧 ${stats.blocked} / ⏭️ ${stats.skip} / 👤 ${stats.manual}`);
   console.log(`   📋 Sheet 數：${1 + data.items.length}（總表 + ${data.items.length} 項明細）`);
 }
 
