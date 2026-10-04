@@ -6,7 +6,7 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 
 # plan-verify — 驗收條件驗證
 
-逐條驗證 `.spec/{slug}/plan.md`「驗收條件」節的 `AC-n`。UI 驗證依 Host Capability Contract 選擇 browser adapter（preferred: Playwright），也支援 API-only、E2E 與 local CDP fallback；產出 Health Score、evidence 與截圖。
+逐條驗證 `.spec/{slug}/plan.md`「驗收條件」節的 `AC-n`。先透過 Verification Router 為每條 AC 選擇 browser / API / backend-test / database / manual 等最可靠 verifier；UI 驗證再依 Host Capability Contract 選擇 browser adapter（preferred: Playwright）。也支援 E2E 與 local CDP fallback；產出 Health Score、evidence 與截圖。
 
 `--deep` 可在 chrome-devtools capability 可用時追加 console / network 除錯分析。
 
@@ -190,7 +190,10 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
 ### 3. 建構驗證計畫
 
-AI 分析每條驗收條件，將其分類並規劃驗證方式：
+> 📄 **先讀全文**：[`phases/route-verification.md`](./phases/route-verification.md)
+> 每條 AC 先選「最有證明力的 verifier」，不是看到驗收就一律丟給 Playwright。
+
+AI 分析每條驗收條件，先分類成 browser / api / backend-test / database / manual / skip，再規劃驗證方式：
 
 **MCP 模式工具對照：**
 
@@ -229,6 +232,12 @@ API 路徑與頁面 URL 從 plan.md「指路」節的錨點（`@code:`）**指�
 - i18n 對照表 → 用翻譯文字定位元素（見 plugin 根目錄 `references/verify-i18n.md`，相對 SKILL.md 為 `../../references/`）
 - 特殊操作 Recipe → CKEditor、SweetAlert2 等元件的操作方式
 - API 格式 → 精確驗證回傳格式（如 Spring Page 的 content/totalElements/size/number）
+
+### 3.5 前置條件 Gate
+
+> 📄 **執行前必讀全文**：[`phases/preconditions.md`](./phases/preconditions.md)
+
+每個 scenario 在驗 AC 前先確認登入、fixture、必要服務、profile 與 cleanup/safety 等前置條件。前置不成立時標 `BLOCKED`，**不得誤報產品 FAIL**。
 
 展示計畫給使用者確認：
 
@@ -286,13 +295,14 @@ $CDP list
 
 ### E2E Runner 模式（--e2e，Phase 3）
 
-**前提**：`projects/{repo-id}.md` 設定了 `e2e_repo` 和 `e2e_profile` 欄位。
+**前提**：優先使用 `../../references/e2e-contract.md` 的 portable `e2e.*` + `e2e_adapter` 設定；舊 `e2e_repo` / `e2e_profile` 僅作 read compatibility，不得再產生使用者家目錄絕對路徑的新設定。
 
-1. 讀取 E2E repo 的 `tests/verify-map.json` 匹配映射檔
-2. 對每個驗收條件，嘗試匹配 mappings[*].condition
-3. 有匹配 → `PROFILE={profile} npx playwright test {file}` 直接跑測試
-4. 無匹配 → 退回 MCP 模式（見『逐條驗證』一節原流程）
-5. 收集 JSON 結果 + 截圖 → 轉換成 verify.md 條目
+1. 解析 E2E workspace / adapter；project-local `.crew/adapters/{id}.md` 優先於 plugin adapter
+2. 若既有 E2E repo 尚使用 `tests/verify-map.json`，可讀取作 legacy mapping；新 mapping 應使用 `{slug}#AC-n` 穩定 join key
+3. 對每個驗收條件，嘗試匹配既有 E2E coverage
+4. 有匹配 → 依 adapter / e2e.command 執行 Playwright 測試
+5. 無匹配 → 退回 Verification Router 所選 verifier；browser 類才使用 MCP 模式
+6. 收集 JSON 結果 + 截圖 → 轉換成 verify.md 條目
 
 Profile 選擇：讀取 E2E repo 的 `tests/config/profile-*.js`，提取 name + baseUrl 顯示給使用者選擇。
 
@@ -315,8 +325,9 @@ verify-map.json 格式：
 > Selector Fallback 6 級、stability 截圖、API+UI 交叉比對等細節都在 phases/run-verification.md 內。
 
 摘要（僅供 AI 確認自己在做什麼，實際步驟必須讀 phases 全文）：
-- 依序對每條 `AC-n` 執行驗證，結果沿用同一個 `AC-n` 編號
-- 各類型（API / UI 操作 / UI 檢查 / 表單）用對應工具
+- 依序對每條 `AC-n` 執行 Verification Router 選定的 verifier，結果沿用同一個 `AC-n` 編號
+- browser / API / backend-test / database / manual 各走自己的 evidence path
+- precondition 失敗標 `BLOCKED`，不計為產品 FAIL
 - Selector 失敗走 6 級 fallback 並記錄到 Layer 1 記憶
 - 每步驟後判斷是否值得記憶（見『記憶記錄判斷』一節）
 - **每驗完一條就寫進度**（中斷後可續跑，不必從頭再驗一遍）：
@@ -375,8 +386,8 @@ mkdir -p .spec/{slug}/.cache
 - `.cache/verify.md` 的**唯一用途**是給可選的 Word／Excel 報告當輸入（見『可選指令』一節）。它是一次性暫存：不進版控、不同步 Notion、不被其他 skill 當事實來源、`/plan-close` 不讀它。
 - 🔴 **不要**寫 `.spec/{slug}/verify.md`（舊路徑，已廢除）。
 
-> **格式與完整範例見 [`examples/verify-report-sample.md`](./examples/verify-report-sample.md)**：涵蓋 PASS / FAIL / SKIP / MANUAL 四種狀態的理想產出格式，含摘要表、統計表（PASS/WARN/FAIL/SKIP/MANUAL）與每項的 `human_steps` / `evidence` 註解區塊。產出時照該範本結構撰寫，項目編號用 `AC-n`。
-> WARN 用途：環境差異導致的預期外行為，功能正常但 Selector 不穩定。
+> **格式與完整範例見 [`examples/verify-report-sample.md`](./examples/verify-report-sample.md)**。逐項 outcome 支援 PASS / WARN / FAIL / BLOCKED / SKIP / MANUAL；`BLOCKED` 表示前置條件不成立、沒有資格判定產品功能。
+> WARN 用途：功能已被證明通過，但環境差異、selector 或 evidence 穩定性有疑慮。
 
 ### 8. 落檔的兩件事（摘要一行 + 狀態）
 
@@ -385,18 +396,18 @@ mkdir -p .spec/{slug}/.cache
 依 `references/plan-common.md`「寫入紀律」用 **Edit** 對 `<!-- crew:rep  append-only -->` 那一整行插入，格式固定：
 
 ```text
-- [{YYYY-MM-DD}] verify {PASS|WARN|FAIL}｜✅{N} ⚠️{N} ❌{N} ⏭️{N} 👤{N}｜Health {分數}
+- [{YYYY-MM-DD}] verify {PASS|WARN|FAIL}｜✅{N} ⚠️{N} ❌{N} 🚧{N} ⏭️{N} 👤{N}｜Health {分數}
 ```
 
 🔴 只寫這一行：逐條結果不進 plan.md（該節上限 6 行），🔴 不得整節取代、不得動別節。
-日期用 `date +%F` 的實際輸出。結論詞：無 ❌ 且無 ⚠️ → `PASS`；有 ⚠️ 無 ❌ → `WARN`；有 ❌ → `FAIL`。
+日期用 `date +%F` 的實際輸出。結論詞：無 ❌、無 ⚠️、無 🚧 → `PASS`；有 ⚠️ 或 🚧 且無 ❌ → `WARN`；有 ❌ → `FAIL`。
 
 **8b. 寫回 state.json（唯一狀態權威）**
 
 ```bash
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" result --slug {slug} \
   --kind verify --status {PASS|WARN|FAIL} \
-  --set health_score={分數} --set passed={N} --set failed={N} --set skipped={N} \
+  --set health_score={分數} --set passed={N} --set failed={N} --set blocked={N} --set skipped={N} \
   --set manual={N} --set mode={full|api-only|manual|recheck|e2e}
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} --clear
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
@@ -418,7 +429,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 📋 逐條結果：見上方對話全文（暫存 .spec/{slug}/.cache/verify.md）
 📝 已寫入：plan.md 摘要一行 + state.json results.verify
 📸 截圖：.spec/{slug}/screenshots/ ({N} 張)
-📊 統計：✅ {PASS} / ⚠️ {WARN} / ❌ {FAIL} / ⏭️ {SKIP} / 👤 {MANUAL}
+📊 統計：✅ {PASS} / ⚠️ {WARN} / ❌ {FAIL} / 🚧 {BLOCKED} / ⏭️ {SKIP} / 👤 {MANUAL}
 🔧 工具：Playwright MCP{，chrome-devtools-mcp（--deep）}
 
 {若有 FAIL}
@@ -451,19 +462,21 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 - ✅ 頁面通用操作、全站 selector、專案統一 API 格式。
 - ❌ 一次性操作、測試資料、Bug workaround、任何 secret。
 
-### 測試骨架產出（Phase 3，可選）
+### E2E candidate 產出（Phase 3，可選）
 
-plan-verify 完成後（所有 PASS），若 `e2e_repo` 已設定：
+plan-verify 完成後（所有 PASS/WARN，且沒有 BLOCKED），若 portable E2E contract 已設定：
 
 ```
 所有驗收條件通過。是否產出 E2E 測試骨架？[Y/n]
 ```
 
-YES → 從 `.cache/verify.md` 的操作步驟和 selector 產出 `rob{next}-{slug}.spec.js`：
-- 80% 完成度的骨架（import、describe/test、登入、基本操作、截圖）
+YES → 先依 `../../references/verification-ir.md` 產生／讀取 `.cache/verification-ir.json`，再依 `../../references/e2e-contract.md` 的 framework adapter 產出 E2E candidate：
+- 預設 maturity = `draft`，不能宣稱 CI-ready
+- import / auth / profile / helper 寫法由 adapter 決定，不硬編碼 `@playwright/test`
+- Stateful flow 可用單一 scenario + 多個 `test.step("AC-n: ...")`
 - TODO/FIXME 標記需人工調整的地方
-- 試跑：`PROFILE={p} npx playwright test rob{next}* --headed`
-- 人工 review 後 commit
+- Runtime 驗證使用到 `ci_eligible=false` 的 selector / recipe 時，不得無條件寫入 candidate
+- 試跑與人工 review 後，仍需 E2E promotion gate 才可進 CI
 
 ---
 
@@ -496,7 +509,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 
 讀取既有 `.spec/{slug}/.cache/verify.md`，解析其中 `❌ FAIL` 的項目：
 
-1. 只重跑 FAIL 項目
+1. 重新跑 FAIL + BLOCKED 項目
 2. 結果合併回**同一份** `.cache/verify.md`（覆蓋對應 `AC-n` 的狀態）
 3. 更新統計區塊
 4. `plan.md`「檢查報告摘要」節**再 append 一行**新的 verify 摘要（🔴 不覆蓋前一行；該節 append-only，逼近 6 行上限時壓縮舊條目），並重跑『落檔的兩件事』一節 8b 的 `crew-state.py result`
@@ -560,6 +573,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 - **products/{id}.md 不存在**：product_id 指向的檔案不存在時，降為通用模式，顯示 WARN
 - **verify-memory.md 格式損壞**：解析失敗時跳過記憶載入，不阻擋驗證流程
 - **verify-map.json 不存在**（--e2e 模式）：全部退回 MCP 模式
-- **E2E 測試失敗**（--e2e 模式）：對應條件標記 FAIL，記錄測試錯誤訊息
+- **E2E 測試失敗**（--e2e 模式）：前置條件成立且 assertion 失敗才標 FAIL；profile/login/fixture/environment 問題標 BLOCKED
+- **共享環境 cleanup 不可靠**：runtime verify 可繼續並標 WARN，但 E2E candidate 不得宣稱 CI-ready
 
 > Word/Excel 報告相關邊界情況（雙引擎皆不可用、python-docx 安裝失敗、report-config.md 不存在、截圖路徑無效、舊版 verify.md 相容、回應非 UTF-8、ExcelJS 安裝失敗）：見 `phases/word-report.md`「邊界情況（報告相關）」段。
