@@ -23,9 +23,9 @@ project-local knowledge 可包含公司內部 helper、路由、profile、元件
 建議欄位：
 
 ```yaml
-product_id: smartrobot
-e2e_adapter: smartrobot-e2e
-e2e_workspace: ../SmartRobotE2ETest
+product_id: example-admin
+e2e_adapter: company-admin-e2e
+e2e_workspace: ../AdminE2ETest
 e2e_profile: uat
 e2e_command: npx playwright test
 e2e_results: test-results/crew-results.json
