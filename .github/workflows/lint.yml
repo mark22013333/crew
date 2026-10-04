@@ -137,6 +137,8 @@ jobs:
           node-version: '22'
       - name: 驗證 Playwright candidate linter regression
         run: python3 plugins/feature-workflow/scripts/lint-playwright-e2e.py --self-test
+      - name: 驗證 E2E result summarizer regression
+        run: python3 plugins/feature-workflow/scripts/crew-e2e-results.py --self-test
       - name: 驗證 CREW Playwright reporter schema regression
         run: node plugins/feature-workflow/references/playwright/crew-reporter.js
 
