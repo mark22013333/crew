@@ -41,6 +41,16 @@ e2e_results: test-results/crew-results.json
 - CI 可以把 application repo 與 E2E repo checkout 到相同相對布局，讓同一份設定同時支援本機與 CI。
 - 舊 `e2e_repo` 只作 read compatibility；新寫入不得再產生此欄位。
 
+## Project-local adapter 起手式
+
+需要公司／產品私有 framework 規則時，複製 [`e2e-adapter-template.md`](./e2e-adapter-template.md) 到：
+
+```text
+<application-repo>/.crew/adapters/{e2e_adapter}.md
+```
+
+再填入 import/global hooks、profile、auth、component recipe、fixture/cleanup、safety 與 reporter 規則。不要把 secret 或內部敏感資料搬進 public plugin。
+
 ## Adapter 最小欄位
 
 Adapter 文件至少定義：
