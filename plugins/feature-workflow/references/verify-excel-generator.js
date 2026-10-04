@@ -37,6 +37,7 @@ const STATUS_COLORS = {
   PASS:   { bg: 'FFE2EFDA', text: '✅ 通過' },
   FAIL:   { bg: 'FFFCE4D6', text: '❌ 未通過' },
   WARN:   { bg: 'FFFFF2CC', text: '⚠️ 警告' },
+  BLOCKED:{ bg: 'FFEADCF8', text: '🚧 前置阻擋' },
   SKIP:   { bg: 'FFF2F2F2', text: '⏭️ 略過' },
   MANUAL: { bg: 'FFDCE6F1', text: '👤 待人工確認' },
 };
@@ -109,6 +110,7 @@ function emojiToStatus(emoji) {
   if (emoji.includes('✅')) return 'PASS';
   if (emoji.includes('❌')) return 'FAIL';
   if (emoji.includes('⚠️') || emoji.includes('⚠')) return 'WARN';
+  if (emoji.includes('🚧')) return 'BLOCKED';
   if (emoji.includes('⏭️') || emoji.includes('⏭')) return 'SKIP';
   if (emoji.includes('👤')) return 'MANUAL';
   return 'SKIP';
@@ -230,7 +232,7 @@ function parseVerifyMd(filePath) {
 
   const result = {
     summary: { date: '', environment: '', mode: '', tool: '', locale: '' },
-    stats: { pass: 0, fail: 0, warn: 0, skip: 0, manual: 0 },
+    stats: { pass: 0, fail: 0, warn: 0, blocked: 0, skip: 0, manual: 0 },
     items: [],
   };
 
@@ -266,6 +268,7 @@ function parseVerifyMd(filePath) {
         if (/PASS|通過/.test(label)) result.stats.pass = count;
         if (/FAIL|未通過/.test(label)) result.stats.fail = count;
         if (/WARN|警告/.test(label)) result.stats.warn = count;
+        if (/BLOCKED|前置阻擋|阻擋/.test(label)) result.stats.blocked = count;
         if (/SKIP|略過/.test(label)) result.stats.skip = count;
         if (/MANUAL|人工/.test(label)) result.stats.manual = count;
       }
@@ -325,6 +328,9 @@ function parseVerifyMd(filePath) {
 
     const failMatch = block.match(/\*\*失敗原因\*\*[：:]\s*(.+)/);
     if (failMatch) item.failReason = failMatch[1].trim();
+
+    const blockedMatch = block.match(/\*\*(?:阻擋原因|前置阻擋原因)\*\*[：:]\s*(.+)/);
+    if (blockedMatch && !item.failReason) item.failReason = blockedMatch[1].trim();
 
     const skipMatch = block.match(/\*\*跳過原因\*\*[：:]\s*(.+)/);
     if (skipMatch && !item.failReason) item.failReason = skipMatch[1].trim();
@@ -502,7 +508,7 @@ function createSummarySheet(workbook, data, cover) {
     linkCell.alignment = { horizontal: 'center' };
 
     // E: 備註
-    row.getCell(5).value = item.status === 'FAIL' ? (item.failReason || '') : '';
+    row.getCell(5).value = ['FAIL', 'BLOCKED'].includes(item.status) ? (item.failReason || '') : '';
     row.getCell(5).alignment = { wrapText: true, vertical: 'top' };
 
     // F: 測試日期
@@ -682,7 +688,7 @@ function createDetailSheet(workbook, item, index, screenshotsDir, evidenceDir) {
   }
 
   // --- 失敗原因 ---
-  if (item.status === 'FAIL' && item.failReason) {
+  if (['FAIL', 'BLOCKED'].includes(item.status) && item.failReason) {
     currentRow++;
     ws.getCell(`A${currentRow}`).value = '失敗原因';
     ws.getCell(`A${currentRow}`).font = {
