@@ -135,11 +135,18 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
 讀取 `projects/{repo-id}.md` 的 `product_id` 欄位（見 plugin 根目錄 `references/plan-common.md`，相對 SKILL.md 為 `../../references/`，第 4 層）。
 
-- **有 product_id** → 🟢 產品模式
-  1. 讀取 `products/{product_id}.md`（頁面導航地圖、常用 Selector、i18n 對照表、特殊操作 Recipe、API 格式）
-  2. 讀取 `products/{product_id}-memory.md`（Layer 3 產品級記憶）
-  3. 將產品知識注入後續驗證計畫
-- **無 product_id** → 🔵 通用模式（不載入產品知識庫）
+Resolution precedence：
+1. 專案 repo `.crew/products/{product_id}.md`
+2. plugin `products/{product_id}.md`
+3. 都不存在 → 通用模式
+
+產品級 memory 亦採 project-local 優先：`.crew/products/{product_id}-memory.md` → plugin `products/{product_id}-memory.md`。
+
+- **有 product_id 且找到 knowledge** → 🟢 產品模式，注入頁面導航、Selector、i18n、Recipe、API 格式與產品記憶。
+- **有 product_id 但找不到 knowledge** → 🟡 WARN 後降為通用模式；不得猜私有產品細節。
+- **無 product_id** → 🔵 通用模式。
+
+公司／客戶私有知識優先留在 project-local `.crew/products/`；公開 plugin bundle 不要求承載私有路由、帳密、內部 repo 或一次性測試資料。
 
 ### 2. 讀取驗收條件（`AC-n`）
 
@@ -164,7 +171,8 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 依序載入，後者覆蓋前者：
 
 1. **Layer 3 產品級記憶**
-   → `products/{product_id}-memory.md`
+   → project-local `.crew/products/{product_id}-memory.md`
+   → 若不存在，再讀 plugin `products/{product_id}-memory.md`
 2. **Layer 2 專案級記憶**
    → canonical：專案 repo `.crew/verify-memory.md`
    → legacy read fallback：只有 canonical 不存在時才讀 `.claude/verify-memory.md`
@@ -304,7 +312,7 @@ $CDP list
 5. 無匹配 → 退回 Verification Router 所選 verifier；browser 類才使用 MCP 模式
 6. 收集 JSON 結果 + 截圖 → 轉換成 verify.md 條目
 
-Profile 選擇：讀取 E2E repo 的 `tests/config/profile-*.js`，提取 name + baseUrl 顯示給使用者選擇。
+Profile 選擇由 framework adapter 決定。若 legacy adapter 明確宣告以 `tests/config/profile-*.js` 掃描 profile，才使用該方式；generic core 不硬編碼 profile 檔案結構。
 
 verify-map.json 格式：
 ```json
@@ -467,7 +475,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 plan-verify 完成後（所有 PASS/WARN，且沒有 BLOCKED），若 portable E2E contract 已設定：
 
 ```
-所有驗收條件通過。是否產出 E2E 測試骨架？[Y/n]
+本次 runtime 驗證沒有 FAIL / BLOCKED。是否產出 E2E candidate（draft）？[Y/n]
 ```
 
 YES → 先依 `../../references/verification-ir.md` 產生／讀取 `.cache/verification-ir.json`，再依 `../../references/e2e-contract.md` 的 framework adapter 產出 E2E candidate：
@@ -535,7 +543,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 
 ## 何時不用
 
-本 skill 專責「透過瀏覽器逐條驗證 plan.md 的 `AC-n`」，以下情境不屬此範圍：
+本 skill 專責「為 plan.md 的 `AC-n` 選擇可靠 verifier 並收集 runtime evidence」，以下情境不屬此範圍：
 - 驗證程式改動是否生效（非瀏覽器驗收）→ 改用內建 `/verify`
 - 宣稱完成前的一般驗證 → 改用 `superpowers:verification-before-completion`
 - 驗證 SQL 語法對不對 → 直接檢查語法，非本 skill 職責
