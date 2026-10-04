@@ -75,6 +75,23 @@ Mapping：
 
 `blocked` 必須有 `reason`，代表 environment / auth / fixture / dependency precondition 失敗，不是產品 assertion failure。
 
+## Import / aggregation
+
+`--from-e2e` 先執行 plugin 內建：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-results.py" summarize \
+  --file {result} --slug {slug} --expected-git-sha {sha}
+```
+
+同一個 AC 若被多個 test / scenario 覆蓋，採**最差狀態優先**：
+
+```text
+failed > blocked > flaky > manual > skipped > passed
+```
+
+這可避免一支 PASS 測試把另一支 FAIL coverage 蓋掉。
+
 ## Boundaries
 
 - CI 只產 result artifact，不 commit / patch `.spec/{slug}/state.json`。
