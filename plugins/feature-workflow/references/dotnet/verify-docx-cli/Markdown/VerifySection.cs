@@ -16,14 +16,14 @@ public record DetailItem(
     List<ApiCall> ApiCalls,         // **測試紀錄** 後的 請求/回應 code block
     List<string> ScreenshotPaths);  // ![desc](screenshots/...)
 
-public enum DetailStatus { Pass, Fail, Skip, Manual }
+public enum DetailStatus { Pass, Fail, Warn, Blocked, Skip, Manual }
 
 public record ApiCall(
     string Method, string Url, Dictionary<string, string> Headers,
     int HttpStatus, string ResponseBody, string? EvidenceFileName);
 
 // 驗收摘要
-public record SummaryStats(int Pass, int Fail, int Skip, int Manual, string Conclusion);
+public record SummaryStats(int Pass, int Fail, int Warn, int Blocked, int Skip, int Manual, string Conclusion);
 
 // 待處理事項
 public record PendingItem(int Number, string Title, DetailStatus Status, string Suggestion);
