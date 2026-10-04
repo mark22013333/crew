@@ -162,6 +162,12 @@ stack: spring-boot-jpa
 prod_branch: production
 uat_branch: uat
 dev_branch: ORG01P2401_DEV
+product_id: smartrobot
+e2e_adapter: smartrobot-e2e
+e2e_workspace: ../SmartRobotE2ETest
+e2e_profile: uat
+e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ---
 範例銀行 LINE 推播微服務
 ```
@@ -173,6 +179,12 @@ frontmatter 欄位：
 - `prod_branch`（必要）：正式環境分支名稱（`/plan-start` 從此分支建立 feature branch）
 - `uat_branch`（選填）：測試環境分支名稱
 - `dev_branch`（選填）：開發分支名稱（`/bug-close` merge-back 目標）
+- `product_id`（選填）：plan-verify 的 product knowledge ID
+- `e2e_adapter`（選填）：project-local / plugin E2E adapter ID
+- `e2e_workspace`（選填）：相對於受測 application repo root 的 E2E repo path
+- `e2e_profile`（選填）：邏輯 profile ID，不得放 secret
+- `e2e_command`（選填）：在 E2E workspace 執行的 runner command
+- `e2e_results`（選填）：相對於 E2E workspace 的 `crew-results.json` path
 
 body：專案說明（一句話）。
 
