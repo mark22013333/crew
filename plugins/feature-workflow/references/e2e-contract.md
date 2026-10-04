@@ -25,21 +25,21 @@ project-local knowledge 可包含公司內部 helper、路由、profile、元件
 ```yaml
 product_id: smartrobot
 e2e_adapter: smartrobot-e2e
-
-e2e:
-  runner: playwright
-  workspace: ../SmartRobotE2ETest
-  profile: uat
-  command: npx playwright test
-  results: test-results/crew-results.json
+e2e_workspace: ../SmartRobotE2ETest
+e2e_profile: uat
+e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ```
 
 ### Portable rule
 
-- `workspace` 只能是 repo-relative / workspace-relative path；不得要求某位工程師的絕對家目錄。
+- `e2e_workspace` 以**受測 application repo root** 為基準解析，必須是相對路徑；不得要求某位工程師的絕對家目錄。
+- `e2e_command` 在解析後的 E2E workspace 內執行。
+- `e2e_results` 以 E2E workspace 為基準解析。
 - credential / token / password 不得出現在 project config。
-- `profile` 是邏輯識別，不是 secret container。
-- CI 可以用 checkout / mount / workspace mapping 提供同一個 E2E repo，不依賴本機固定路徑。
+- `e2e_profile` 是邏輯識別，不是 secret container。
+- CI 可以把 application repo 與 E2E repo checkout 到相同相對布局，讓同一份設定同時支援本機與 CI。
+- 舊 `e2e_repo` 只作 read compatibility；新寫入不得再產生此欄位。
 
 ## Adapter 最小欄位
 
