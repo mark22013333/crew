@@ -25,6 +25,16 @@ ci-ready
 - 依賴某位工程師家目錄的絕對路徑
 - 必須使用 `ci_eligible=false` 的 selector / recipe 才能成功
 
+## Static lint
+
+Promotion 前先執行：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/lint-playwright-e2e.py" {candidate}
+```
+
+HARD issue 不得 promotion；REVIEW issue 必須有明確理由或修正。
+
 ## Review required
 
 以下不是一律禁止，但必須明確說明：
