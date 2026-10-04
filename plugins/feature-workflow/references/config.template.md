@@ -159,9 +159,9 @@ git_repo: ORG01P2401/PushAPIService
 stack: spring-boot-jpa
 prod_branch: production
 uat_branch: uat
-product_id: smartrobot
-e2e_adapter: smartrobot-e2e
-e2e_workspace: ../SmartRobotE2ETest
+product_id: example-admin
+e2e_adapter: company-admin-e2e
+e2e_workspace: ../AdminE2ETest
 e2e_profile: uat
 e2e_command: npx playwright test
 e2e_results: test-results/crew-results.json
