@@ -39,12 +39,20 @@ maturity = draft
 
 ```ts
 test('scenario', async ({ page }) => {
-  await test.step('AC-1: ...', async () => {});
-  await test.step('AC-2: ...', async () => {});
+  await test.step('{slug}#AC-1: ...', async () => {});
+  await test.step('{slug}#AC-2: ...', async () => {});
 });
 ```
 
-每個 step 仍必須可映射到 `{slug}#AC-n`。
+每個 step title 直接包含 `{slug}#AC-n`，避免 reporter 需要 fuzzy mapping。
+
+獨立 test 可使用：
+
+```js
+annotation: { type: 'crew-ac', description: '{slug}#AC-1' }
+```
+
+若 precondition 不成立，使用 adapter 支援的 blocked contract；generic reporter 使用 `crew-blocked` annotation 保存 reason。
 
 ## 3. Precondition 與 assertion
 
