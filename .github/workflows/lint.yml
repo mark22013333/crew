@@ -132,8 +132,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: 驗證 Playwright candidate linter regression
         run: python3 plugins/feature-workflow/scripts/lint-playwright-e2e.py --self-test
+      - name: 驗證 CREW Playwright reporter schema regression
+        run: node plugins/feature-workflow/references/playwright/crew-reporter.js
 
   skill-contract:
     name: SKILL.md 內容契約
