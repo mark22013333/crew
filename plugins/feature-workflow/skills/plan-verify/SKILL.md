@@ -32,7 +32,7 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 /plan-verify <URL>              # 指定目標頁面
 /plan-verify --api-only         # 只驗證 API（不操作 UI，不需瀏覽器）
 /plan-verify --recheck          # 僅重新驗證上次失敗的項目
-/plan-verify --e2e              # E2E Runner 模式（需 e2e_repo 設定）
+/plan-verify --e2e              # E2E Runner 模式（優先讀 portable e2e.* contract）
 ```
 
 **Word／Excel 報告已移出主流程**，改為驗證完成後的獨立可選指令（見『可選指令：Word／Excel 驗收報告』一節）：
@@ -310,7 +310,7 @@ $CDP list
 3. 對每個驗收條件，嘗試匹配既有 E2E coverage
 4. 有匹配 → 依 adapter / e2e.command 執行 Playwright 測試
 5. 無匹配 → 退回 Verification Router 所選 verifier；browser 類才使用 MCP 模式
-6. 收集 JSON 結果 + 截圖 → 轉換成 verify.md 條目
+6. 收集 JSON 結果 + 截圖；新整合應依 `../../references/e2e-result-schema.md` 產生機器可讀結果，再轉換成 verify.md 條目
 
 Profile 選擇由 framework adapter 決定。若 legacy adapter 明確宣告以 `tests/config/profile-*.js` 掃描 profile，才使用該方式；generic core 不硬編碼 profile 檔案結構。
 
@@ -484,7 +484,7 @@ YES → 先依 `../../references/verification-ir.md` 產生／讀取 `.cache/ver
 - Stateful flow 可用單一 scenario + 多個 `test.step("AC-n: ...")`
 - TODO/FIXME 標記需人工調整的地方
 - Runtime 驗證使用到 `ci_eligible=false` 的 selector / recipe 時，不得無條件寫入 candidate
-- 試跑與人工 review 後，仍需 E2E promotion gate 才可進 CI
+- 試跑與人工 review 後，仍需 `../../references/e2e-ci-policy.md` 的 E2E promotion gate 才可進 CI
 
 ---
 
@@ -515,7 +515,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 
 ## --recheck 模式
 
-讀取既有 `.spec/{slug}/.cache/verify.md`，解析其中 `❌ FAIL` 的項目：
+讀取既有 `.spec/{slug}/.cache/verify.md`，解析其中 `❌ FAIL` 與 `🚧 BLOCKED` 的項目：
 
 1. 重新跑 FAIL + BLOCKED 項目
 2. 結果合併回**同一份** `.cache/verify.md`（覆蓋對應 `AC-n` 的狀態）
