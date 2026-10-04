@@ -52,6 +52,10 @@ PLAN_VERIFY_MCP = REPO / "plugins" / "feature-workflow" / "references" / "mcp-in
 PLAN_VERIFY_PRODUCT_MEMORY = REPO / "plugins" / "feature-workflow" / "products" / "smartrobot-memory.md"
 PLAN_VERIFY_ROUTE = PLAN_VERIFY.parent / "phases" / "route-verification.md"
 PLAN_VERIFY_PRECONDITIONS = PLAN_VERIFY.parent / "phases" / "preconditions.md"
+PLAN_VERIFY_E2E_RUNNER = PLAN_VERIFY.parent / "phases" / "e2e-runner.md"
+PLAN_VERIFY_E2E_AUTHORING = PLAN_VERIFY.parent / "phases" / "e2e-authoring.md"
+PLAN_VERIFY_E2E_PROMOTION = PLAN_VERIFY.parent / "phases" / "e2e-promotion.md"
+PLAN_VERIFY_FROM_E2E = PLAN_VERIFY.parent / "phases" / "from-e2e.md"
 PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verification-ir.md"
 PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
 PLAN_VERIFY_E2E_CI_POLICY = REPO / "plugins" / "feature-workflow" / "references" / "e2e-ci-policy.md"
@@ -71,6 +75,13 @@ PLAN_VERIFY_REQUIRED = (
     "BLOCKED",
     "../../references/verification-ir.md",
     "../../references/e2e-contract.md",
+    "--e2e-draft",
+    "--e2e-promote",
+    "--from-e2e",
+    "phases/e2e-runner.md",
+    "phases/e2e-authoring.md",
+    "phases/e2e-promotion.md",
+    "phases/from-e2e.md",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -194,6 +205,10 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_PRODUCT_MEMORY,
         PLAN_VERIFY_ROUTE,
         PLAN_VERIFY_PRECONDITIONS,
+        PLAN_VERIFY_E2E_RUNNER,
+        PLAN_VERIFY_E2E_AUTHORING,
+        PLAN_VERIFY_E2E_PROMOTION,
+        PLAN_VERIFY_FROM_E2E,
         PLAN_VERIFY_IR,
         PLAN_VERIFY_E2E_CONTRACT,
         PLAN_VERIFY_E2E_CI_POLICY,
@@ -260,6 +275,26 @@ def check_plan_verify_contract() -> list[str]:
     for marker in ("BLOCKED", "前置條件失敗不等於產品功能失敗", "不計入 FAIL"):
         if marker not in preconditions:
             errors.append(f"{PLAN_VERIFY_PRECONDITIONS.relative_to(REPO)} 缺 precondition marker：{marker}")
+
+    e2e_runner = PLAN_VERIFY_E2E_RUNNER.read_text(encoding="utf-8")
+    for marker in ("{slug}#AC-n", "legacy `verify-map.json`", "BLOCKED", "crew-results.json"):
+        if marker not in e2e_runner:
+            errors.append(f"{PLAN_VERIFY_E2E_RUNNER.relative_to(REPO)} 缺 E2E runner marker：{marker}")
+
+    e2e_authoring = PLAN_VERIFY_E2E_AUTHORING.read_text(encoding="utf-8")
+    for marker in ("maturity = draft", "Verification IR", "test.step", "ci_eligible=false"):
+        if marker not in e2e_authoring:
+            errors.append(f"{PLAN_VERIFY_E2E_AUTHORING.relative_to(REPO)} 缺 E2E authoring marker：{marker}")
+
+    e2e_promotion = PLAN_VERIFY_E2E_PROMOTION.read_text(encoding="utf-8")
+    for marker in ("ci-ready", "retries=0", "repeat-each=3", "FLAKY"):
+        if marker not in e2e_promotion:
+            errors.append(f"{PLAN_VERIFY_E2E_PROMOTION.relative_to(REPO)} 缺 E2E promotion marker：{marker}")
+
+    from_e2e = PLAN_VERIFY_FROM_E2E.read_text(encoding="utf-8")
+    for marker in ("--from-e2e", "crew-results.json", "blocked", "crew-state.py"):
+        if marker not in from_e2e:
+            errors.append(f"{PLAN_VERIFY_FROM_E2E.relative_to(REPO)} 缺 from-e2e marker：{marker}")
 
     ir = PLAN_VERIFY_IR.read_text(encoding="utf-8")
     for marker in ("schema_version", ".cache/verification-ir.json", "{slug}#AC-{n}", "forbid_request"):
