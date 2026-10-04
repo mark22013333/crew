@@ -16,6 +16,27 @@
 
 格式錯誤 → 停止，不寫 state。
 
+## 1.5 Deterministic summarize
+
+不要由 LLM 自己掃 JSON 算統計。先執行：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-results.py" summarize \
+  --file {crew-results.json} \
+  --slug {slug} \
+  --expected-git-sha {目前受測 commit}
+```
+
+此腳本負責：
+- schema / status / AC join key 驗證
+- blocked 必須有 reason
+- 只保留目前 slug，其他結果計入 ignored
+- 同一 AC 多筆 coverage 採最差狀態聚合
+- git SHA freshness
+- deterministic counts / overall PASS|WARN|FAIL
+
+Health Score 不在此腳本發明新公式，仍由 plan-verify 既有評分邏輯處理。
+
 ## 2. Scope
 
 只消費目前 active slug 的 AC。
