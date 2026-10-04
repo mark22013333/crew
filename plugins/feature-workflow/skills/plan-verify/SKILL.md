@@ -1,7 +1,7 @@
 ---
 name: plan-verify
-description: 透過 browser/API/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
-argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
+description: 透過 browser/API/backend-test/database/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
+argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft|--e2e-promote|--from-e2e <file>]"
 ---
 
 # plan-verify — 驗收條件驗證
@@ -33,6 +33,9 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 /plan-verify --api-only         # 只驗證 API（不操作 UI，不需瀏覽器）
 /plan-verify --recheck          # 僅重新驗證上次失敗的項目
 /plan-verify --e2e              # E2E Runner 模式（優先讀 portable e2e.* contract）
+/plan-verify --e2e-draft        # 由 Verification IR 產 E2E candidate（draft）
+/plan-verify --e2e-promote      # 對 candidate 執行 CI promotion gate
+/plan-verify --from-e2e <file>  # 消費 crew-results.json，不重開瀏覽器
 ```
 
 **Word／Excel 報告已移出主流程**，改為驗證完成後的獨立可選指令（見『可選指令：Word／Excel 驗收報告』一節）：
@@ -303,6 +306,8 @@ $CDP list
 
 ### E2E Runner 模式（--e2e，Phase 3）
 
+> 📄 **執行前必讀全文**：[`phases/e2e-runner.md`](./phases/e2e-runner.md)
+
 **前提**：優先使用 `../../references/e2e-contract.md` 的 portable `e2e.*` + `e2e_adapter` 設定；舊 `e2e_repo` / `e2e_profile` 僅作 read compatibility，不得再產生使用者家目錄絕對路徑的新設定。
 
 1. 解析 E2E workspace / adapter；project-local `.crew/adapters/{id}.md` 優先於 plugin adapter
@@ -443,8 +448,11 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 {若有 FAIL}
 ⚠️  發現 {N} 個驗收條件未通過，建議修復後執行 /plan-verify --recheck
 
-{若全部 PASS}
-🎉 所有驗收條件通過！
+{若有 BLOCKED 且無 FAIL}
+🚧 有 {N} 個驗收條件因前置條件阻擋；先排除環境／登入／fixture 問題，再執行 /plan-verify --recheck
+
+{若無 FAIL/BLOCKED/WARN}
+🎉 所有可自動驗證的驗收條件通過！
 
 後續可使用：
   • /plan-verify --recheck — 重新驗證失敗項目
@@ -470,7 +478,9 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 - ✅ 頁面通用操作、全站 selector、專案統一 API 格式。
 - ❌ 一次性操作、測試資料、Bug workaround、任何 secret。
 
-### E2E candidate 產出（Phase 3，可選）
+### E2E candidate 產出（--e2e-draft，Phase 3，可選）
+
+> 📄 **執行前必讀全文**：[`phases/e2e-authoring.md`](./phases/e2e-authoring.md)
 
 plan-verify 完成後（所有 PASS/WARN，且沒有 BLOCKED），若 portable E2E contract 已設定：
 
@@ -485,6 +495,18 @@ YES → 先依 `../../references/verification-ir.md` 產生／讀取 `.cache/ver
 - TODO/FIXME 標記需人工調整的地方
 - Runtime 驗證使用到 `ci_eligible=false` 的 selector / recipe 時，不得無條件寫入 candidate
 - 試跑與人工 review 後，仍需 `../../references/e2e-ci-policy.md` 的 E2E promotion gate 才可進 CI
+
+### E2E Promotion（--e2e-promote）
+
+> 📄 **執行前必讀全文**：[`phases/e2e-promotion.md`](./phases/e2e-promotion.md)
+
+對既有 candidate 做 static / review / stability gate。只有通過全部 hard gate，且以 `retries=0` 重複至少 3 次穩定成功，才可標記 `maturity=ci-ready`。Promotion 只判斷 E2E 資產成熟度，不改寫 UAT，也不取代 runtime verify truth。
+
+### 從 CI / E2E 結果匯入（--from-e2e）
+
+> 📄 **執行前必讀全文**：[`phases/from-e2e.md`](./phases/from-e2e.md)
+
+讀取 `../../references/e2e-result-schema.md` 的 `crew-results.json`，驗證 schema / slug#AC-n / git freshness 後，轉成 PASS / WARN / FAIL / BLOCKED / SKIP / MANUAL，最後仍只透過 `crew-state.py result` 寫 `state.json.results.verify`。CI 本身不得 patch task state。
 
 ---
 
