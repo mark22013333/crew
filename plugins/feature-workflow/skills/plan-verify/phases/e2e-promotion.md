@@ -18,6 +18,19 @@
 
 命中 hard block → 保持 `draft`。
 
+## 1.5 Static linter
+
+先執行 plugin 內建 linter：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/lint-playwright-e2e.py" {candidate}
+```
+
+- HARD issue → promotion 直接 BLOCK
+- REVIEW issue → 進入下一節人工／Agent 審查
+- 需要把 REVIEW 也當 hard gate 時可加 `--strict-review`
+- 此 linter 是 heuristic guard，不取代實際 Playwright 執行
+
 ## 2. Review gate
 
 以下要求人工或 Agent 說明：
