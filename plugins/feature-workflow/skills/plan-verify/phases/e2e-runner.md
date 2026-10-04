@@ -69,7 +69,7 @@ PROFILE={profile} npx playwright test {matched files}
 
 ## 5. 輸出
 
-優先要求 runner 產出 `../../references/e2e-result-schema.md` 格式的 `crew-results.json`。
+優先要求 runner 產出 `../../references/e2e-result-schema.md` 格式的 `crew-results.json`。Generic Playwright 可參考 `../../references/playwright/crew-reporter.js`；E2E repo 應 vendor/copy reporter，不要讓 CI 綁定 plugin 安裝路徑。
 
 若 legacy runner 尚未支援：
 - 可讀 Playwright JSON reporter 結果轉成 schema v1
