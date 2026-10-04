@@ -58,6 +58,7 @@ PLAN_VERIFY_E2E_PROMOTION = PLAN_VERIFY.parent / "phases" / "e2e-promotion.md"
 PLAN_VERIFY_FROM_E2E = PLAN_VERIFY.parent / "phases" / "from-e2e.md"
 PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verification-ir.md"
 PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
+PLAN_VERIFY_E2E_ADAPTER_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "e2e-adapter-template.md"
 PLAN_VERIFY_E2E_CI_POLICY = REPO / "plugins" / "feature-workflow" / "references" / "e2e-ci-policy.md"
 PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
 PLAN_VERIFY_E2E_REPORTER = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.js"
@@ -217,6 +218,7 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_FROM_E2E,
         PLAN_VERIFY_IR,
         PLAN_VERIFY_E2E_CONTRACT,
+        PLAN_VERIFY_E2E_ADAPTER_TEMPLATE,
         PLAN_VERIFY_E2E_CI_POLICY,
         PLAN_VERIFY_E2E_RESULT,
         PLAN_VERIFY_E2E_REPORTER,
@@ -317,6 +319,11 @@ def check_plan_verify_contract() -> list[str]:
     for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "e2e_workspace", "受測 application repo root", "不得要求某位工程師的絕對家目錄"):
         if marker not in e2e:
             errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} 缺 portable E2E marker：{marker}")
+
+    adapter_template = PLAN_VERIFY_E2E_ADAPTER_TEMPLATE.read_text(encoding="utf-8")
+    for marker in ("Import contract", "Runtime profile", "Authentication", "Fixture contract", "Safety invariants", "Known pitfalls"):
+        if marker not in adapter_template:
+            errors.append(f"{PLAN_VERIFY_E2E_ADAPTER_TEMPLATE.relative_to(REPO)} 缺 project-local adapter template marker：{marker}")
 
     ci_policy = PLAN_VERIFY_E2E_CI_POLICY.read_text(encoding="utf-8")
     for marker in ("draft", "ci-ready", "retries=0", "cleanup", "ci_eligible=false"):
