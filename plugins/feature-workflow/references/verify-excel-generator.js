@@ -265,7 +265,7 @@ function parseVerifyMd(filePath) {
       if (cells.length >= 2) {
         const label = cells[0];
         const count = parseInt(cells[1], 10) || 0;
-        if (/PASS|通過/.test(label)) result.stats.pass = count;
+        if (/PASS/.test(label) || (/通過/.test(label) && !/未通過/.test(label))) result.stats.pass = count;
         if (/FAIL|未通過/.test(label)) result.stats.fail = count;
         if (/WARN|警告/.test(label)) result.stats.warn = count;
         if (/BLOCKED|前置阻擋|阻擋/.test(label)) result.stats.blocked = count;
