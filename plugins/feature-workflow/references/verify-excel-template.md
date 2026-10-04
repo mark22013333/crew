@@ -62,6 +62,7 @@
 | PASS | 淺綠 | `#FFE2EFDA` |
 | FAIL | 淺紅 | `#FFFCE4D6` |
 | WARN | 淺黃 | `#FFFFF2CC` |
+| BLOCKED | 淺紫 | `#FFEADCF8` |
 | SKIP | 淺灰 | `#FFF2F2F2` |
 | MANUAL | 淺藍 | `#FFDCE6F1` |
 
@@ -111,7 +112,7 @@ worksheet.views = [{ state: 'frozen', ySplit: 10 }];
 | 列 | 內容 | 格式 |
 |----|------|------|
 | Row 1 | 驗收條件名稱 | bold, 14pt |
-| Row 2 | 結果（PASS/FAIL/WARN） | 帶色彩（同明細表結果欄背景色） |
+| Row 2 | 結果（PASS/FAIL/WARN/BLOCKED/SKIP/MANUAL） | 帶色彩（同明細表結果欄背景色） |
 | Row 3 | 空行 | — |
 | Row 4+ | 操作步驟 | 見下方 |
 
@@ -275,6 +276,7 @@ const COLORS = {
   PASS_BG:     'FFE2EFDA',  // 淺綠
   FAIL_BG:     'FFFCE4D6',  // 淺紅
   WARN_BG:     'FFFFF2CC',  // 淺黃
+  BLOCKED_BG:  'FFEADCF8',  // 淺紫
   SKIP_BG:     'FFF2F2F2',  // 淺灰
   MANUAL_BG:   'FFDCE6F1',  // 淺藍
   LINK_COLOR:  'FF0563C1',  // 超連結藍
