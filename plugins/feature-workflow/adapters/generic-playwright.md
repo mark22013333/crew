@@ -25,8 +25,10 @@ supports:
 import { test, expect } from '@playwright/test';
 
 test.describe('scenario', () => {
-  test('AC coverage', async ({ page }) => {
-    await test.step('AC-1: example', async () => {
+  test('feature-x#AC-1 coverage', {
+  annotation: { type: 'crew-ac', description: 'feature-x#AC-1' }
+}, async ({ page }) => {
+    await test.step('feature-x#AC-1: example', async () => {
       await page.goto('/example');
       await expect(page.getByRole('main')).toBeVisible();
     });
@@ -64,3 +66,15 @@ Runtime fallback 可更寬鬆，但 XPath、長 CSS chain、`nth-child` 等預�
 - 由 CI secret / runtime profile 提供 credential
 - 優先使用 setup project / storageState
 - auth state 不進 Git
+
+
+## CREW reporter
+
+Reference implementation：`references/playwright/crew-reporter.js`。
+
+E2E repo 應自行 vendor/copy 或實作相同 schema，CI 不應依賴 CREW plugin 安裝路徑才能執行測試。
+
+Reporter convention：
+- `crew-ac` annotation description：`{slug}#AC-n`
+- Stateful `test.step` title：直接包含 `{slug}#AC-n`
+- 前置條件阻擋：`crew-blocked` annotation，description 放 reason
