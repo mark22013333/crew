@@ -54,7 +54,7 @@ Mapping：
 - 只有部分 evidence：`crew-ac-status` 可只填 `coverage:"partial"`
 - retry 後才成功：reporter 輸出 `flaky`
 
-Playwright 目前會把 runtime `testInfo.annotations` 暴露在 `TestResult.annotations`；CREW reporter 以 result annotations 為主，才能正確讀到執行中才發現的 BLOCKED。
+新版本 Playwright 可從 `TestResult.annotations` 讀 runtime `testInfo.annotations`。為了相容舊 framework，CREW reporter 也接受名稱為 `crew-ac-status` 的 JSON attachment；project adapter 可同時寫 annotation + attachment，reporter 會去重。
 
 ## status
 
