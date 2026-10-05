@@ -46,11 +46,36 @@ HARD issue 不得 promotion；REVIEW issue 必須有明確理由或修正。
 - worker 必須為 1
 - 依賴第三方或短暫 UI notification
 
-Promotion 結果要說明是否為：
+Promotion metadata 至少要明確記錄：
 
-- `environment_bound_fixture=true`
+- `shared_mutation=true|false`
+- `environment_bound_fixture=true|false`
+- `unique_test_data=true|false`
+- `disposable_environment=true|false`
 - `parallel_safe=true|false`
+- `workers=N`
 - `cleanup=reliable|best-effort|none`
+
+## Promotion metadata machine gate
+
+Fixture / safety / review waiver / stability evidence 使用 `e2e-promotion-schema.md`，最後由：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-promote.py" check \
+  --candidate {candidate} \
+  --metadata .crew/e2e/{slug}.promotion.json
+```
+
+決定是否可標 `ci-ready`。
+
+Machine gate 額外保證：
+
+- shared mutation 沒有 safety invariant → BLOCK
+- shared mutation 沒有 reliable cleanup 且不是 disposable environment → BLOCK
+- environment-bound fixture 無法可靠還原 → BLOCK
+- workers > 1 但 parallel_safe=false → BLOCK
+- REVIEW issue 沒有具體 waiver reason → BLOCK
+- stability evidence 的 candidate SHA-256 與目前測試內容不同 → BLOCK
 
 ## Stability gate
 
