@@ -1,7 +1,7 @@
 ---
 name: plan-verify
 description: 透過 browser/API/backend-test/database/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
-argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
+argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft]"
 ---
 
 # plan-verify — 驗收條件驗證
@@ -32,7 +32,8 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 /plan-verify <URL>              # 指定目標頁面
 /plan-verify --api-only         # 只驗證 API（不操作 UI，不需瀏覽器）
 /plan-verify --recheck          # 僅重新驗證上次失敗的項目
-/plan-verify --e2e              # E2E Runner 模式（需 e2e_repo 設定）
+/plan-verify --e2e              # E2E Runner 模式（優先讀 portable e2e_* contract）
+/plan-verify --e2e-draft        # 由 Verification IR 產 E2E candidate（draft）
 ```
 
 **Word／Excel 報告已移出主流程**，改為驗證完成後的獨立可選指令（見『可選指令：Word／Excel 驗收報告』一節）：
@@ -135,11 +136,18 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
 讀取 `projects/{repo-id}.md` 的 `product_id` 欄位（見 plugin 根目錄 `references/plan-common.md`，相對 SKILL.md 為 `../../references/`，第 4 層）。
 
-- **有 product_id** → 🟢 產品模式
-  1. 讀取 `products/{product_id}.md`（頁面導航地圖、常用 Selector、i18n 對照表、特殊操作 Recipe、API 格式）
-  2. 讀取 `products/{product_id}-memory.md`（Layer 3 產品級記憶）
-  3. 將產品知識注入後續驗證計畫
-- **無 product_id** → 🔵 通用模式（不載入產品知識庫）
+Resolution precedence：
+1. 專案 repo `.crew/products/{product_id}.md`
+2. plugin `products/{product_id}.md`
+3. 都不存在 → 通用模式
+
+產品級 memory 亦採 project-local 優先：`.crew/products/{product_id}-memory.md` → plugin `products/{product_id}-memory.md`。
+
+- **有 product_id 且找到 knowledge** → 🟢 產品模式，注入頁面導航、Selector、i18n、Recipe、API 格式與產品記憶。
+- **有 product_id 但找不到 knowledge** → 🟡 WARN 後降為通用模式；不得猜私有產品細節。
+- **無 product_id** → 🔵 通用模式。
+
+公司／客戶私有知識優先留在 project-local `.crew/products/`；公開 plugin bundle 不要求承載私有路由、帳密、內部 repo 或一次性測試資料。
 
 ### 2. 讀取驗收條件（`AC-n`）
 
@@ -164,7 +172,8 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 依序載入，後者覆蓋前者：
 
 1. **Layer 3 產品級記憶**
-   → `products/{product_id}-memory.md`
+   → project-local `.crew/products/{product_id}-memory.md`
+   → 若不存在，再讀 plugin `products/{product_id}-memory.md`
 2. **Layer 2 專案級記憶**
    → canonical：專案 repo `.crew/verify-memory.md`
    → legacy read fallback：只有 canonical 不存在時才讀 `.claude/verify-memory.md`
@@ -295,15 +304,18 @@ $CDP list
 
 ### E2E Runner 模式（--e2e，Phase 3）
 
-**前提**：`projects/{repo-id}.md` 設定了 `e2e_repo` 和 `e2e_profile` 欄位。
+> 📄 **執行前必讀全文**：[`phases/e2e-runner.md`](./phases/e2e-runner.md)
 
-1. 讀取 E2E repo 的 `tests/verify-map.json` 匹配映射檔
-2. 對每個驗收條件，嘗試匹配 mappings[*].condition
-3. 有匹配 → `PROFILE={profile} npx playwright test {file}` 直接跑測試
-4. 無匹配 → 退回 MCP 模式（見『逐條驗證』一節原流程）
-5. 收集 JSON 結果 + 截圖 → 轉換成 verify.md 條目
+**前提**：優先使用 `../../references/e2e-contract.md` 的 portable `e2e_*` + `e2e_adapter` 設定；舊 `e2e_repo` 僅作 read compatibility，不得再產生使用者家目錄絕對路徑的新設定。
 
-Profile 選擇：讀取 E2E repo 的 `tests/config/profile-*.js`，提取 name + baseUrl 顯示給使用者選擇。
+1. 解析 E2E workspace / adapter；project-local `.crew/adapters/{id}.md` 優先於 plugin adapter
+2. 若既有 E2E repo 尚使用 `tests/verify-map.json`，可讀取作 legacy mapping；新 mapping 應使用 `{slug}#AC-n` 穩定 join key
+3. 對每個驗收條件，嘗試匹配既有 E2E coverage
+4. 有匹配 → 依 adapter / `e2e_command` 執行 Playwright 測試
+5. 無匹配 → 退回 Verification Router 所選 verifier；browser 類才使用 browser adapter
+6. 保存可回溯到 AC join key 的結構化結果與 evidence，再轉成 verify.md 條目
+
+Profile 選擇由 framework adapter 決定；generic core 不硬編碼 profile 檔案結構。
 
 verify-map.json 格式：
 ```json
@@ -464,19 +476,22 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 - ✅ 頁面通用操作、全站 selector、專案統一 API 格式。
 - ❌ 一次性操作、測試資料、Bug workaround、任何 secret。
 
-### 測試骨架產出（Phase 3，可選）
+### E2E candidate 產出（--e2e-draft，Phase 3，可選）
 
-plan-verify 完成後（所有 PASS），若 `e2e_repo` 已設定：
+> 📄 **執行前必讀全文**：[`phases/e2e-authoring.md`](./phases/e2e-authoring.md)
+
+plan-verify 完成後（沒有 FAIL / BLOCKED），若 portable E2E contract 已設定：
 
 ```
-所有驗收條件通過。是否產出 E2E 測試骨架？[Y/n]
+本次 runtime 驗證沒有 FAIL / BLOCKED。是否產出 E2E candidate（draft）？[Y/n]
 ```
 
-YES → 從 `.cache/verify.md` 的操作步驟和 selector 產出 `rob{next}-{slug}.spec.js`：
-- 80% 完成度的骨架（import、describe/test、登入、基本操作、截圖）
+YES → 先依 `../../references/verification-ir.md` 讀取 `.cache/verification-ir.json`，再依 `../../references/e2e-contract.md` 的 framework adapter 產出 candidate：
+- 預設 maturity = `draft`，不能宣稱 CI-ready
+- import / auth / profile / helper 寫法由 adapter 決定，不硬編碼 `@playwright/test`
+- Stateful flow 可用單一 scenario + 多個 `test.step("{slug}#AC-n: ...")`
 - TODO/FIXME 標記需人工調整的地方
-- 試跑：`PROFILE={p} npx playwright test rob{next}* --headed`
-- 人工 review 後 commit
+- 試跑與人工 review 後仍維持 draft；CI promotion 屬後續獨立 contract
 
 ---
 
