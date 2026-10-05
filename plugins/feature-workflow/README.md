@@ -220,7 +220,7 @@ Portable root：
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 approval loop |
 | `/plan-build` | 依核准規格執行正式實作；支援 dry-run / scoped build |
 | `/plan-security` | 安全審查 |
-| `/plan-verify` | Browser/API 驗證、evidence、Word/Excel/E2E 選項 |
+| `/plan-verify` | AC Verification Router、Browser/API/backend-test/database evidence、Word/Excel/E2E 選項 |
 | `/plan-review` | 邏輯、品質、效能 review；可 quick |
 | `/plan-close` | Human UAT + 結案同步 |
 | `/plan-sync` | 中途同步 `.spec/` 到 Notion |
@@ -308,14 +308,20 @@ flowchart LR
 <!-- crew:diagram plan-verify-flow -->
 ```mermaid
 flowchart TD
-    AC["plan.md AC-n"] --> Plan["build verification plan"]
-    Plan --> Adapter{"verification adapter"}
-    Adapter --> Browser["browser capability<br/>Playwright preferred"]
-    Adapter --> API["API-only"]
-    Adapter --> E2E["E2E mapping"]
-    Browser --> Evidence["screenshots / evidence"]
-    API --> Evidence
-    E2E --> Evidence
+    AC["plan.md AC-n"] --> Router{"Verification Router"}
+    Router --> Browser["browser<br/>Playwright preferred"]
+    Router --> API["API"]
+    Router --> Backend["backend test"]
+    Router --> DB["database"]
+    Router --> Manual["manual / skip"]
+    Browser --> Pre{"precondition gate"}
+    API --> Pre
+    Backend --> Pre
+    DB --> Pre
+    Manual --> Evidence["runtime evidence"]
+    Pre -- "ready" --> Evidence
+    Pre -- "not ready" --> Blocked["BLOCKED<br/>not product FAIL"]
+    Blocked --> Evidence
     Evidence --> Result["state.json results.verify"]
     Result --> Status{"PASS / WARN / FAIL"}
     Status -- "FAIL" --> Build["/plan-build"]
@@ -329,9 +335,11 @@ flowchart TD
 
 可依環境使用：
 
+- Verification Router：Browser / API / backend-test / database / manual
 - Browser 驗收（Playwright preferred；chrome-devtools / local CDP fallback）
+- `BLOCKED`：前置條件不成立，不誤報產品 FAIL
 - API-only
-- recheck
+- recheck（FAIL + BLOCKED）
 - Excel report
 - Word report
 - E2E runner

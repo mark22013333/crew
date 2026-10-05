@@ -17,6 +17,8 @@ public sealed class SummaryRenderer
             new[] { "狀態", "數量" },
             new[] { "通過",       s.Pass.ToString() },
             new[] { "未通過",     s.Fail.ToString() },
+            new[] { "警告",       s.Warn.ToString() },
+            new[] { "前置阻擋",   s.Blocked.ToString() },
             new[] { "略過",       s.Skip.ToString() },
             new[] { "待人工確認", s.Manual.ToString() },
         }, _style));

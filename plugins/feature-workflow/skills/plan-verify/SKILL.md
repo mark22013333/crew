@@ -1,12 +1,12 @@
 ---
 name: plan-verify
-description: 透過 browser/API/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
+description: 透過 browser/API/backend-test/database/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
 argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 ---
 
 # plan-verify — 驗收條件驗證
 
-逐條驗證 `.spec/{slug}/plan.md`「驗收條件」節的 `AC-n`。UI 驗證依 Host Capability Contract 選擇 browser adapter（preferred: Playwright），也支援 API-only、E2E 與 local CDP fallback；產出 Health Score、evidence 與截圖。
+逐條驗證 `.spec/{slug}/plan.md`「驗收條件」節的 `AC-n`。先透過 Verification Router 為每條 AC 選擇 browser / API / backend-test / database / manual 等最可靠 verifier；UI 驗證再依 Host Capability Contract 選擇 browser adapter（preferred: Playwright）。也支援 E2E 與 local CDP fallback；產出 Health Score、evidence 與截圖。
 
 `--deep` 可在 chrome-devtools capability 可用時追加 console / network 除錯分析。
 
@@ -190,7 +190,10 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 
 ### 3. 建構驗證計畫
 
-AI 分析每條驗收條件，將其分類並規劃驗證方式：
+> 📄 **先讀全文**：[`phases/route-verification.md`](./phases/route-verification.md)
+> 每條 AC 先選「最有證明力的 verifier」，不是看到驗收就一律丟給 Playwright。
+
+AI 分析每條驗收條件，先分類成 browser / api / backend-test / database / manual / skip，再規劃驗證方式：
 
 **MCP 模式工具對照：**
 
@@ -229,6 +232,12 @@ API 路徑與頁面 URL 從 plan.md「指路」節的錨點（`@code:`）**指�
 - i18n 對照表 → 用翻譯文字定位元素（見 plugin 根目錄 `references/verify-i18n.md`，相對 SKILL.md 為 `../../references/`）
 - 特殊操作 Recipe → CKEditor、SweetAlert2 等元件的操作方式
 - API 格式 → 精確驗證回傳格式（如 Spring Page 的 content/totalElements/size/number）
+
+### 3.5 前置條件 Gate
+
+> 📄 **執行前必讀全文**：[`phases/preconditions.md`](./phases/preconditions.md)
+
+每個 scenario 在驗 AC 前先確認登入、fixture、必要服務與依賴環境等前置條件。前置不成立時標 `BLOCKED`，**不得誤報產品 FAIL**。
 
 展示計畫給使用者確認：
 
@@ -315,8 +324,9 @@ verify-map.json 格式：
 > Selector Fallback 6 級、stability 截圖、API+UI 交叉比對等細節都在 phases/run-verification.md 內。
 
 摘要（僅供 AI 確認自己在做什麼，實際步驟必須讀 phases 全文）：
-- 依序對每條 `AC-n` 執行驗證，結果沿用同一個 `AC-n` 編號
-- 各類型（API / UI 操作 / UI 檢查 / 表單）用對應工具
+- 依序對每條 `AC-n` 執行 Verification Router 選定的 verifier，結果沿用同一個 `AC-n` 編號
+- browser / API / backend-test / database / manual 各走自己的 evidence path
+- precondition 失敗標 `BLOCKED`，不計為產品 FAIL
 - Selector 失敗走 6 級 fallback 並記錄到 Layer 1 記憶
 - 每步驟後判斷是否值得記憶（見『記憶記錄判斷』一節）
 - **每驗完一條就寫進度**（中斷後可續跑，不必從頭再驗一遍）：
@@ -375,8 +385,8 @@ mkdir -p .spec/{slug}/.cache
 - `.cache/verify.md` 的**唯一用途**是給可選的 Word／Excel 報告當輸入（見『可選指令』一節）。它是一次性暫存：不進版控、不同步 Notion、不被其他 skill 當事實來源、`/plan-close` 不讀它。
 - 🔴 **不要**寫 `.spec/{slug}/verify.md`（舊路徑，已廢除）。
 
-> **格式與完整範例見 [`examples/verify-report-sample.md`](./examples/verify-report-sample.md)**：涵蓋 PASS / FAIL / SKIP / MANUAL 四種狀態的理想產出格式，含摘要表、統計表（PASS/WARN/FAIL/SKIP/MANUAL）與每項的 `human_steps` / `evidence` 註解區塊。產出時照該範本結構撰寫，項目編號用 `AC-n`。
-> WARN 用途：環境差異導致的預期外行為，功能正常但 Selector 不穩定。
+> **格式與完整範例見 [`examples/verify-report-sample.md`](./examples/verify-report-sample.md)**。逐項 outcome 支援 PASS / WARN / FAIL / BLOCKED / SKIP / MANUAL；`BLOCKED` 表示前置條件不成立、沒有資格判定產品功能。
+> WARN 用途：功能已被證明通過，但環境差異、selector 或 evidence 穩定性有疑慮。
 
 ### 8. 落檔的兩件事（摘要一行 + 狀態）
 
@@ -385,18 +395,18 @@ mkdir -p .spec/{slug}/.cache
 依 `references/plan-common.md`「寫入紀律」用 **Edit** 對 `<!-- crew:rep  append-only -->` 那一整行插入，格式固定：
 
 ```text
-- [{YYYY-MM-DD}] verify {PASS|WARN|FAIL}｜✅{N} ⚠️{N} ❌{N} ⏭️{N} 👤{N}｜Health {分數}
+- [{YYYY-MM-DD}] verify {PASS|WARN|FAIL}｜✅{N} ⚠️{N} ❌{N} 🚧{N} ⏭️{N} 👤{N}｜Health {分數}
 ```
 
 🔴 只寫這一行：逐條結果不進 plan.md（該節上限 6 行），🔴 不得整節取代、不得動別節。
-日期用 `date +%F` 的實際輸出。結論詞：無 ❌ 且無 ⚠️ → `PASS`；有 ⚠️ 無 ❌ → `WARN`；有 ❌ → `FAIL`。
+日期用 `date +%F` 的實際輸出。結論詞：無 ❌、無 ⚠️、無 🚧 → `PASS`；有 ⚠️ 或 🚧 且無 ❌ → `WARN`；有 ❌ → `FAIL`。
 
 **8b. 寫回 state.json（唯一狀態權威）**
 
 ```bash
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" result --slug {slug} \
   --kind verify --status {PASS|WARN|FAIL} \
-  --set health_score={分數} --set passed={N} --set failed={N} --set skipped={N} \
+  --set health_score={分數} --set passed={N} --set failed={N} --set blocked={N} --set skipped={N} \
   --set manual={N} --set mode={full|api-only|manual|recheck|e2e}
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} --clear
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
@@ -418,14 +428,17 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 📋 逐條結果：見上方對話全文（暫存 .spec/{slug}/.cache/verify.md）
 📝 已寫入：plan.md 摘要一行 + state.json results.verify
 📸 截圖：.spec/{slug}/screenshots/ ({N} 張)
-📊 統計：✅ {PASS} / ⚠️ {WARN} / ❌ {FAIL} / ⏭️ {SKIP} / 👤 {MANUAL}
+📊 統計：✅ {PASS} / ⚠️ {WARN} / ❌ {FAIL} / 🚧 {BLOCKED} / ⏭️ {SKIP} / 👤 {MANUAL}
 🔧 工具：Playwright MCP{，chrome-devtools-mcp（--deep）}
 
 {若有 FAIL}
 ⚠️  發現 {N} 個驗收條件未通過，建議修復後執行 /plan-verify --recheck
 
-{若全部 PASS}
-🎉 所有驗收條件通過！
+{若有 BLOCKED 且無 FAIL}
+🚧 有 {N} 個驗收條件因前置條件阻擋；先排除環境／登入／fixture 問題，再執行 /plan-verify --recheck
+
+{若無 FAIL/BLOCKED/WARN}
+🎉 所有可自動驗證的驗收條件通過！
 
 後續可使用：
   • /plan-verify --recheck — 重新驗證失敗項目
@@ -494,9 +507,9 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 
 ## --recheck 模式
 
-讀取既有 `.spec/{slug}/.cache/verify.md`，解析其中 `❌ FAIL` 的項目：
+讀取既有 `.spec/{slug}/.cache/verify.md`，解析其中 `❌ FAIL` 與 `🚧 BLOCKED` 的項目：
 
-1. 只重跑 FAIL 項目
+1. 重新跑 FAIL + BLOCKED 項目
 2. 結果合併回**同一份** `.cache/verify.md`（覆蓋對應 `AC-n` 的狀態）
 3. 更新統計區塊
 4. `plan.md`「檢查報告摘要」節**再 append 一行**新的 verify 摘要（🔴 不覆蓋前一行；該節 append-only，逼近 6 行上限時壓縮舊條目），並重跑『落檔的兩件事』一節 8b 的 `crew-state.py result`
@@ -522,7 +535,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 
 ## 何時不用
 
-本 skill 專責「透過瀏覽器逐條驗證 plan.md 的 `AC-n`」，以下情境不屬此範圍：
+本 skill 專責「為 plan.md 的 `AC-n` 選擇可靠 verifier 並收集 runtime evidence」，以下情境不屬此範圍：
 - 驗證程式改動是否生效（非瀏覽器驗收）→ 改用內建 `/verify`
 - 宣稱完成前的一般驗證 → 改用 `superpowers:verification-before-completion`
 - 驗證 SQL 語法對不對 → 直接檢查語法，非本 skill 職責
@@ -560,6 +573,6 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 - **products/{id}.md 不存在**：product_id 指向的檔案不存在時，降為通用模式，顯示 WARN
 - **verify-memory.md 格式損壞**：解析失敗時跳過記憶載入，不阻擋驗證流程
 - **verify-map.json 不存在**（--e2e 模式）：全部退回 MCP 模式
-- **E2E 測試失敗**（--e2e 模式）：對應條件標記 FAIL，記錄測試錯誤訊息
+- **E2E 測試失敗**（--e2e 模式）：前置條件成立且 assertion 失敗才標 FAIL；profile/login/fixture/environment 問題標 BLOCKED
 
 > Word/Excel 報告相關邊界情況（雙引擎皆不可用、python-docx 安裝失敗、report-config.md 不存在、截圖路徑無效、舊版 verify.md 相容、回應非 UTF-8、ExcelJS 安裝失敗）：見 `phases/word-report.md`「邊界情況（報告相關）」段。
