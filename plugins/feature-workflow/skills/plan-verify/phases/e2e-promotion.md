@@ -12,7 +12,7 @@
 - 有 AC join key
 - 有 assertion
 - destructive flow 有 safety invariant
-- shared mutation 有 cleanup / unique data / disposable env
+- shared mutation 有 reliable cleanup / disposable env，或符合 persistent owned fixture contract
 - 沒有工程師家目錄絕對 path
 - 不依賴 `ci_eligible=false` selector / recipe
 
@@ -41,7 +41,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/lint-playwright-e2e.py" {candidate}
 - workers=1
 - 短暫 notification / 第三方 dependency
 
-輸出／更新 `.crew/e2e/{slug}.promotion.json`，schema 見 `../../references/e2e-promotion-schema.md`。至少要記 shared mutation、fixture binding、unique data、disposable environment、parallelism、cleanup 與 review waivers。
+輸出／更新 `.crew/e2e/{slug}.promotion.json`，schema 見 `../../references/e2e-promotion-schema.md`。至少要記 shared mutation、fixture binding、unique data、disposable environment、persistent owned fixture、idempotent seed、exclusive execution、parallelism、cleanup 與 review waivers。
 
 ## 3. Stability gate
 
@@ -79,6 +79,25 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-promote.py" check \
 - exit 2 → metadata/schema/input 錯誤，先修 contract
 
 不得由 Agent 覺得「看起來穩」就跳過 machine gate。
+
+### Persistent owned fixture
+
+若產品缺少可靠 cleanup API，但可以準備專用 E2E fixture，允許使用：
+
+```json
+{
+  "shared_mutation": true,
+  "environment_bound_fixture": true,
+  "persistent_owned_fixture": true,
+  "idempotent_seed": true,
+  "exclusive_execution": true,
+  "parallel_safe": false,
+  "workers": 1,
+  "cleanup": "none"
+}
+```
+
+這不是放寬 cleanup，而是改成「canonical persistent fixture」模型。CI 必須另外實作 resource/concurrency lock；沒有跨 pipeline 互斥就不得 promotion。
 
 ## 4. Flaky 判定
 
