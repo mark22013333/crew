@@ -9,9 +9,9 @@ python-docx fallback 引擎的 Word 報告產出規格。當 minimax-docx 不可
 | 1. 封面 | 專案名稱、功能名稱、驗證日期、版本號、承辦單位 | 置中標題 + 資訊表格 |
 | 2. 簽核 | 製作人、審核人、客戶確認 | 四欄表格（角色/姓名/簽章/日期） |
 | 3. 測試環境 | URL、瀏覽器、模式 | 二欄表格 |
-| 4. 驗收摘要 | PASS/FAIL/WARN/SKIP/MANUAL 統計 + 結論 | 統計表格 + 粗體結論 |
+| 4. 驗收摘要 | PASS/FAIL/WARN/BLOCKED/SKIP/MANUAL 統計 + 結論 | 統計表格 + 粗體結論 |
 | 5. 驗收明細 | 每條驗收項目的操作步驟、預期/實際結果、測試紀錄、截圖 | H2 標題 + 內文 |
-| 6. 待處理事項 | FAIL/MANUAL 項目清單 | 四欄表格 |
+| 6. 待處理事項 | FAIL/BLOCKED/MANUAL 項目清單 | 四欄表格 |
 | 7. 附錄 | 版本紀錄、參考文件 | 表格 + 清單 |
 
 ## 字體設定
@@ -38,6 +38,7 @@ python-docx fallback 引擎的 Word 報告產出規格。當 minimax-docx 不可
 | PASS | ✅ | #228B22（深綠） |
 | FAIL | ❌ | #CC0000（深紅） |
 | WARN | ⚠️ | #FF8C00（橘） |
+| BLOCKED | 🚧 | #7030A0（紫） |
 | SKIP | ⏭️ | #808080（灰） |
 | MANUAL | 👤 | #1F4E79（深藍） |
 
