@@ -78,6 +78,10 @@ def load_metadata(path: Path) -> dict[str, Any]:
     cleanup = data.get("cleanup")
     require(cleanup in CLEANUP_VALUES, f"cleanup 必須是 {sorted(CLEANUP_VALUES)}")
 
+    for key in ("persistent_owned_fixture", "idempotent_seed", "exclusive_execution"):
+        value = data.get(key, False)
+        require(isinstance(value, bool), f"{key} 必須是 boolean")
+
     workers = data.get("workers", 1)
     require(isinstance(workers, int) and workers >= 1, "workers 必須是 >= 1 的整數")
 
@@ -122,6 +126,9 @@ def metadata_template(candidate: str, adapter: str) -> dict[str, Any]:
         "environment_bound_fixture": False,
         "unique_test_data": False,
         "disposable_environment": False,
+        "persistent_owned_fixture": False,
+        "idempotent_seed": False,
+        "exclusive_execution": False,
         "parallel_safe": False,
         "workers": 1,
         "cleanup": "none",
@@ -203,9 +210,20 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
     cleanup = metadata["cleanup"]
     disposable = metadata["disposable_environment"]
     unique = metadata["unique_test_data"]
+    persistent_owned = metadata.get("persistent_owned_fixture", False)
+    idempotent_seed = metadata.get("idempotent_seed", False)
+    exclusive_execution = metadata.get("exclusive_execution", False)
     parallel_safe = metadata["parallel_safe"]
     workers = metadata.get("workers", 1)
     safety = metadata.get("safety_invariants", [])
+
+    persistent_safe = (
+        persistent_owned
+        and idempotent_seed
+        and exclusive_execution
+        and workers == 1
+        and not parallel_safe
+    )
 
     if shared_mutation and not safety:
         blockers.append({
@@ -213,16 +231,46 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
             "reason": "shared_mutation=true 時至少要宣告一條 safety invariant",
         })
 
-    if shared_mutation and cleanup != "reliable" and not disposable:
+    if persistent_owned and not idempotent_seed:
         blockers.append({
-            "code": "UNRELIABLE_CLEANUP",
-            "reason": "共享資料 mutation 必須 cleanup=reliable，或在 disposable environment 執行",
+            "code": "PERSISTENT_FIXTURE_NOT_IDEMPOTENT",
+            "reason": "persistent_owned_fixture=true 時必須 idempotent_seed=true",
         })
 
-    if metadata["environment_bound_fixture"] and cleanup != "reliable" and not disposable:
+    if persistent_owned and not exclusive_execution:
+        blockers.append({
+            "code": "PERSISTENT_FIXTURE_NO_EXCLUSIVE_EXECUTION",
+            "reason": "persistent owned fixture 必須由 CI/runtime 保證 exclusive_execution=true",
+        })
+
+    if persistent_owned and (workers != 1 or parallel_safe):
+        blockers.append({
+            "code": "PERSISTENT_FIXTURE_PARALLEL_UNSAFE",
+            "reason": "persistent owned fixture 必須 workers=1 且 parallel_safe=false",
+        })
+
+    if (idempotent_seed or exclusive_execution) and not persistent_owned:
+        blockers.append({
+            "code": "PERSISTENT_FIXTURE_FLAGS_WITHOUT_OWNERSHIP",
+            "reason": "idempotent_seed/exclusive_execution 只能搭配 persistent_owned_fixture=true",
+        })
+
+    if shared_mutation and cleanup != "reliable" and not disposable and not persistent_safe:
+        blockers.append({
+            "code": "UNRELIABLE_CLEANUP",
+            "reason": (
+                "共享資料 mutation 必須 cleanup=reliable、disposable environment，"
+                "或滿足 persistent owned fixture 的 idempotent + exclusive contract"
+            ),
+        })
+
+    if metadata["environment_bound_fixture"] and cleanup != "reliable" and not disposable and not persistent_safe:
         blockers.append({
             "code": "ENV_FIXTURE_NOT_RESTORABLE",
-            "reason": "environment-bound fixture 無 reliable cleanup/disposable environment，不可升 ci-ready",
+            "reason": (
+                "environment-bound fixture 無 reliable cleanup/disposable environment，"
+                "也未滿足 persistent owned fixture contract"
+            ),
         })
 
     if parallel_safe and shared_mutation and not unique and not disposable:
@@ -283,6 +331,9 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
             "environment_bound_fixture": metadata["environment_bound_fixture"],
             "unique_test_data": unique,
             "disposable_environment": disposable,
+            "persistent_owned_fixture": persistent_owned,
+            "idempotent_seed": idempotent_seed,
+            "exclusive_execution": exclusive_execution,
             "parallel_safe": parallel_safe,
             "workers": workers,
             "cleanup": cleanup,
@@ -306,6 +357,8 @@ def print_human(result: dict[str, Any]) -> None:
         "fixture: "
         f"cleanup={result['fixture']['cleanup']} "
         f"shared_mutation={str(result['fixture']['shared_mutation']).lower()} "
+        f"persistent_owned={str(result['fixture']['persistent_owned_fixture']).lower()} "
+        f"exclusive={str(result['fixture']['exclusive_execution']).lower()} "
         f"parallel_safe={str(result['fixture']['parallel_safe']).lower()} "
         f"workers={result['fixture']['workers']}"
     )
@@ -410,6 +463,29 @@ test('feature-y#AC-2 legacy wait', async ({ page }) => {
         assert "UNRELIABLE_CLEANUP" in codes, blocked
         assert "ENV_FIXTURE_NOT_RESTORABLE" in codes, blocked
         assert blocked["maturity"] == "draft", blocked
+
+        persistent = dict(base)
+        persistent["shared_mutation"] = True
+        persistent["environment_bound_fixture"] = True
+        persistent["cleanup"] = "none"
+        persistent["persistent_owned_fixture"] = True
+        persistent["idempotent_seed"] = True
+        persistent["exclusive_execution"] = True
+        persistent["parallel_safe"] = False
+        persistent["workers"] = 1
+        persistent["safety_invariants"] = [
+            "mutate only dedicated E2E fixture records",
+            "forbid destructive production-like actions",
+        ]
+        persistent_ready = evaluate(clean_path, persistent)
+        assert persistent_ready["maturity"] == "ci-ready", persistent_ready
+
+        persistent_unlocked = dict(persistent)
+        persistent_unlocked["exclusive_execution"] = False
+        unlocked = evaluate(clean_path, persistent_unlocked)
+        unlocked_codes = {item["code"] for item in unlocked["blockers"]}
+        assert "PERSISTENT_FIXTURE_NO_EXCLUSIVE_EXECUTION" in unlocked_codes, unlocked
+        assert "UNRELIABLE_CLEANUP" in unlocked_codes, unlocked
 
         unwaived = dict(base)
         unwaived["candidate"] = str(review_path)
