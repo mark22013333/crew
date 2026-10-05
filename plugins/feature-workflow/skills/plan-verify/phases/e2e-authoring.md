@@ -52,7 +52,7 @@ test('scenario', async ({ page }) => {
 annotation: { type: 'crew-ac', description: '{slug}#AC-1' }
 ```
 
-若 precondition 不成立，使用 adapter 支援的 blocked contract；generic reporter 使用 `crew-blocked` annotation 保存 reason。
+若 precondition 不成立，使用 adapter 支援的 blocked contract。Stateful scenario 優先用 `crew-ac-status` 指定受影響的 `{slug}#AC-n`；若整支 scenario 都被阻擋，再對所有預計覆蓋 AC 寫 targeted BLOCKED 後 skip。舊版 Playwright 可用 `crew-ac-status` JSON attachment fallback。
 
 ## 3. Precondition 與 assertion
 
