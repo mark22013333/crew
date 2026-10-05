@@ -19,6 +19,11 @@
  * Partial evidence:
  *   { type: "crew-ac-status",
  *     description: '{"ac":"slug#AC-9","coverage":"partial","reason":"browser half only"}' }
+ *
+ * Compatibility:
+ *   The same JSON may be attached with testInfo.attach('crew-ac-status', ...).
+ *   Attachments work with older Playwright versions where TestResult.annotations
+ *   does not yet expose runtime annotations.
  */
 
 const fs = require('fs');
@@ -80,12 +85,33 @@ function blockedReasonOf(test, result) {
   return annotationValues(test, result, 'crew-blocked')[0] || null;
 }
 
+function acStatusPayloads(test, result) {
+  const payloads = [...annotationValues(test, result, 'crew-ac-status')];
+  const attachments = Array.isArray(result && result.attachments) ? result.attachments : [];
+
+  for (const attachment of attachments) {
+    if (!attachment || attachment.name !== 'crew-ac-status') continue;
+    try {
+      if (attachment.body != null) {
+        payloads.push(Buffer.isBuffer(attachment.body) ? attachment.body.toString('utf8') : String(attachment.body));
+      } else if (attachment.path) {
+        payloads.push(fs.readFileSync(attachment.path, 'utf8'));
+      }
+    } catch {
+      // Reporter must not crash because one optional compatibility attachment
+      // is unreadable. The corresponding AC will remain unmapped instead.
+    }
+  }
+
+  return payloads;
+}
+
 function acStatusOverrides(test, result) {
   const allowedStatus = new Set(['passed', 'failed', 'blocked', 'skipped', 'manual']);
   const allowedCoverage = new Set(['full', 'partial']);
   const overrides = new Map();
 
-  for (const raw of annotationValues(test, result, 'crew-ac-status')) {
+  for (const raw of acStatusPayloads(test, result)) {
     let value;
     try {
       value = JSON.parse(raw);
@@ -556,6 +582,30 @@ function selfTest() {
     ],
   });
 
+  const attachmentOnlyStatusTest = {
+    id: 't10',
+    title: 'attachment compatibility',
+    annotations: [],
+    titlePath: () => ['suite', 'attachment compatibility'],
+  };
+  reporter.onTestEnd(attachmentOnlyStatusTest, {
+    status: 'skipped',
+    retry: 0,
+    duration: 1,
+    attachments: [
+      {
+        name: 'crew-ac-status',
+        contentType: 'application/json',
+        body: Buffer.from(JSON.stringify({
+          ac: 'feature-h#AC-2',
+          status: 'blocked',
+          reason: 'runtime attachment fallback',
+        })),
+      },
+    ],
+    steps: [],
+  });
+
   const targetedBlockedWithSafetyFailure = {
     id: 't9',
     title: 'targeted block plus global safety failure',
@@ -611,6 +661,8 @@ function selfTest() {
   assert.equal(byAc['feature-f#AC-9'].coverage, 'partial');
   assert.equal(byAc['feature-g#AC-1'].status, 'failed');
   assert.equal(byAc['feature-g#AC-5'].status, 'blocked');
+  assert.equal(byAc['feature-h#AC-2'].status, 'blocked');
+  assert.equal(byAc['feature-h#AC-2'].reason, 'runtime attachment fallback');
 
   console.log('✅ crew-reporter self-test passed');
 }
@@ -622,6 +674,7 @@ module.exports._internals = {
   collectStepRecords,
   mergeAttemptRecords,
   annotationsOf,
+  acStatusPayloads,
   acStatusOverrides,
 };
 
