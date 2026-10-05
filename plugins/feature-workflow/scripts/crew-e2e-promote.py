@@ -16,8 +16,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 from dataclasses import asdict
@@ -60,6 +62,7 @@ def load_metadata(path: Path) -> dict[str, Any]:
 
     require(isinstance(data, dict), "promotion metadata root 必須是 object")
     require(data.get("schema_version") == SCHEMA_VERSION, "schema_version 必須為 1")
+    require(isinstance(data.get("candidate"), str) and data["candidate"].strip(), "candidate 必須是非空字串")
     require(isinstance(data.get("adapter"), str) and data["adapter"].strip(), "adapter 必須是非空字串")
     require(data.get("maturity", "draft") in MATURITY_VALUES, "maturity 必須是 draft 或 ci-ready")
 
@@ -100,6 +103,12 @@ def load_metadata(path: Path) -> dict[str, Any]:
         value = stability.get(key)
         require(isinstance(value, int) and value >= 0, f"stability.{key} 必須是非負整數")
 
+    candidate_sha256 = stability.get("candidate_sha256")
+    require(
+        isinstance(candidate_sha256, str) and re.fullmatch(r"[0-9a-f]{64}", candidate_sha256) is not None,
+        "stability.candidate_sha256 必須是 64 字元小寫 SHA-256",
+    )
+
     return data
 
 
@@ -126,6 +135,7 @@ def metadata_template(candidate: str, adapter: str) -> dict[str, Any]:
             "repeat_each": 0,
             "passed": 0,
             "failed": 0,
+            "candidate_sha256": "0" * 64,
         },
     }
 
@@ -135,6 +145,14 @@ def waiver_map(metadata: dict[str, Any]) -> dict[str, str]:
     for waiver in metadata.get("review_waivers", []):
         result[waiver["code"]] = waiver["reason"]
     return result
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
@@ -150,6 +168,15 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
 
     blockers: list[dict[str, str]] = []
     reviews: list[dict[str, Any]] = []
+
+    if Path(metadata["candidate"]).name != candidate.name:
+        blockers.append({
+            "code": "CANDIDATE_METADATA_MISMATCH",
+            "reason": (
+                f"metadata candidate={metadata['candidate']!r}，"
+                f"實際檔案={candidate.name!r}"
+            ),
+        })
 
     for issue in hard_issues:
         blockers.append({
@@ -211,6 +238,15 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         })
 
     stability = metadata["stability"]
+    current_sha256 = sha256_file(candidate)
+    if stability["candidate_sha256"] != current_sha256:
+        blockers.append({
+            "code": "STALE_STABILITY_EVIDENCE",
+            "reason": (
+                "stability.candidate_sha256 與目前 candidate 不一致；"
+                "修改測試後必須重新跑 promotion stability"
+            ),
+        })
     if not stability["discovery"]:
         blockers.append({"code": "DISCOVERY_NOT_PROVEN", "reason": "Playwright test discovery 尚未成功"})
     if not stability["framework_load"]:
@@ -251,7 +287,7 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
             "workers": workers,
             "cleanup": cleanup,
         },
-        "stability": stability,
+        "stability": stability | {"current_candidate_sha256": current_sha256},
         "static": {
             "hard": [asdict(issue) | {"path": str(issue.path)} for issue in hard_issues],
             "review": reviews,
@@ -310,6 +346,15 @@ def command_template(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_fingerprint(args: argparse.Namespace) -> int:
+    candidate = Path(args.candidate)
+    if not candidate.is_file():
+        print(f"❌ candidate 不存在：{candidate}", file=sys.stderr)
+        return 2
+    print(sha256_file(candidate))
+    return 0
+
+
 def self_test() -> int:
     clean_spec = """
 const { test, expect } = require('@playwright/test');
@@ -338,6 +383,7 @@ test('feature-y#AC-2 legacy wait', async ({ page }) => {
         "repeat_each": 3,
         "passed": 3,
         "failed": 0,
+        "candidate_sha256": "",
     }
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -348,7 +394,8 @@ test('feature-y#AC-2 legacy wait', async ({ page }) => {
         review_path.write_text(review_spec, encoding="utf-8")
 
         base = metadata_template(str(clean_path), "generic-playwright")
-        base["stability"] = stable
+        base["stability"] = dict(stable)
+        base["stability"]["candidate_sha256"] = sha256_file(clean_path)
 
         ready = evaluate(clean_path, base)
         assert ready["maturity"] == "ci-ready", ready
@@ -365,18 +412,28 @@ test('feature-y#AC-2 legacy wait', async ({ page }) => {
         assert blocked["maturity"] == "draft", blocked
 
         unwaived = dict(base)
-        unwaived["stability"] = stable
+        unwaived["candidate"] = str(review_path)
+        unwaived["stability"] = dict(stable)
+        unwaived["stability"]["candidate_sha256"] = sha256_file(review_path)
         review_blocked = evaluate(review_path, unwaived)
         assert any(item["code"] == "REVIEW_FIXED_SLEEP" for item in review_blocked["blockers"]), review_blocked
 
         waived = dict(base)
-        waived["stability"] = stable
+        waived["candidate"] = str(review_path)
+        waived["stability"] = dict(stable)
+        waived["stability"]["candidate_sha256"] = sha256_file(review_path)
         waived["review_waivers"] = [{
             "code": "FIXED_SLEEP",
             "reason": "legacy component has no observable completion event yet; tracked for removal",
         }]
         review_ready = evaluate(review_path, waived)
         assert review_ready["maturity"] == "ci-ready", review_ready
+
+        stale_evidence = dict(base)
+        stale_evidence["stability"] = dict(base["stability"])
+        stale_evidence["stability"]["candidate_sha256"] = "f" * 64
+        stale_result = evaluate(clean_path, stale_evidence)
+        assert any(item["code"] == "STALE_STABILITY_EVIDENCE" for item in stale_result["blockers"]), stale_result
 
         bad_stability = dict(base)
         bad_stability["stability"] = dict(stable)
@@ -402,6 +459,9 @@ def parse_args() -> argparse.Namespace:
     template.add_argument("--candidate", required=True)
     template.add_argument("--adapter", required=True)
 
+    fingerprint = sub.add_parser("fingerprint")
+    fingerprint.add_argument("--candidate", required=True)
+
     return parser.parse_args()
 
 
@@ -413,7 +473,9 @@ def main() -> int:
         return command_check(args)
     if args.command == "template":
         return command_template(args)
-    print("❌ 請使用 check / template 或 --self-test", file=sys.stderr)
+    if args.command == "fingerprint":
+        return command_fingerprint(args)
+    print("❌ 請使用 check / template / fingerprint 或 --self-test", file=sys.stderr)
     return 2
 
 
