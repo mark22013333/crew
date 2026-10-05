@@ -56,6 +56,16 @@ PLAN_VERIFY_REPORT_SAMPLE = PLAN_VERIFY.parent / "examples" / "verify-report-sam
 PLAN_VERIFY_DOCX_GENERATOR = REPO / "plugins" / "feature-workflow" / "references" / "verify-docx-generator.py"
 PLAN_VERIFY_EXCEL_GENERATOR = REPO / "plugins" / "feature-workflow" / "references" / "verify-excel-generator.js"
 PLAN_VERIFY_DOTNET_SECTION = REPO / "plugins" / "feature-workflow" / "references" / "dotnet" / "verify-docx-cli" / "Markdown" / "VerifySection.cs"
+PLAN_VERIFY_E2E_RUNNER = PLAN_VERIFY.parent / "phases" / "e2e-runner.md"
+PLAN_VERIFY_E2E_AUTHORING = PLAN_VERIFY.parent / "phases" / "e2e-authoring.md"
+PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verification-ir.md"
+PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
+PLAN_VERIFY_E2E_ADAPTER_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "e2e-adapter-template.md"
+PLAN_VERIFY_GENERIC_ADAPTER = REPO / "plugins" / "feature-workflow" / "adapters" / "generic-playwright.md"
+PLAN_COMMON = REPO / "plugins" / "feature-workflow" / "references" / "plan-common.md"
+PLAN_VERIFY_CONFIG_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "config.template.md"
+PLAN_VERIFY_CONFIG_RESOLVER = REPO / "plugins" / "feature-workflow" / "references" / "config-resolver.md"
+PROJECT_ADD = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
 
 PLAN_VERIFY_REQUIRED = (
     "CREW_PLUGIN_ROOT",
@@ -67,6 +77,11 @@ PLAN_VERIFY_REQUIRED = (
     "phases/route-verification.md",
     "phases/preconditions.md",
     "BLOCKED",
+    "--e2e-draft",
+    "phases/e2e-runner.md",
+    "phases/e2e-authoring.md",
+    "../../references/verification-ir.md",
+    "../../references/e2e-contract.md",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -194,6 +209,16 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_DOCX_GENERATOR,
         PLAN_VERIFY_EXCEL_GENERATOR,
         PLAN_VERIFY_DOTNET_SECTION,
+        PLAN_VERIFY_E2E_RUNNER,
+        PLAN_VERIFY_E2E_AUTHORING,
+        PLAN_VERIFY_IR,
+        PLAN_VERIFY_E2E_CONTRACT,
+        PLAN_VERIFY_E2E_ADAPTER_TEMPLATE,
+        PLAN_VERIFY_GENERIC_ADAPTER,
+        PLAN_COMMON,
+        PLAN_VERIFY_CONFIG_TEMPLATE,
+        PLAN_VERIFY_CONFIG_RESOLVER,
+        PROJECT_ADD,
     )
     for path in required_files:
         if not path.is_file():
@@ -270,6 +295,54 @@ def check_plan_verify_contract() -> list[str]:
     dotnet_section = PLAN_VERIFY_DOTNET_SECTION.read_text(encoding="utf-8")
     if "Blocked" not in dotnet_section or "SummaryStats" not in dotnet_section:
         errors.append(f"{PLAN_VERIFY_DOTNET_SECTION.relative_to(REPO)} 未支援 BLOCKED summary/detail model")
+
+    e2e_runner = PLAN_VERIFY_E2E_RUNNER.read_text(encoding="utf-8")
+    for marker in ("e2e_workspace", "e2e_adapter", "{slug}#AC-n", "legacy `verify-map.json`", "BLOCKED"):
+        if marker not in e2e_runner:
+            errors.append(f"{PLAN_VERIFY_E2E_RUNNER.relative_to(REPO)} 缺 E2E runner marker：{marker}")
+
+    e2e_authoring = PLAN_VERIFY_E2E_AUTHORING.read_text(encoding="utf-8")
+    for marker in ("maturity = draft", "Verification IR", "{slug}#AC-n", "Stateful product flow"):
+        if marker not in e2e_authoring:
+            errors.append(f"{PLAN_VERIFY_E2E_AUTHORING.relative_to(REPO)} 缺 E2E authoring marker：{marker}")
+
+    ir = PLAN_VERIFY_IR.read_text(encoding="utf-8")
+    for marker in ("schema_version", ".cache/verification-ir.json", "{slug}#AC-{n}", "forbid_request"):
+        if marker not in ir:
+            errors.append(f"{PLAN_VERIFY_IR.relative_to(REPO)} 缺 Verification IR marker：{marker}")
+
+    e2e = PLAN_VERIFY_E2E_CONTRACT.read_text(encoding="utf-8")
+    for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "e2e_workspace", "受測 application repo root", "不得要求某位工程師的絕對家目錄"):
+        if marker not in e2e:
+            errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} 缺 portable E2E marker：{marker}")
+    if "e2e_results" in e2e:
+        errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} Batch B 不應提前引入 result-bridge 欄位 e2e_results")
+
+    adapter_template = PLAN_VERIFY_E2E_ADAPTER_TEMPLATE.read_text(encoding="utf-8")
+    for marker in ("Import contract", "Runtime profile", "Authentication", "Fixture contract", "Safety invariants", "Known pitfalls"):
+        if marker not in adapter_template:
+            errors.append(f"{PLAN_VERIFY_E2E_ADAPTER_TEMPLATE.relative_to(REPO)} 缺 project-local adapter template marker：{marker}")
+
+    generic_adapter = PLAN_VERIFY_GENERIC_ADAPTER.read_text(encoding="utf-8")
+    for marker in ("@playwright/test", "getByRole", "storageState", "waitForTimeout"):
+        if marker not in generic_adapter:
+            errors.append(f"{PLAN_VERIFY_GENERIC_ADAPTER.relative_to(REPO)} 缺 generic Playwright marker：{marker}")
+
+    plan_common = PLAN_COMMON.read_text(encoding="utf-8")
+    for marker in (".crew/products/{product_id}.md", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command", "舊欄位 `e2e_repo`"):
+        if marker not in plan_common:
+            errors.append(f"{PLAN_COMMON.relative_to(REPO)} 缺 project-local E2E/product resolution marker：{marker}")
+
+    config_template = PLAN_VERIFY_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+    config_resolver = PLAN_VERIFY_CONFIG_RESOLVER.read_text(encoding="utf-8")
+    project_add = PROJECT_ADD.read_text(encoding="utf-8")
+    for marker in ("product_id", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command"):
+        if marker not in config_template:
+            errors.append(f"{PLAN_VERIFY_CONFIG_TEMPLATE.relative_to(REPO)} 缺 project E2E 欄位：{marker}")
+        if marker not in config_resolver:
+            errors.append(f"{PLAN_VERIFY_CONFIG_RESOLVER.relative_to(REPO)} 缺 project E2E 欄位說明：{marker}")
+        if marker not in project_add:
+            errors.append(f"{PROJECT_ADD.relative_to(REPO)} 寫入 project mapping 時未保留 E2E 欄位：{marker}")
 
     return errors
 
