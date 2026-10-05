@@ -366,7 +366,7 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 Human approval loop |
 | `/plan-build` | 依核准規格產生正式程式碼 |
 | `/plan-security` | 安全審查 |
-| `/plan-verify` | UAT 前 machine/browser 驗證與 evidence |
+| `/plan-verify` | UAT 前依 AC 路由 Browser/API/backend-test/database 驗證；前置失敗記 BLOCKED |
 | `/plan-review` | 邏輯/品質/效能 review |
 | `/plan-close` | Human UAT + 結案同步 |
 | `/plan-sync` | 中途同步 Notion |
