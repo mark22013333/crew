@@ -57,6 +57,8 @@ public sealed class DetailRenderer
         {
             DetailStatus.Pass   => ("✅ 通過", BrandColors.StatusPass),
             DetailStatus.Fail   => ("❌ 未通過", BrandColors.StatusFail),
+            DetailStatus.Warn   => ("⚠️ 警告", BrandColors.StatusWarn),
+            DetailStatus.Blocked=> ("🚧 前置阻擋", BrandColors.StatusBlocked),
             DetailStatus.Skip   => ("⏭️ 略過", BrandColors.StatusSkip),
             DetailStatus.Manual => ("🔍 待人工確認", BrandColors.StatusManual),
             _ => ("待人工確認", BrandColors.StatusManual)
