@@ -6,7 +6,7 @@
 
 | Layer | Canonical storage | 共享 | 生命週期 |
 |---|---|---|---|
-| Layer 3 產品級 | plugin `products/{product_id}-memory.md` | 跟 plugin 發布 | 長期 |
+| Layer 3 產品級 | project-local `.crew/products/{product_id}-memory.md` → plugin `products/{product_id}-memory.md` | 專案／plugin | 長期 |
 | Layer 2 專案級 | repo `.crew/verify-memory.md` | Git commit / push | 中期 |
 | Layer 1 任務級 | `.spec/{slug}/.cache/verify-memory.md` | 不共享 | 暫存 |
 
@@ -81,7 +81,9 @@ Layer 1 有新資訊時，由 Human 決定是否升級到 Layer 2。
 - session-specific state
 - secret
 
-Layer 2 → Layer 3 屬 plugin maintainer 的人工 curate，不由 `/plan-verify` 自動寫 plugin bundle。
+Layer 2 → Layer 3 屬人工 curate，不由 `/plan-verify` 自動寫 plugin bundle。
+
+若產品知識包含公司／客戶私有資訊，優先升級到 project-local `.crew/products/{product_id}-memory.md`，不要複製到公開 plugin bundle。
 
 ## 與 state 的邊界
 
