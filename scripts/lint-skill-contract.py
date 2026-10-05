@@ -335,12 +335,29 @@ def check_plan_verify_contract() -> list[str]:
             errors.append(f"{PLAN_VERIFY_E2E_CI_POLICY.relative_to(REPO)} 缺 CI promotion marker：{marker}")
 
     promotion_schema = PLAN_VERIFY_E2E_PROMOTION_SCHEMA.read_text(encoding="utf-8")
-    for marker in ("shared_mutation", "unique_test_data", "disposable_environment", "candidate_sha256", "review_waivers"):
+    for marker in (
+        "shared_mutation",
+        "unique_test_data",
+        "disposable_environment",
+        "persistent_owned_fixture",
+        "idempotent_seed",
+        "exclusive_execution",
+        "candidate_sha256",
+        "review_waivers",
+    ):
         if marker not in promotion_schema:
             errors.append(f"{PLAN_VERIFY_E2E_PROMOTION_SCHEMA.relative_to(REPO)} 缺 promotion metadata marker：{marker}")
 
     promotion_tool = PLAN_VERIFY_E2E_PROMOTION_TOOL.read_text(encoding="utf-8")
-    for marker in ("UNRELIABLE_CLEANUP", "STALE_STABILITY_EVIDENCE", "PROMOTION_RETRIES_NOT_ZERO", "sha256_file", "review_waivers"):
+    for marker in (
+        "UNRELIABLE_CLEANUP",
+        "PERSISTENT_FIXTURE_NOT_IDEMPOTENT",
+        "PERSISTENT_FIXTURE_NO_EXCLUSIVE_EXECUTION",
+        "STALE_STABILITY_EVIDENCE",
+        "PROMOTION_RETRIES_NOT_ZERO",
+        "sha256_file",
+        "review_waivers",
+    ):
         if marker not in promotion_tool:
             errors.append(f"{PLAN_VERIFY_E2E_PROMOTION_TOOL.relative_to(REPO)} 缺 promotion evaluator marker：{marker}")
 
