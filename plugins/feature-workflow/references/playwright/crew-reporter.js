@@ -303,17 +303,17 @@ class CrewReporter {
       result &&
       result.status === 'failed' &&
       records.length &&
-      records.every((record) => record.status === 'passed')
+      !records.some((record) => record.status === 'failed')
     ) {
       const unscopedError =
         errorMessage(result.error) ||
         errorMessage(Array.isArray(result.errors) ? result.errors[0] : null) ||
         'test failed outside AC-labeled step';
-      records = records.map((record) => ({
-        ...record,
-        status: 'failed',
-        reason: unscopedError,
-      }));
+      records = records.map((record) =>
+        record.status === 'passed'
+          ? { ...record, status: 'failed', reason: unscopedError }
+          : record
+      );
     }
 
     for (const record of records) {
@@ -556,6 +556,34 @@ function selfTest() {
     ],
   });
 
+  const targetedBlockedWithSafetyFailure = {
+    id: 't9',
+    title: 'targeted block plus global safety failure',
+    annotations: [],
+    titlePath: () => ['suite', 'targeted block plus global safety failure'],
+  };
+  reporter.onTestEnd(targetedBlockedWithSafetyFailure, {
+    status: 'failed',
+    retry: 0,
+    duration: 9,
+    error: { message: 'forbidden request observed' },
+    annotations: [
+      {
+        type: 'crew-ac-status',
+        description: JSON.stringify({
+          ac: 'feature-g#AC-5',
+          status: 'blocked',
+          reason: 'fixture mismatch',
+        }),
+      },
+    ],
+    attachments: [],
+    steps: [
+      { title: 'feature-g#AC-1 browser evidence', duration: 4, steps: [] },
+      { title: 'afterEach safety guard', duration: 5, error: { message: 'forbidden request observed' }, steps: [] },
+    ],
+  });
+
   reporter.onEnd();
   const payload = JSON.parse(fs.readFileSync(output, 'utf8'));
   const byAc = Object.fromEntries(payload.results.map((item) => [item.ac, item]));
@@ -581,6 +609,8 @@ function selfTest() {
   assert.equal(byAc['feature-f#AC-5'].reason, 'schedule fixture mismatch');
   assert.equal(byAc['feature-f#AC-9'].status, 'passed');
   assert.equal(byAc['feature-f#AC-9'].coverage, 'partial');
+  assert.equal(byAc['feature-g#AC-1'].status, 'failed');
+  assert.equal(byAc['feature-g#AC-5'].status, 'blocked');
 
   console.log('✅ crew-reporter self-test passed');
 }
