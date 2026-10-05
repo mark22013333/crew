@@ -11,7 +11,14 @@
  *   - fallback: test annotation { type: "crew-ac", description: "{slug}#AC-n" }
  *
  * BLOCKED:
- *   add annotation { type: "crew-blocked", description: "reason" }
+ *   - whole test: { type: "crew-blocked", description: "reason" }
+ *   - selected ACs: push runtime annotation
+ *       { type: "crew-ac-status",
+ *         description: '{"ac":"slug#AC-5","status":"blocked","reason":"..."}' }
+ *
+ * Partial evidence:
+ *   { type: "crew-ac-status",
+ *     description: '{"ac":"slug#AC-9","coverage":"partial","reason":"browser half only"}' }
  */
 
 const fs = require('fs');
@@ -71,6 +78,37 @@ function scenarioOf(test, result) {
 
 function blockedReasonOf(test, result) {
   return annotationValues(test, result, 'crew-blocked')[0] || null;
+}
+
+function acStatusOverrides(test, result) {
+  const allowedStatus = new Set(['passed', 'failed', 'blocked', 'skipped', 'manual']);
+  const allowedCoverage = new Set(['full', 'partial']);
+  const overrides = new Map();
+
+  for (const raw of annotationValues(test, result, 'crew-ac-status')) {
+    let value;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!value || typeof value !== 'object') continue;
+    const keys = extractAcKeys(value.ac);
+    if (keys.length !== 1) continue;
+
+    const ac = keys[0];
+    if (!overrides.has(ac)) {
+      overrides.set(ac, { ac, status: null, coverage: 'full', reasons: [] });
+    }
+    const current = overrides.get(ac);
+    if (value.status && allowedStatus.has(value.status)) current.status = value.status;
+    if (value.coverage && allowedCoverage.has(value.coverage)) current.coverage = value.coverage;
+    if (value.reason && !current.reasons.includes(String(value.reason))) {
+      current.reasons.push(String(value.reason));
+    }
+  }
+
+  return overrides;
 }
 
 function errorMessage(error) {
@@ -158,12 +196,14 @@ function mergeAttemptRecords(records) {
       grouped.set(record.ac, {
         ac: record.ac,
         status: record.status,
+        coverage: record.coverage || 'full',
         duration_ms: 0,
         reasons: [],
       });
     }
     const merged = grouped.get(record.ac);
     merged.duration_ms += Number(record.duration_ms || 0);
+    if (record.coverage === 'partial') merged.coverage = 'partial';
     if ((rank[record.status] ?? 99) > (rank[merged.status] ?? 99)) {
       merged.status = record.status;
     }
@@ -175,6 +215,7 @@ function mergeAttemptRecords(records) {
   return [...grouped.values()].map((record) => ({
     ac: record.ac,
     status: record.status,
+    coverage: record.coverage || 'full',
     duration_ms: record.duration_ms,
     reason: record.reasons.length ? record.reasons.join(' | ') : null,
   }));
@@ -206,6 +247,7 @@ class CrewReporter {
 
   onTestEnd(test, result) {
     const blockedReason = blockedReasonOf(test, result);
+    const overrides = acStatusOverrides(test, result);
     const evidence = evidenceOf(result);
     const scenario = scenarioOf(test, result);
     const testId = test && test.id ? String(test.id) : scenario;
@@ -225,10 +267,32 @@ class CrewReporter {
       records = keys.map((ac) => ({
         ac,
         status: mapAttemptStatus(result, blockedReason),
+        coverage: 'full',
         duration_ms: Number((result && result.duration) || 0),
         reason: blockedReason || errorMessage(result && result.error),
       }));
     }
+
+    // Apply per-AC runtime outcomes after step inference. This allows a
+    // stateful scenario to BLOCK only the ACs whose fixture/precondition is
+    // unavailable, while preserving earlier valid AC evidence.
+    const byAc = new Map(records.map((record) => [record.ac, { ...record }]));
+    for (const [ac, override] of overrides.entries()) {
+      const record = byAc.get(ac) || {
+        ac,
+        status: override.status || 'manual',
+        coverage: override.coverage || 'full',
+        duration_ms: 0,
+        reason: null,
+      };
+      if (override.status) record.status = override.status;
+      if (override.coverage) record.coverage = override.coverage;
+      if (override.reasons.length) {
+        record.reason = [record.reason, ...override.reasons].filter(Boolean).join(' | ');
+      }
+      byAc.set(ac, record);
+    }
+    records = [...byAc.values()];
 
     // Conservative fallback: if the test failed outside an AC-labeled step
     // (for example teardown/global assertion), do not emit a false-green set
@@ -263,6 +327,7 @@ class CrewReporter {
       }
       this.groups.get(key).attempts.push({
         status: record.status,
+        coverage: record.coverage || 'full',
         duration_ms: record.duration_ms,
         reason: record.reason,
         evidence,
@@ -283,6 +348,7 @@ class CrewReporter {
           ac: group.ac,
           scenario: group.scenario,
           status,
+          coverage: last.coverage || 'full',
           attempts: attempts.length,
           duration_ms: attempts.reduce((sum, item) => sum + Number(item.duration_ms || 0), 0),
           reason: last.reason || (status === 'flaky' && previousReason ? previousReason.reason : null),
@@ -454,6 +520,42 @@ function selfTest() {
     ],
   });
 
+  // One late fixture may block only selected ACs in a stateful scenario.
+  const targetedBlockedTest = {
+    id: 't8',
+    title: 'targeted block',
+    annotations: [],
+    titlePath: () => ['suite', 'targeted block'],
+  };
+  reporter.onTestEnd(targetedBlockedTest, {
+    status: 'passed',
+    retry: 0,
+    duration: 8,
+    annotations: [
+      {
+        type: 'crew-ac-status',
+        description: JSON.stringify({
+          ac: 'feature-f#AC-5',
+          status: 'blocked',
+          reason: 'schedule fixture mismatch',
+        }),
+      },
+      {
+        type: 'crew-ac-status',
+        description: JSON.stringify({
+          ac: 'feature-f#AC-9',
+          coverage: 'partial',
+          reason: 'browser half only',
+        }),
+      },
+    ],
+    attachments: [],
+    steps: [
+      { title: 'feature-f#AC-1 early evidence', duration: 3, steps: [] },
+      { title: 'feature-f#AC-9 frontend evidence', duration: 5, steps: [] },
+    ],
+  });
+
   reporter.onEnd();
   const payload = JSON.parse(fs.readFileSync(output, 'utf8'));
   const byAc = Object.fromEntries(payload.results.map((item) => [item.ac, item]));
@@ -474,6 +576,11 @@ function selfTest() {
   assert.equal(byAc['feature-d#AC-4'].attempts, 1);
   assert.equal(byAc['feature-e#AC-1'].status, 'failed');
   assert.equal(byAc['feature-e#AC-1'].reason, 'teardown failed');
+  assert.equal(byAc['feature-f#AC-1'].status, 'passed');
+  assert.equal(byAc['feature-f#AC-5'].status, 'blocked');
+  assert.equal(byAc['feature-f#AC-5'].reason, 'schedule fixture mismatch');
+  assert.equal(byAc['feature-f#AC-9'].status, 'passed');
+  assert.equal(byAc['feature-f#AC-9'].coverage, 'partial');
 
   console.log('✅ crew-reporter self-test passed');
 }
@@ -485,6 +592,7 @@ module.exports._internals = {
   collectStepRecords,
   mergeAttemptRecords,
   annotationsOf,
+  acStatusOverrides,
 };
 
 if (require.main === module) {
