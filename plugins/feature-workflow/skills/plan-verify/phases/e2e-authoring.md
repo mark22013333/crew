@@ -81,15 +81,19 @@ Precondition 失敗應能被 reporter 辨識為 blocked，而不是讓後面每�
 
 ## 7. 測試資料
 
-Candidate 要標示：
+Candidate 產出時同步建立 E2E repo 的 `.crew/e2e/{slug}.promotion.json` 初稿，schema 見 `../../references/e2e-promotion-schema.md`。
 
-```yaml
-environment_bound_fixture: true|false
-parallel_safe: true|false
-cleanup: reliable|best-effort|none
-```
+至少要標示：
 
-hardcoded record ID 不必一律禁止，但必須能說明 fixture contract。
+- shared_mutation
+- environment_bound_fixture
+- unique_test_data
+- disposable_environment
+- parallel_safe / workers
+- cleanup
+- safety_invariants
+
+hardcoded record ID 不必一律禁止，但必須反映為 environment-bound fixture；若會修改共享資料又只有 best-effort cleanup，maturity 必須維持 draft。
 
 ## 8. 產出後
 
