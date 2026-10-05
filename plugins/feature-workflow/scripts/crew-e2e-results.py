@@ -24,6 +24,7 @@ from typing import Any
 
 AC_RE = re.compile(r"^(?P<slug>[A-Za-z0-9][A-Za-z0-9._-]*)#AC-(?P<number>[1-9]\d*)$")
 ALLOWED_STATUSES = {"passed", "failed", "flaky", "blocked", "skipped", "manual"}
+ALLOWED_COVERAGE = {"full", "partial"}
 
 # For multiple test records covering the same AC, the least healthy outcome wins.
 STATUS_PRIORITY = {
@@ -85,6 +86,9 @@ def validate_result(item: Any, index: int) -> dict[str, Any]:
     duration = item.get("duration_ms", 0)
     require(isinstance(duration, (int, float)) and duration >= 0, f"results[{index}].duration_ms 必須 >= 0")
 
+    coverage = item.get("coverage", "full")
+    require(coverage in ALLOWED_COVERAGE, f"results[{index}].coverage 不支援：{coverage!r}")
+
     if status == "blocked":
         reason = item.get("reason")
         require(isinstance(reason, str) and reason.strip(), f"results[{index}] blocked 必須有 reason")
@@ -101,6 +105,7 @@ def aggregate_ac(items: list[dict[str, Any]]) -> dict[str, Any]:
 
     worst = max(items, key=lambda item: STATUS_PRIORITY[item["status"]])
     status = worst["status"]
+    coverage = "full" if any(item.get("coverage", "full") == "full" for item in items) else "partial"
     reasons = []
     for item in items:
         reason = item.get("reason")
@@ -122,7 +127,8 @@ def aggregate_ac(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "ac": items[0]["ac"],
         "status": status,
-        "verify_status": VERIFY_STATUS[status],
+        "coverage": coverage,
+        "verify_status": "WARN" if status == "passed" and coverage == "partial" else VERIFY_STATUS[status],
         "records": len(items),
         "attempts": sum(int(item.get("attempts", 1)) for item in items),
         "duration_ms": int(sum(float(item.get("duration_ms", 0)) for item in items)),
@@ -160,8 +166,11 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
     ]
 
     counts = {status: 0 for status in sorted(ALLOWED_STATUSES)}
+    partial_coverage = 0
     for item in ac_results:
         counts[item["status"]] += 1
+        if item["coverage"] == "partial":
+            partial_coverage += 1
 
     stale = False
     artifact_sha = payload.get("git_sha")
@@ -173,7 +182,7 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
 
     if counts["failed"] > 0:
         overall = "FAIL"
-    elif counts["blocked"] > 0 or counts["flaky"] > 0 or stale:
+    elif counts["blocked"] > 0 or counts["flaky"] > 0 or partial_coverage > 0 or stale:
         overall = "WARN"
     else:
         overall = "PASS"
@@ -195,6 +204,7 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
             "skipped": counts["skipped"],
             "manual": counts["manual"],
         },
+        "partial_coverage": partial_coverage,
         "ignored_results": ignored,
         "ac_results": ac_results,
     }
@@ -235,6 +245,14 @@ def self_test() -> int:
                 "duration_ms": 1,
                 "reason": "fixture unavailable",
             },
+            {
+                "ac": "feature-x#AC-4",
+                "status": "passed",
+                "coverage": "partial",
+                "attempts": 1,
+                "duration_ms": 8,
+                "reason": "browser half only",
+            },
             {"ac": "other#AC-1", "status": "failed", "attempts": 1, "duration_ms": 1},
         ],
     }
@@ -244,8 +262,11 @@ def self_test() -> int:
     assert result["counts"]["passed"] == 1, result
     assert result["counts"]["flaky"] == 1, result
     assert result["counts"]["blocked"] == 1, result
+    assert result["partial_coverage"] == 1, result
     assert result["ignored_results"] == 1, result
     assert result["ac_results"][1]["status"] == "flaky", result
+    assert result["ac_results"][3]["coverage"] == "partial", result
+    assert result["ac_results"][3]["verify_status"] == "WARN", result
     assert result["stale"] is False, result
 
     stale = summarize(payload, "feature-x", "zzz999")
@@ -260,6 +281,15 @@ def self_test() -> int:
         assert "reason" in str(exc)
     else:
         raise AssertionError("blocked without reason should fail validation")
+
+    bad_coverage = dict(payload)
+    bad_coverage["results"] = [{"ac": "feature-x#AC-1", "status": "passed", "coverage": "half"}]
+    try:
+        summarize(bad_coverage, "feature-x")
+    except ValidationError as exc:
+        assert "coverage" in str(exc)
+    else:
+        raise AssertionError("unknown coverage should fail validation")
 
     with tempfile.TemporaryDirectory() as tmp:
         p = Path(tmp) / "crew-results.json"
