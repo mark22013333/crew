@@ -31,6 +31,9 @@
   "environment_bound_fixture": false,
   "unique_test_data": false,
   "disposable_environment": false,
+  "persistent_owned_fixture": false,
+  "idempotent_seed": false,
+  "exclusive_execution": false,
   "parallel_safe": false,
   "workers": 1,
   "cleanup": "none",
@@ -61,6 +64,7 @@
 
 - 必須有 `safety_invariants`
 - 必須 `cleanup=reliable`，**或**在 `disposable_environment=true` 的環境執行
+- 另一個允許路徑是 **persistent owned fixture**：只修改專用 E2E fixture，且每次 seed 都能重設成同一 canonical state
 - 只有 `unique_test_data=true` 不代表可以不 cleanup；它只解決 collision，不解決資料污染
 
 ### environment_bound_fixture
@@ -69,7 +73,7 @@
 
 例如固定 template ID、schedule ID、特定 UAT 帳號資料。
 
-此值可以是 `true` 且仍 ci-ready，但前提是 fixture 有可靠 restoration 或 environment disposable。
+此值可以是 `true` 且仍 ci-ready，前提是 fixture 有可靠 restoration、environment disposable，或符合 persistent owned fixture contract。
 
 ### unique_test_data
 
@@ -83,6 +87,38 @@
 ### disposable_environment
 
 整個測試環境是否可在 run 後直接丟棄，例如 ephemeral DB / container / isolated namespace。
+
+### persistent_owned_fixture
+
+表示這些 record 是**專門給 E2E 使用**的持久 fixture，不是一般 UAT／使用者資料。
+
+此策略適合產品本身沒有可靠 delete/clear API，但可以把同一組測試資料每次重設成固定 canonical state 的情況。
+
+若 `persistent_owned_fixture=true`，promotion 必須同時滿足：
+
+- `idempotent_seed=true`
+- `exclusive_execution=true`
+- `workers=1`
+- `parallel_safe=false`
+- `shared_mutation=true` 時仍必須有 `safety_invariants`
+
+這條路徑允許 `cleanup=none`，因為 fixture 的 canonical state 本來就設計成可長期存在；但測試只能修改被明確宣告為 E2E-owned 的資料。
+
+### idempotent_seed
+
+每次執行前都能把 persistent fixture 重設成相同 canonical state；重跑一次或十次都不應累積額外資料或改到別的 record。
+
+### exclusive_execution
+
+外層 CI/runtime 必須保證同一組 persistent fixture 不會被兩條 pipeline 同時使用。
+
+例如：
+
+- GitLab `resource_group`
+- Jenkins Lockable Resources
+- 其他 CI 的 concurrency group / mutex
+
+只有 `workers=1` 不足以代表跨 pipeline 互斥，所以 metadata 必須另外宣告 `exclusive_execution=true`，並由專案 CI review 負責對應實作。
 
 ### cleanup
 
