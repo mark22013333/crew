@@ -88,8 +88,8 @@ def lint_text(path: Path, text: str) -> list[Issue]:
     if not re.search(r"\bAC-\d+\b", text):
         issues.append(Issue("HARD", "MISSING_AC", path, 1, "找不到 AC-n mapping；candidate 必須能回連驗收條件"))
 
-    if not re.search(r"\bexpect\s*\(", text):
-        issues.append(Issue("HARD", "MISSING_ASSERTION", path, 1, "找不到 Playwright expect assertion；只操作/截圖不能 promotion"))
+    if not re.search(r"\bexpect(?:\.soft)?(?:\.poll)?\s*\(", text):
+        issues.append(Issue("HARD", "MISSING_ASSERTION", path, 1, "找不到 Playwright expect / expect.soft / expect.poll assertion；只操作/截圖不能 promotion"))
 
     if not re.search(r"[A-Za-z0-9][A-Za-z0-9._-]*#AC-\d+\b", text):
         issues.append(
@@ -209,7 +209,7 @@ test('feature-y#AC-2 flow', async ({ page }) => {
   await page.goto('http://localhost:8080/x?id=5');
   await page.locator('div:nth-child(2)').click();
   await page.waitForTimeout(500);
-  await expect(page.getByText('ok')).toBeVisible();
+  await expect.soft(page.getByText('ok')).toBeVisible();
 });
 """.strip()
 
