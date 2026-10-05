@@ -36,7 +36,10 @@ language: javascript
 - canonical join key：`{slug}#AC-n`
 - independent test：{annotation/tag 寫法}
 - stateful scenario：`test.step('{slug}#AC-n: ...')`
-- blocked precondition：{framework 如何讓 reporter 輸出 blocked + reason}
+- whole-scenario blocked：{framework 如何讓 reporter 輸出 blocked + reason}
+- targeted AC blocked：`crew-ac-status` JSON，至少含 `ac/status=blocked/reason`
+- partial coverage：`crew-ac-status` JSON，含 `ac/coverage=partial/reason`
+- runtime metadata compatibility：新 Playwright 可用 `testInfo.annotations`；要支援舊版時，同步 `testInfo.attach('crew-ac-status', { body: JSON... })`
 
 ## Component recipes
 
