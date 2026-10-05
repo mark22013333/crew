@@ -114,6 +114,7 @@ STATUS_MAP = {
     "PASS": ("✅", "通過", RGBColor(0x22, 0x8B, 0x22)),
     "FAIL": ("❌", "未通過", RGBColor(0xCC, 0x00, 0x00)),
     "WARN": ("⚠️", "警告", RGBColor(0xFF, 0x8C, 0x00)),
+    "BLOCKED": ("🚧", "前置阻擋", RGBColor(0x70, 0x30, 0xA0)),
     "SKIP": ("⏭️", "略過", RGBColor(0x80, 0x80, 0x80)),
     "MANUAL": ("👤", "待人工確認", RGBColor(0x1F, 0x4E, 0x79)),
 }
@@ -158,13 +159,14 @@ def parse_verify_md(filepath):
             for sk in STATUS_MAP:
                 if sk in lb: result["stats"][sk] = int(m.group(2))
 
-    icon_map = {"✅": "PASS", "❌": "FAIL", "⚠️": "WARN", "⏭️": "SKIP", "👤": "MANUAL"}
-    for m in re.finditer(r"### \[(\d+)\]\s*(✅|❌|⚠️|⏭️|👤)\s*(.+?)(?=\n### \[|\n---|\Z)", content, re.DOTALL):
+    icon_map = {"✅": "PASS", "❌": "FAIL", "⚠️": "WARN", "🚧": "BLOCKED", "⏭️": "SKIP", "👤": "MANUAL"}
+    for m in re.finditer(r"### \[(\d+)\]\s*(✅|❌|⚠️|🚧|⏭️|👤)\s*(.+?)(?=\n### \[|\n---|\Z)", content, re.DOTALL):
         idx, status, body = int(m.group(1)), icon_map.get(m.group(2).strip(), "MANUAL"), m.group(3)
         item = {"index": idx, "status": status, "name": body.split("\n")[0].strip(),
                 "type": "", "human_steps": None, "evidence": None, "screenshot": None,
-                "fail_reason": None, "skip_reason": None}
+                "fail_reason": None, "blocked_reason": None, "skip_reason": None}
         for pat, key in [(r"\*\*類型\*\*：(.+)", "type"), (r"\*\*失敗原因\*\*：(.+)", "fail_reason"),
+                         (r"\*\*(?:阻擋原因|前置阻擋原因)\*\*：(.+)", "blocked_reason"),
                          (r"\*\*跳過原因\*\*：(.+)", "skip_reason")]:
             f = re.search(pat, body)
             if f: item[key] = f.group(1).strip()
@@ -519,17 +521,23 @@ def build_doc(data, cover, screenshots_dir, evidence_dir, output_path, logo_path
     # ══════ 驗收摘要 ══════
     h1 = doc.add_heading("驗收摘要", level=1); add_h1_border(h1, T)
     stats_data = []
-    for key in ["PASS", "FAIL", "WARN", "SKIP", "MANUAL"]:
+    for key in ["PASS", "FAIL", "WARN", "BLOCKED", "SKIP", "MANUAL"]:
         if key in data["stats"]:
             icon, label, _ = STATUS_MAP[key]
             stats_data.append([f"{icon} {label}", str(data["stats"][key])])
     themed_table(doc, ["狀態", "數量"], stats_data, T)
 
     total = sum(data["stats"].values())
-    fc = data["stats"].get("FAIL", 0); mc = data["stats"].get("MANUAL", 0); pc = data["stats"].get("PASS", 0)
-    if fc == 0 and mc == 0: conc = f"共 {total} 項驗收條件全數通過，建議進入正式上線流程。"
-    elif fc > 0: conc = f"共 {total} 項驗收條件，{fc} 項未通過，需修正後重新驗證。"
-    else: conc = f"共 {total} 項驗收條件，{pc} 項通過、{mc} 項待人工確認。"
+    fc = data["stats"].get("FAIL", 0); bc = data["stats"].get("BLOCKED", 0)
+    wc = data["stats"].get("WARN", 0); mc = data["stats"].get("MANUAL", 0); pc = data["stats"].get("PASS", 0)
+    if fc > 0:
+        conc = f"共 {total} 項驗收條件，{fc} 項未通過，需修正後重新驗證。"
+    elif bc > 0:
+        conc = f"共 {total} 項驗收條件，{bc} 項因前置條件阻擋，排除阻擋後需重新驗證。"
+    elif wc > 0 or mc > 0:
+        conc = f"共 {total} 項驗收條件，{pc} 項通過、{wc} 項警告、{mc} 項待人工確認。"
+    else:
+        conc = f"共 {total} 項驗收條件全數通過。"
     p = doc.add_paragraph()
     themed_run(p, "結論：", T, size=11, color=T["deep_rgb"], bold=True)
     themed_run(p, conc, T, size=11)
@@ -544,6 +552,9 @@ def build_doc(data, cover, screenshots_dir, evidence_dir, output_path, logo_path
         themed_run(p, "結果：", T, bold=True)
         themed_run(p, f"{label} {icon}", T, bold=True, color=color)
 
+        if item["status"] == "BLOCKED" and item.get("blocked_reason"):
+            p = doc.add_paragraph(); themed_run(p, "阻擋原因：", T, bold=True, color=STATUS_MAP["BLOCKED"][2])
+            themed_run(p, item["blocked_reason"], T); continue
         if item["status"] == "SKIP" and item.get("skip_reason"):
             doc.add_paragraph(f'略過原因：{item["skip_reason"]}'); continue
 
@@ -577,13 +588,13 @@ def build_doc(data, cover, screenshots_dir, evidence_dir, output_path, logo_path
                 doc.add_paragraph(f'（截圖不可用：{item["screenshot"]}）')
 
     # ══════ 待處理事項 ══════
-    ai = [it for it in data["items"] if it["status"] in ("FAIL", "MANUAL")]
+    ai = [it for it in data["items"] if it["status"] in ("FAIL", "BLOCKED", "MANUAL")]
     if ai:
         doc.add_page_break()
         h1 = doc.add_heading("待處理事項", level=1); add_h1_border(h1, T)
         themed_table(doc, ["#", "驗收條件", "狀態", "建議"],
             [[str(it["index"]), it["name"], STATUS_MAP[it["status"]][1],
-              "修復後重新驗證" if it["status"] == "FAIL" else "手動確認"] for it in ai], T)
+              "修復後重新驗證" if it["status"] == "FAIL" else ("排除前置阻擋後重新驗證" if it["status"] == "BLOCKED" else "手動確認")] for it in ai], T)
 
     # ══════ 附錄 ══════
     doc.add_page_break()
