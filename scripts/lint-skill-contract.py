@@ -50,6 +50,12 @@ PLAN_VERIFY_WORD_REPORT = PLAN_VERIFY.parent / "phases" / "word-report.md"
 PLAN_VERIFY_MEMORY = REPO / "plugins" / "feature-workflow" / "references" / "verify-memory.md"
 PLAN_VERIFY_MCP = REPO / "plugins" / "feature-workflow" / "references" / "mcp-install.md"
 PLAN_VERIFY_PRODUCT_MEMORY = REPO / "plugins" / "feature-workflow" / "products" / "smartrobot-memory.md"
+PLAN_VERIFY_ROUTE = PLAN_VERIFY.parent / "phases" / "route-verification.md"
+PLAN_VERIFY_PRECONDITIONS = PLAN_VERIFY.parent / "phases" / "preconditions.md"
+PLAN_VERIFY_REPORT_SAMPLE = PLAN_VERIFY.parent / "examples" / "verify-report-sample.md"
+PLAN_VERIFY_DOCX_GENERATOR = REPO / "plugins" / "feature-workflow" / "references" / "verify-docx-generator.py"
+PLAN_VERIFY_EXCEL_GENERATOR = REPO / "plugins" / "feature-workflow" / "references" / "verify-excel-generator.js"
+PLAN_VERIFY_DOTNET_SECTION = REPO / "plugins" / "feature-workflow" / "references" / "dotnet" / "verify-docx-cli" / "Markdown" / "VerifySection.cs"
 
 PLAN_VERIFY_REQUIRED = (
     "CREW_PLUGIN_ROOT",
@@ -58,6 +64,9 @@ PLAN_VERIFY_REQUIRED = (
     "../../references/verify-memory.md",
     "Human UAT 在 /plan-close 內取得",
     "local CDP",
+    "phases/route-verification.md",
+    "phases/preconditions.md",
+    "BLOCKED",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -179,6 +188,12 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_MEMORY,
         PLAN_VERIFY_MCP,
         PLAN_VERIFY_PRODUCT_MEMORY,
+        PLAN_VERIFY_ROUTE,
+        PLAN_VERIFY_PRECONDITIONS,
+        PLAN_VERIFY_REPORT_SAMPLE,
+        PLAN_VERIFY_DOCX_GENERATOR,
+        PLAN_VERIFY_EXCEL_GENERATOR,
+        PLAN_VERIFY_DOTNET_SECTION,
     )
     for path in required_files:
         if not path.is_file():
@@ -229,6 +244,32 @@ def check_plan_verify_contract() -> list[str]:
     product_memory = PLAN_VERIFY_PRODUCT_MEMORY.read_text(encoding="utf-8")
     if ".crew/verify-memory.md" not in product_memory:
         errors.append(f"{PLAN_VERIFY_PRODUCT_MEMORY.relative_to(REPO)} 未指向 canonical Layer 2 memory")
+
+    route = PLAN_VERIFY_ROUTE.read_text(encoding="utf-8")
+    for marker in ("browser", "api", "backend-test", "database", "證明力優先", "一條 AC 一個主要 verifier"):
+        if marker not in route:
+            errors.append(f"{PLAN_VERIFY_ROUTE.relative_to(REPO)} 缺 verification router marker：{marker}")
+
+    preconditions = PLAN_VERIFY_PRECONDITIONS.read_text(encoding="utf-8")
+    for marker in ("BLOCKED", "前置條件失敗不等於產品功能失敗", "不計入 FAIL", "FAIL + BLOCKED"):
+        if marker not in preconditions:
+            errors.append(f"{PLAN_VERIFY_PRECONDITIONS.relative_to(REPO)} 缺 precondition marker：{marker}")
+
+    report_sample = PLAN_VERIFY_REPORT_SAMPLE.read_text(encoding="utf-8")
+    if "🚧 BLOCKED" not in report_sample or "前置阻擋" not in report_sample:
+        errors.append(f"{PLAN_VERIFY_REPORT_SAMPLE.relative_to(REPO)} 未示範 BLOCKED 驗證結果")
+
+    docx_generator = PLAN_VERIFY_DOCX_GENERATOR.read_text(encoding="utf-8")
+    if '"BLOCKED"' not in docx_generator or "blocked_reason" not in docx_generator:
+        errors.append(f"{PLAN_VERIFY_DOCX_GENERATOR.relative_to(REPO)} 未支援 BLOCKED")
+
+    excel_generator = PLAN_VERIFY_EXCEL_GENERATOR.read_text(encoding="utf-8")
+    if "BLOCKED" not in excel_generator or "🚧" not in excel_generator:
+        errors.append(f"{PLAN_VERIFY_EXCEL_GENERATOR.relative_to(REPO)} 未支援 BLOCKED")
+
+    dotnet_section = PLAN_VERIFY_DOTNET_SECTION.read_text(encoding="utf-8")
+    if "Blocked" not in dotnet_section or "SummaryStats" not in dotnet_section:
+        errors.append(f"{PLAN_VERIFY_DOTNET_SECTION.relative_to(REPO)} 未支援 BLOCKED summary/detail model")
 
     return errors
 
