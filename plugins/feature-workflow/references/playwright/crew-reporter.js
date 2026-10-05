@@ -464,9 +464,9 @@ function selfTest() {
   assert.equal(byAc['feature-a#AC-2'].attempts, 2);
   assert.equal(byAc['feature-a#AC-3'].status, 'blocked');
   assert.equal(byAc['feature-a#AC-3'].reason, 'fixture unavailable');
-  // feature-b#AC-1 becomes failed because the same test failed outside that
-  // AC's own step; this avoids false-green AC output.
-  assert.equal(byAc['feature-b#AC-1'].status, 'failed');
+  // A failure inside AC-2 must not erase a clean AC-1 result from the same
+  // stateful scenario.
+  assert.equal(byAc['feature-b#AC-1'].status, 'passed');
   assert.equal(byAc['feature-b#AC-2'].status, 'failed');
   assert.equal(byAc['feature-c#AC-1'].status, 'failed');
   assert.equal(byAc['feature-c#AC-1'].reason, 'soft assertion failed');
