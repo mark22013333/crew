@@ -67,10 +67,6 @@ PROFILE={profile} npx playwright test {matched files}
 
 ## 5. 輸出
 
-優先要求 runner 產出 `../../references/e2e-result-schema.md` 格式的 `crew-results.json`。Generic Playwright 可參考 `../../references/playwright/crew-reporter.js`；E2E repo 應 vendor/copy reporter，不要讓 CI 綁定 plugin 安裝路徑。
+Runner 必須保存可回溯到 `{slug}#AC-n` 的結構化結果與 evidence；不要只 parse console 人話字串。
 
-若 legacy runner 尚未支援：
-- 可讀 Playwright JSON reporter 結果轉成 schema v1
-- 但不得只 parse console 人話字串
-
-最後再把 result 轉成 `.cache/verify.md` 與 `state.json.results.verify`。
+現階段 `--e2e` 可沿用既有 Playwright JSON / test result API，再轉成 `.cache/verify.md` 與 `state.json.results.verify`。跨 CI 的 canonical result schema 留給獨立 result-bridge contract，不在本 phase 自行發明。
