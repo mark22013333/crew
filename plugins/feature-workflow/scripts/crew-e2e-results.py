@@ -259,7 +259,7 @@ def self_test() -> int:
 
     result = summarize(payload, "feature-x", "abc1234")
     assert result["status"] == "WARN", result
-    assert result["counts"]["passed"] == 1, result
+    assert result["counts"]["passed"] == 2, result  # AC-1 full + AC-4 partial both keep raw E2E status=passed
     assert result["counts"]["flaky"] == 1, result
     assert result["counts"]["blocked"] == 1, result
     assert result["partial_coverage"] == 1, result
