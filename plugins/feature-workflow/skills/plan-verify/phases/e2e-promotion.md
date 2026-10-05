@@ -41,13 +41,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/lint-playwright-e2e.py" {candidate}
 - workers=1
 - 短暫 notification / 第三方 dependency
 
-輸出 metadata：
-
-```yaml
-environment_bound_fixture: true
-parallel_safe: false
-cleanup: best-effort
-```
+輸出／更新 `.crew/e2e/{slug}.promotion.json`，schema 見 `../../references/e2e-promotion-schema.md`。至少要記 shared mutation、fixture binding、unique data、disposable environment、parallelism、cleanup 與 review waivers。
 
 ## 3. Stability gate
 
@@ -67,6 +61,24 @@ npx playwright test {file} --repeat-each=3 --retries=0
 ```
 
 任何一次失敗 → 不升級。
+
+完成 stability run 後，把 `retries / repeat_each / passed / failed` 與當前 candidate SHA-256 寫入 promotion metadata。
+
+## 3.5 Machine promotion gate
+
+執行：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-promote.py" check \
+  --candidate {candidate} \
+  --metadata .crew/e2e/{slug}.promotion.json
+```
+
+- exit 0 → 可標 `ci-ready`
+- exit 1 → 保持 `draft`，依 blockers 修正
+- exit 2 → metadata/schema/input 錯誤，先修 contract
+
+不得由 Agent 覺得「看起來穩」就跳過 machine gate。
 
 ## 4. Flaky 判定
 
