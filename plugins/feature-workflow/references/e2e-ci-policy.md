@@ -21,7 +21,7 @@ ci-ready
 - AC 沒有穩定 `{slug}#AC-n` join key
 - 沒有 assertion，只做操作／截圖
 - destructive/shared-environment flow 沒有 safety invariant
-- 會建立／修改共享資料但沒有可靠 cleanup、unique data 或 disposable environment
+- 會建立／修改共享資料，但既沒有 reliable cleanup / disposable environment，也不符合 persistent owned fixture contract
 - 依賴某位工程師家目錄的絕對路徑
 - 必須使用 `ci_eligible=false` 的 selector / recipe 才能成功
 
@@ -52,6 +52,9 @@ Promotion metadata 至少要明確記錄：
 - `environment_bound_fixture=true|false`
 - `unique_test_data=true|false`
 - `disposable_environment=true|false`
+- `persistent_owned_fixture=true|false`
+- `idempotent_seed=true|false`
+- `exclusive_execution=true|false`
 - `parallel_safe=true|false`
 - `workers=N`
 - `cleanup=reliable|best-effort|none`
@@ -71,8 +74,9 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-promote.py" check \
 Machine gate 額外保證：
 
 - shared mutation 沒有 safety invariant → BLOCK
-- shared mutation 沒有 reliable cleanup 且不是 disposable environment → BLOCK
-- environment-bound fixture 無法可靠還原 → BLOCK
+- shared mutation 沒有 reliable cleanup、不是 disposable environment、也不符合 persistent owned fixture → BLOCK
+- environment-bound fixture 無法可靠還原，且不是合格 persistent owned fixture → BLOCK
+- persistent owned fixture 沒有 idempotent seed / exclusive execution / workers=1 → BLOCK
 - workers > 1 但 parallel_safe=false → BLOCK
 - REVIEW issue 沒有具體 waiver reason → BLOCK
 - stability evidence 的 candidate SHA-256 與目前測試內容不同 → BLOCK
@@ -104,6 +108,7 @@ test.step('AC-2: ...')
 
 - PR：smoke + 本次 feature coverage
 - main/nightly：regression
+- persistent owned fixture 必須由 CI concurrency/resource lock 做跨 pipeline 互斥
 - 預設 shared state 不足以安全平行時 workers=1
 - 只有 fixture 隔離成熟後才提高 parallelism
 - failure 保存 trace / screenshot；video 依 adapter / storage policy 決定
