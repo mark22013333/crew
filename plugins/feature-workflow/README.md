@@ -322,7 +322,9 @@ flowchart TD
     Pre -- "ready" --> Evidence
     Pre -- "not ready" --> Blocked["BLOCKED<br/>not product FAIL"]
     Blocked --> Evidence
+    Evidence --> IR["Verification IR<br/>.cache/verification-ir.json"]
     Evidence --> Result["state.json results.verify"]
+    IR --> Draft["/plan-verify --e2e-draft<br/>E2E candidate (draft)"]
     Result --> Status{"PASS / WARN / FAIL"}
     Status -- "FAIL" --> Build["/plan-build"]
     Status -- "WARN" --> Recheck["/plan-verify --recheck"]
@@ -342,11 +344,12 @@ flowchart TD
 - recheck（FAIL + BLOCKED）
 - Excel report
 - Word report
-- E2E runner
+- E2E runner（portable `e2e_workspace / e2e_adapter / e2e_profile / e2e_command`）
+- `--e2e-draft`：由 Verification IR + framework adapter 產生 E2E candidate；預設維持 draft
 
 外部 browser/DB 工具以 `tool_probe` 判斷目前 Host 是否真的可呼叫；不能用某一家 CLI listing 代替 capability probe。
 
-Project verify memory canonical storage 是 `.crew/verify-memory.md`；舊 `.claude/verify-memory.md` 只在 canonical 不存在時相容讀取。驗證結果仍以 `state.json.results.verify` 為唯一 machine truth。
+Project verify memory canonical storage 是 `.crew/verify-memory.md`；舊 `.claude/verify-memory.md` 只在 canonical 不存在時相容讀取。產品知識／產品級 memory 可放在 project-local `.crew/products/`，避免把公司私有 helper、route 或 framework 規則公開到 plugin bundle。驗證結果仍以 `state.json.results.verify` 為唯一 machine truth。
 
 流程邊界：`verify PASS` → `/plan-review` → `/plan-close`；**Human UAT 在 `/plan-close` 內取得**，不是 `/plan-verify` 的副作用。
 
