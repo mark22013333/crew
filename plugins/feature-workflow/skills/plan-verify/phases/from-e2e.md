@@ -33,7 +33,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-results.py" summarize \
 - 只保留目前 slug，其他結果計入 ignored
 - 同一 AC 多筆 coverage 採最差狀態聚合
 - git SHA freshness
-- deterministic counts / overall PASS|WARN|FAIL
+- deterministic counts / partial coverage / overall PASS|WARN|FAIL
 
 Health Score 不在此腳本發明新公式，仍由 plan-verify 既有評分邏輯處理。
 
@@ -50,7 +50,8 @@ Health Score 不在此腳本發明新公式，仍由 plan-verify 既有評分邏
 
 | E2E | Verify |
 |---|---|
-| passed | PASS |
+| passed + coverage=full | PASS |
+| passed + coverage=partial | WARN |
 | flaky | WARN |
 | failed | FAIL |
 | blocked | BLOCKED |
