@@ -33,18 +33,33 @@ function extractAcKeys(text) {
   return keys;
 }
 
-function annotationsOf(test) {
-  return Array.isArray(test && test.annotations) ? test.annotations : [];
+function annotationsOf(test, result) {
+  // Playwright v1.52+ exposes runtime annotations (including testInfo.annotations
+  // and runtime test.skip/fixme/fail annotations) on TestResult.annotations.
+  // Prefer result annotations, then merge static TestCase annotations for
+  // compatibility with older runners.
+  const combined = [
+    ...(Array.isArray(result && result.annotations) ? result.annotations : []),
+    ...(Array.isArray(test && test.annotations) ? test.annotations : []),
+  ];
+  const seen = new Set();
+  return combined.filter((item) => {
+    if (!item || !item.type) return false;
+    const key = `${item.type}::${item.description || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
-function annotationValues(test, type) {
-  return annotationsOf(test)
-    .filter((item) => item && item.type === type && item.description)
+function annotationValues(test, result, type) {
+  return annotationsOf(test, result)
+    .filter((item) => item.type === type && item.description)
     .map((item) => String(item.description));
 }
 
-function scenarioOf(test) {
-  const annotated = annotationValues(test, 'crew-scenario')[0];
+function scenarioOf(test, result) {
+  const annotated = annotationValues(test, result, 'crew-scenario')[0];
   if (annotated) return annotated;
 
   if (test && typeof test.titlePath === 'function') {
@@ -54,8 +69,8 @@ function scenarioOf(test) {
   return test && test.title ? String(test.title) : 'unknown';
 }
 
-function blockedReasonOf(test) {
-  return annotationValues(test, 'crew-blocked')[0] || null;
+function blockedReasonOf(test, result) {
+  return annotationValues(test, result, 'crew-blocked')[0] || null;
 }
 
 function errorMessage(error) {
@@ -106,21 +121,63 @@ function evidenceOf(result) {
   return evidence;
 }
 
+function firstStepError(step) {
+  if (!step) return null;
+  if (step.error) return step.error;
+  for (const child of Array.isArray(step.steps) ? step.steps : []) {
+    const error = firstStepError(child);
+    if (error) return error;
+  }
+  return null;
+}
+
 function collectStepRecords(steps, blockedReason) {
   const records = [];
   for (const step of Array.isArray(steps) ? steps : []) {
     const keys = extractAcKeys(step && step.title);
+    const nestedError = firstStepError(step);
     for (const ac of keys) {
       records.push({
         ac,
-        status: blockedReason ? 'blocked' : (step.error ? 'failed' : 'passed'),
+        status: blockedReason ? 'blocked' : (nestedError ? 'failed' : 'passed'),
         duration_ms: Number(step.duration || 0),
-        reason: blockedReason || errorMessage(step.error),
+        reason: blockedReason || errorMessage(nestedError),
       });
     }
     records.push(...collectStepRecords(step && step.steps, blockedReason));
   }
   return records;
+}
+
+function mergeAttemptRecords(records) {
+  const rank = { passed: 0, skipped: 1, manual: 2, flaky: 3, blocked: 4, failed: 5 };
+  const grouped = new Map();
+
+  for (const record of records) {
+    if (!grouped.has(record.ac)) {
+      grouped.set(record.ac, {
+        ac: record.ac,
+        status: record.status,
+        duration_ms: 0,
+        reasons: [],
+      });
+    }
+    const merged = grouped.get(record.ac);
+    merged.duration_ms += Number(record.duration_ms || 0);
+    if ((rank[record.status] ?? 99) > (rank[merged.status] ?? 99)) {
+      merged.status = record.status;
+    }
+    if (record.reason && !merged.reasons.includes(record.reason)) {
+      merged.reasons.push(record.reason);
+    }
+  }
+
+  return [...grouped.values()].map((record) => ({
+    ac: record.ac,
+    status: record.status,
+    duration_ms: record.duration_ms,
+    reason: record.reasons.length ? record.reasons.join(' | ') : null,
+  }));
 }
 
 function finalStatus(attempts) {
@@ -148,16 +205,15 @@ class CrewReporter {
   }
 
   onTestEnd(test, result) {
-    const blockedReason = blockedReasonOf(test);
-    const stepRecords = collectStepRecords(result && result.steps, blockedReason);
+    const blockedReason = blockedReasonOf(test, result);
     const evidence = evidenceOf(result);
-    const scenario = scenarioOf(test);
+    const scenario = scenarioOf(test, result);
     const testId = test && test.id ? String(test.id) : scenario;
 
-    let records = stepRecords;
+    let records = mergeAttemptRecords(collectStepRecords(result && result.steps, blockedReason));
 
     if (!records.length) {
-      const annotationKeys = annotationValues(test, 'crew-ac').flatMap(extractAcKeys);
+      const annotationKeys = annotationValues(test, result, 'crew-ac').flatMap(extractAcKeys);
       const titleKeys = [
         ...extractAcKeys(test && test.title),
         ...(test && typeof test.titlePath === 'function'
@@ -171,6 +227,28 @@ class CrewReporter {
         status: mapAttemptStatus(result, blockedReason),
         duration_ms: Number((result && result.duration) || 0),
         reason: blockedReason || errorMessage(result && result.error),
+      }));
+    }
+
+    // Conservative fallback: if the test failed outside an AC-labeled step
+    // (for example teardown/global assertion), do not emit a false-green set
+    // of AC records. A project adapter may classify known environment failures
+    // as crew-blocked before the test ends.
+    if (
+      !blockedReason &&
+      result &&
+      result.status === 'failed' &&
+      records.length &&
+      records.every((record) => record.status === 'passed')
+    ) {
+      const unscopedError =
+        errorMessage(result.error) ||
+        errorMessage(Array.isArray(result.errors) ? result.errors[0] : null) ||
+        'test failed outside AC-labeled step';
+      records = records.map((record) => ({
+        ...record,
+        status: 'failed',
+        reason: unscopedError,
       }));
     }
 
@@ -281,16 +359,18 @@ function selfTest() {
   const blockedTest = {
     id: 't3',
     title: 'feature-a#AC-3 fixture',
-    annotations: [
-      { type: 'crew-ac', description: 'feature-a#AC-3' },
-      { type: 'crew-blocked', description: 'fixture unavailable' },
-    ],
+    annotations: [{ type: 'crew-ac', description: 'feature-a#AC-3' }],
     titlePath: () => ['suite', 'feature-a#AC-3 fixture'],
   };
   reporter.onTestEnd(blockedTest, {
     status: 'skipped',
     retry: 0,
     duration: 1,
+    annotations: [
+      { type: 'crew-ac', description: 'feature-a#AC-3' },
+      { type: 'crew-blocked', description: 'fixture unavailable' },
+      { type: 'skip', description: 'blocked precondition' },
+    ],
     attachments: [],
     steps: [],
   });
@@ -312,6 +392,68 @@ function selfTest() {
     ],
   });
 
+  // Soft assertions can fail in a nested expect step while the parent
+  // test.step itself has no direct error.
+  const softStepTest = {
+    id: 't5',
+    title: 'soft stateful scenario',
+    annotations: [],
+    titlePath: () => ['suite', 'soft stateful scenario'],
+  };
+  reporter.onTestEnd(softStepTest, {
+    status: 'failed',
+    retry: 0,
+    duration: 12,
+    attachments: [],
+    steps: [
+      {
+        title: 'feature-c#AC-1 soft checks',
+        duration: 12,
+        steps: [
+          { title: 'expect.soft.toBe', duration: 2, error: { message: 'soft assertion failed' }, steps: [] },
+        ],
+      },
+    ],
+  });
+
+  // Two steps may contribute evidence to the same AC in one run. They are
+  // one attempt, not two retries.
+  const repeatedAcTest = {
+    id: 't6',
+    title: 'repeated AC evidence',
+    annotations: [],
+    titlePath: () => ['suite', 'repeated AC evidence'],
+  };
+  reporter.onTestEnd(repeatedAcTest, {
+    status: 'passed',
+    retry: 0,
+    duration: 9,
+    attachments: [],
+    steps: [
+      { title: 'feature-d#AC-4 category search', duration: 4, steps: [] },
+      { title: 'feature-d#AC-4 template search', duration: 5, steps: [] },
+    ],
+  });
+
+  // A failure outside AC-labeled steps must not leave every AC green.
+  const unscopedFailureTest = {
+    id: 't7',
+    title: 'unscoped failure',
+    annotations: [],
+    titlePath: () => ['suite', 'unscoped failure'],
+  };
+  reporter.onTestEnd(unscopedFailureTest, {
+    status: 'failed',
+    retry: 0,
+    duration: 7,
+    error: { message: 'teardown failed' },
+    attachments: [],
+    steps: [
+      { title: 'feature-e#AC-1 main assertion', duration: 5, steps: [] },
+      { title: 'afterEach', duration: 2, error: { message: 'teardown failed' }, steps: [] },
+    ],
+  });
+
   reporter.onEnd();
   const payload = JSON.parse(fs.readFileSync(output, 'utf8'));
   const byAc = Object.fromEntries(payload.results.map((item) => [item.ac, item]));
@@ -322,8 +464,16 @@ function selfTest() {
   assert.equal(byAc['feature-a#AC-2'].attempts, 2);
   assert.equal(byAc['feature-a#AC-3'].status, 'blocked');
   assert.equal(byAc['feature-a#AC-3'].reason, 'fixture unavailable');
-  assert.equal(byAc['feature-b#AC-1'].status, 'passed');
+  // feature-b#AC-1 becomes failed because the same test failed outside that
+  // AC's own step; this avoids false-green AC output.
+  assert.equal(byAc['feature-b#AC-1'].status, 'failed');
   assert.equal(byAc['feature-b#AC-2'].status, 'failed');
+  assert.equal(byAc['feature-c#AC-1'].status, 'failed');
+  assert.equal(byAc['feature-c#AC-1'].reason, 'soft assertion failed');
+  assert.equal(byAc['feature-d#AC-4'].status, 'passed');
+  assert.equal(byAc['feature-d#AC-4'].attempts, 1);
+  assert.equal(byAc['feature-e#AC-1'].status, 'failed');
+  assert.equal(byAc['feature-e#AC-1'].reason, 'teardown failed');
 
   console.log('✅ crew-reporter self-test passed');
 }
@@ -333,6 +483,8 @@ module.exports._internals = {
   extractAcKeys,
   finalStatus,
   collectStepRecords,
+  mergeAttemptRecords,
+  annotationsOf,
 };
 
 if (require.main === module) {
