@@ -339,7 +339,7 @@ raw issue → /bug-start（refine + Human confirm） → /bug-investigate → /b
 | `/bug-update` | 更新調查資訊或重新開啟 Bug |
 | `/bug-fix` | 修復、回歸測試、deterministic 驗證，可 resume |
 | `/bug-close` | Human UAT 後結案、同步知識與 merge 引導 |
-| `/project-add` | 建立/更新 repo-id 專案對應 |
+| `/project-add` | 建立/更新 repo-id 專案對應，保留 product/E2E portable metadata |
 | `/crew-init` | 首次 setup / registration 偵測與引導 |
 | `/crew-doctor` | 環境、config、project registration 健診 |
 | `/crew-upgrade` | 更新 CREW plugins |
@@ -366,7 +366,7 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 Human approval loop |
 | `/plan-build` | 依核准規格產生正式程式碼 |
 | `/plan-security` | 安全審查 |
-| `/plan-verify` | UAT 前 machine/browser 驗證與 evidence |
+| `/plan-verify` | Verification Router + BLOCKED 語意 + Playwright draft/result/promotion；產出 UAT 前 machine evidence |
 | `/plan-review` | 邏輯/品質/效能 review |
 | `/plan-close` | Human UAT + 結案同步 |
 | `/plan-sync` | 中途同步 Notion |
@@ -390,12 +390,12 @@ Claude Code adapter 安裝 SessionStart hook，會以 `crew-state.py session-bri
 
 ## v1 相容與退休
 
-Feature v1 任務目前仍支援。Removal eligibility：
+Feature v1 任務目前仍支援。原訂 removal eligibility 為：
 
 - 第一個 `feature-workflow@5.1.0+` 發布；或
 - `2026-10-26`
 
-以先到者為準。門檻到達前不得提前刪除 `legacy-v1.md`、`/plan-status --migrate` 或 v1 偵測入口。
+`feature-workflow@5.1.0` 已達版本門檻，但本版**刻意不移除 v1 compatibility**。移除 `legacy-v1.md`、`/plan-status --migrate` 或 v1 偵測入口必須另開 breaking-change PR／release，不與本次 plan-verify 升級混在一起。
 
 詳見 [legacy-v1.md](plugins/feature-workflow/references/legacy-v1.md)。
 
