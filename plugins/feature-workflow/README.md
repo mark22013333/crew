@@ -323,6 +323,14 @@ flowchart TD
     Pre -- "not ready" --> Blocked["BLOCKED<br/>not product FAIL"]
     Blocked --> Evidence
     Evidence --> Result["state.json results.verify"]
+    Evidence --> IR["Verification IR"]
+    IR --> Draft["E2E candidate<br/>maturity=draft"]
+
+    Existing["existing maintained E2E"] --> CI["CI / E2E runner"]
+    CI --> Artifact["crew-results.json"]
+    Artifact --> Import["/plan-verify --from-e2e"]
+    Import --> Result
+
     Result --> Status{"PASS / WARN / FAIL"}
     Status -- "FAIL" --> Build["/plan-build"]
     Status -- "WARN" --> Recheck["/plan-verify --recheck"]
@@ -339,9 +347,13 @@ flowchart TD
 - Browser 驗收（Playwright preferred；chrome-devtools / local CDP fallback）
 - `BLOCKED`：前置條件不成立，不誤報產品 FAIL
 - `--recheck`：重跑 FAIL + BLOCKED
+- `--e2e`：重用既有 E2E coverage
+- `--e2e-draft`：由 Verification IR 產出 draft candidate
+- `--from-e2e`：消費 `crew-results.json`，不重新開瀏覽器
 - Excel report
 - Word report
-- E2E runner
+
+> 本 batch 的 E2E candidate 固定為 `draft`；是否可升為 CI-ready 由後續獨立 promotion contract 判定。
 
 外部 browser/DB 工具以 `tool_probe` 判斷目前 Host 是否真的可呼叫；不能用某一家 CLI listing 代替 capability probe。
 
