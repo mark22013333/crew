@@ -86,4 +86,4 @@ E2E candidate 必須：
 draft
 ```
 
-只有通過 E2E promotion policy 後才可標示 `ci-ready`。Runtime PASS 不等於 CI-ready。
+本 contract 只產出 `draft` candidate；是否可標示 `ci-ready` 由後續獨立 promotion contract 判定。Runtime PASS 不等於 CI-ready。
