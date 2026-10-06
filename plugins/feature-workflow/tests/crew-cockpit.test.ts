@@ -8,7 +8,7 @@ import type { RenderInput, SessionStartInput } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 
 import { resolveRepoRoot, toIrSummary, toTaskView } from '../hooks/cockpit/loader'
-import { TEXT, asInt, isFillableSlug, parseIsoMs, sanitizeText } from '../hooks/cockpit/model'
+import { HUD_FIELD_MAX, TEXT, asInt, isFillableSlug, parseIsoMs, sanitizeText } from '../hooks/cockpit/model'
 import type { CockpitSnapshot, CockpitTaskView } from '../hooks/cockpit/model'
 import {
   fillCommandFor,
@@ -35,7 +35,7 @@ import {
   V3_FUTURE,
   VERIFICATION_IR,
 } from './fixtures/states'
-import { NOW, ROOT, specFiles, textOf, type World, worldOf } from './fixtures/world'
+import { NOW, ROOT, sleep, specFiles, textOf, type World, worldOf } from './fixtures/world'
 
 const SESSION: SessionStartInput = { surface: 'terminal', isInteractive: true, cwd: ROOT }
 
@@ -165,6 +165,48 @@ describe('Batch 1：Mod boot', () => {
     expect(result).toEqual({ text: TEXT.needVersion('2.1.289') })
     expect(world.opened).toEqual([])
     expect(world.asked.filter(line => line.startsWith('read ')), '版本過舊時不讀任何檔').toEqual([])
+  })
+})
+
+describe('I/O spy 正對照', () => {
+  /**
+   * 引擎有兩道關：(1) host 依 hooks 模組的原始碼掃描結果，拒絕模組沒有寫到的呼叫（"its hooks module does not call it"）；
+   * (2) world 的 spy hook 攔下並記錄。測試端的 hook 與 Cockpit 屬同一個 plugin，所以這裡發出的呼叫會先撞上 (1)：
+   * 目前 crew-cockpit.ts 沒有任何這類呼叫，host 全數拒絕。日後若有人在模組裡加了其中一種呼叫，掃描會列出它，
+   * 這裡的同一個呼叫就會穿過 (1) 落到 (2) 被記進 forbidden，其他測試的 `forbidden === []` 便會變紅。
+   */
+  test('process.spawn／model.fork／model.classify／mcp.call／mcp.connect／http.fetch：每一個都被 host 掃描拒絕或被 spy 攔下，沒有一個成功', async ($, on) => {
+    const world = worldOf(on, {})
+    const outcomes: Record<string, string> = {}
+    const attempt = async (name: string, call: () => Promise<unknown>) => {
+      try {
+        await call()
+        outcomes[name] = 'succeeded'
+      } catch (error) {
+        const text = String(error)
+        outcomes[name] = /does not call it/.test(text) ? 'host-refused' : world.forbidden.includes(name) ? 'spy-denied' : `other: ${text}`
+      }
+    }
+    on('command.run', { command: 'spy-probe' }, async inner => {
+      await attempt('process.spawn', async () => {
+        for await (const _chunk of inner.process.spawn({ argv: ['echo', 'x'] })) {
+          // 讀串流讓拒絕浮現
+        }
+      })
+      await attempt('model.fork', () => inner.model.fork({ prompt: 'x' } as never))
+      await attempt('model.classify', () => inner.model.classify('x', ['a']))
+      await attempt('mcp.call', () => inner.mcp.call('s', 't', {}))
+      await attempt('mcp.connect', () => inner.mcp.connect('s'))
+      await attempt('http.fetch', () => inner.http.fetch('https://example.com'))
+      return { text: 'probed' }
+    })
+
+    expect(await $.command.run({ ...COMMAND(), command: 'spy-probe' })).toEqual({ text: 'probed' })
+    const names = ['process.spawn', 'model.fork', 'model.classify', 'mcp.call', 'mcp.connect', 'http.fetch']
+    expect(Object.keys(outcomes).sort(), '正對照：六個呼叫都真的發出了').toEqual([...names].sort())
+    for (const name of names) {
+      expect(['host-refused', 'spy-denied'], `${name} → ${outcomes[name]}`).toContain(outcomes[name])
+    }
   })
 })
 
@@ -933,9 +975,37 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     expect(paneText).toContain(TEXT.slugNotFillable)
     expect(bandText).not.toContain('/plan-next')
     expect(bandText, 'HUD 不得出現 state.next 的惡意指令換行片段').not.toContain('injected\n')
+    // §18.1：HUD 單一欄位 ≤ 60 字元（以 ' · ' 分隔的每個欄位）
     for (const found of await band.findAll({ type: 'Text' })) {
-      expect(Array.from(found.text).length <= 200, 'HUD 每段都已截斷').toBe(true)
+      for (const field of found.text.split(' · ')) {
+        expect(Array.from(field).length <= HUD_FIELD_MAX, `HUD 欄位過長：${field}`).toBe(true)
+      }
     }
+  })
+
+  test('§18.1 HUD 欄位上限 60：超長的 type／phase／上次建議各自截到 60 字並以 … 結尾（Pane 仍是 200）', async ($, on) => {
+    const raw = JSON.parse(V2_FEATURE_VERIFY_WARN_BLOCKED) as Record<string, unknown>
+    const long = JSON.stringify({ ...raw, type: 't'.repeat(300), phase: 'p'.repeat(300), next: { command: 'c'.repeat(300), reason: 'r' } })
+    worldOf(on, specFiles({ 'push-tag-query/state.json': long }))
+    nothingBeneathBand(on)
+
+    await $.session.start(SESSION)
+    const band = await mountBand($, 'terminal')
+    const hud = textOf(await band.drawn())
+    for (const char of ['t', 'p', 'c']) {
+      const runs = hud.match(new RegExp(`${char}{10,}…?`, 'g')) ?? []
+      expect(runs.length, `正對照：HUD 確實畫出了 ${char} 欄位`).toBeGreaterThan(0)
+      for (const run of runs) {
+        expect(Array.from(run).length, `${char} 欄位`).toBe(HUD_FIELD_MAX)
+        expect(run.endsWith('…')).toBe(true)
+      }
+    }
+    expect(HUD_FIELD_MAX).toBe(60)
+
+    await $.command.run(COMMAND())
+    const pane = textOf(await (await mountPane($, 'terminal')).drawn())
+    const paneRun = pane.match(/p{10,}…?/)?.[0] ?? ''
+    expect(Array.from(paneRun).length, 'Pane 欄位上限 200').toBe(200)
   })
 })
 
@@ -1261,7 +1331,7 @@ describe('Lifecycle（T-9、T-13）', () => {
     world.asked.length = 0
     const slow = $.turn.complete(TURN() as never)
     for (let i = 0; i < 50 && !world.asked.includes(`read ${statePath}`); i += 1) {
-      await new Promise(resolve => setTimeout(resolve, 5))
+      await sleep(5)
     }
     expect(world.asked, '正對照：A 確實已在讀檔途中').toContain(`read ${statePath}`)
 

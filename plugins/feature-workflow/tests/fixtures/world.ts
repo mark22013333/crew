@@ -9,13 +9,19 @@ export const ROOT = '/work/repo'
 /** 固定的「現在」：2026-10-06T12:00:00+08:00。 */
 export const NOW = Date.UTC(2026, 9, 6, 4, 0, 0)
 
+/** Mods 的型別環境沒有 DOM／Node 計時器宣告；測試執行環境（bun）有，這裡以最小型別取用。 */
+const timers = globalThis as unknown as { setTimeout: (callback: () => void, ms: number) => unknown }
+
+/** 等 ms 毫秒（讓並行中的 hook 有機會往前跑）。 */
+export const sleep = (ms: number): Promise<void> => new Promise(resolve => timers.setTimeout(resolve, ms))
+
 export type World = {
   /** 絕對路徑 → 檔案文字。 */
   files: Map<string, string>
   mtimes: Map<string, number>
   /** 依序記錄每個 fs 呼叫（`read <path>`、`list <path>`、`stat <path>`、`exists <path>`）。 */
   asked: string[]
-  /** 不得發生的呼叫（fs.write、process.run、model.complete、prompt.submit、http.fetch）。 */
+  /** 不得發生的呼叫（fs.write、process.run／spawn、model.complete／classify／fork、mcp.call／connect、prompt.submit、http.fetch）。 */
   forbidden: string[]
   commands: { name: string; immediate: boolean }[]
   opened: { id: string; focus: boolean; closeOnEscape: boolean; holdToasts: boolean }[]
@@ -99,7 +105,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
       let release: () => void = () => undefined
       const gate = new Promise<void>(resolve => {
         release = resolve
-        setTimeout(resolve, 2_000)
+        timers.setTimeout(resolve, 2_000)
       })
       holds.set(path, gate)
       return () => release()
@@ -204,6 +210,27 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
   on('http.fetch', () => {
     world.forbidden.push('http.fetch')
     return { deny: 'Cockpit 不得連網' }
+  })
+  // process.spawn 是串流事件，hook 必須是 async generator；不 yield 任何片段直接以 deny 結束
+  on('process.spawn', async function* () {
+    world.forbidden.push('process.spawn')
+    return { deny: 'Cockpit 不得執行 process' }
+  })
+  on('model.classify', () => {
+    world.forbidden.push('model.classify')
+    return { deny: 'Cockpit 不得呼叫 model' }
+  })
+  on('model.fork', () => {
+    world.forbidden.push('model.fork')
+    return { deny: 'Cockpit 不得分出 model' }
+  })
+  on('mcp.call', () => {
+    world.forbidden.push('mcp.call')
+    return { deny: 'Cockpit 不得呼叫 MCP' }
+  })
+  on('mcp.connect', () => {
+    world.forbidden.push('mcp.connect')
+    return { deny: 'Cockpit 不得連 MCP' }
   })
   on('prompt.submit', ($, e) => {
     world.forbidden.push('prompt.submit')
