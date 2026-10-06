@@ -125,7 +125,7 @@ jobs:
         run: python3 scripts/lint-host-portability.py --strict
 
   playwright-e2e-policy:
-    name: Playwright E2E promotion policy
+    name: Playwright E2E contract policy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
