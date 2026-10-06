@@ -1,4 +1,4 @@
-# Bug Workflow Plugin `v4.0.3`
+# Bug Workflow Plugin `v4.0.4`
 
 跨 Host 的 Bug lifecycle：建立狀態、蒐集證據、驗證根因、修復、回歸測試，最後由 Human UAT 決定是否結案。核心流程依賴 CREW Host Capability Contract，而不是某一家的 agent/team 工具。
 
@@ -184,7 +184,8 @@ Bug 相關 logical keys：
 1. 解析 repo-id。
 2. 同步/更新 Notion 專案。
 3. 以 portable `feature/project` 寫入 project frontmatter（stack、prod branch、可選 uat branch）。
-4. legacy monolith 僅相容讀取；更新時寫 canonical project file。
+4. 若既有 project mapping 已有 `product_id` / `e2e_adapter` / `e2e_workspace` / `e2e_profile` / `e2e_command` / `e2e_results`，更新時保留；`e2e_workspace` 使用 application repo 相對路徑，profile 只存 logical ID。
+5. legacy monolith / `e2e_repo` 僅相容讀取；新寫入維持 canonical portable 欄位。
 
 ---
 

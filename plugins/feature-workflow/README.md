@@ -1,4 +1,4 @@
-# Feature Workflow Plugin `v5.0.5`
+# Feature Workflow Plugin `v5.1.0`
 
 跨 Host 的 Feature lifecycle：本地 `.spec/` 規劃、Human approval gates、正式實作、安全/驗證/review、Human UAT 與結案同步。核心 contract 不依賴單一 Host 的 team、subagent 或 provider model 名稱。
 
@@ -376,7 +376,7 @@ Claude Code adapter 會以 `crew-state.py session-brief` 顯示未完成任務�
 
 ## v1 compatibility
 
-v1 任務目前仍可相容完成或用 `/plan-status --migrate <slug>` 做機械遷移。
+v1 任務目前仍可相容完成或用 `/plan-status --migrate <slug>` 做機械遷移。`feature-workflow@5.1.0` 已達原訂 removal eligibility 的版本門檻，但本版**刻意保留 v1 compatibility**；真正移除 `legacy-v1.md` / migrate path 必須另開 breaking-change PR／release。
 
 Removal eligibility：
 

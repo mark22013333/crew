@@ -8,6 +8,45 @@
 
 ---
 
+## [feature-workflow@5.1.0] - 2026-10-06
+
+> **Deterministic plan verification + Playwright CI lifecycle。** `/plan-verify` 現在會先選最有證明力的 verifier，區分產品失敗與環境阻擋，並提供 portable Playwright draft、machine result 回程與 deterministic CI promotion。
+
+### Added
+
+- Verification Router：每條 `AC-n` 可選 browser / API / backend-test / database / manual / skip；precondition 不成立使用 `BLOCKED`，不誤報產品 `FAIL`。
+- Verification IR：runtime verification 同步寫入 `.spec/{slug}/.cache/verification-ir.json`，`--e2e-draft` 由實際 action / locator / assertion / safety evidence 產生 framework-aware draft。
+- Portable E2E contract：project-local adapter/product knowledge、`e2e_workspace` / `e2e_profile` / `e2e_command`，legacy `e2e_repo` 只保留 read compatibility。
+- E2E result loop：Playwright CREW reporter、`crew-results.json` schema、deterministic result summarizer 與 `--from-e2e`。
+- E2E promotion：`--e2e-promote`、source/review gate、`retries=0`、至少 3 次 stability、candidate SHA-256 freshness 與 machine-readable environment policy。
+- Environment / fixture policy：reliable cleanup、disposable environment、parallel safety、persistent-owned fixture、idempotent seed 與跨 pipeline exclusive execution。
+
+### Changed
+
+- `--recheck` 會重跑 FAIL + BLOCKED。
+- Word / Excel / python-docx / .NET verify report 全面保留 BLOCKED outcome。
+- E2E candidate 預設維持 `draft`；只有 deterministic source/review/stability/fingerprint/environment gate 全部通過才可標 `ci-ready`。
+- CI regression 同時驗證 Playwright authoring linter、result summarizer、promotion evaluator 與 CREW reporter。
+
+### Compatibility
+
+- Runtime PASS、E2E `ci-ready` 與 Human UAT 維持三個不同 gate；CI 不直接寫 `state.json`。
+- `feature-workflow@5.1.0` 已達 v1 removal eligibility 的版本門檻，但本版仍保留 `legacy-v1.md`、migrate path 與 v1 detection；後續移除必須獨立處理。
+
+---
+
+## [bug-workflow@4.0.4] - 2026-10-06
+
+> **Portable project E2E metadata preservation。** `/project-add` 現在可安全承接 feature-workflow 的 portable E2E project contract，而不把 Host 路徑或 secrets 寫進 project mapping。
+
+### Changed
+
+- `/project-add` 更新既有 project mapping 時保留 `product_id`、`e2e_adapter`、`e2e_workspace`、`e2e_profile`、`e2e_command`、`e2e_results`。
+- `e2e_workspace` 必須是相對於 application repo root 的相對路徑；`e2e_profile` 只保存 logical ID。
+- 舊 `e2e_repo` 僅作 read compatibility；新寫入使用 portable canonical fields。
+
+---
+
 ## [feature-workflow@5.0.5] - 2026-10-01
 
 > **Shared intake contract。** Feature / Plan 與 Bug 的新 raw request 都自動經過 intake refinement + Human confirmation；named Agent 是 workflow 內部執行元件，不是 Slash Skill。
