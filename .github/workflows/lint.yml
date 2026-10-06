@@ -138,7 +138,7 @@ jobs:
       - name: 驗證 E2E result summarizer regression
         run: python3 plugins/feature-workflow/scripts/crew-e2e-results.py --self-test
       - name: 驗證 CREW Playwright reporter regression
-        run: node plugins/feature-workflow/references/playwright/crew-reporter.js
+        run: node plugins/feature-workflow/references/playwright/crew-reporter.test.js
 
   skill-contract:
     name: SKILL.md 內容契約
