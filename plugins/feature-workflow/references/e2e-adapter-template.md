@@ -64,8 +64,13 @@ language: javascript
 ## Fixture contract
 
 - seed：{API / DB / existing record / none}
+- shared mutation：{true/false}
 - unique test data：{規則}
 - environment-bound fixture：{true/false}
+- disposable environment：{true/false}
+- persistent-owned fixture：{true/false}
+- idempotent seed：{true/false}
+- exclusive execution：{true/false；對應哪個 CI mutex/resource lock}
 - parallel safe：{true/false}
 - cleanup：{reliable/best-effort/none}
 - workers 限制：{例如 1 / unrestricted}

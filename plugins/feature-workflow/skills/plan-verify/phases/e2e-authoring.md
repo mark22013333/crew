@@ -77,15 +77,17 @@ Precondition 與產品 assertion 必須分層，讓後續執行器可以區分�
 
 ## 7. 測試資料
 
-Candidate 要標示：
+Candidate 產出時至少要能判斷是否需要 environment policy。Promotion metadata 預設使用：
 
-```yaml
-environment_bound_fixture: true|false
-parallel_safe: true|false
-cleanup: reliable|best-effort|none
+```json
+{
+  "environment_gate": "deferred"
+}
 ```
 
-hardcoded record ID 不必一律禁止，但必須能說明 fixture contract。
+若已明確沒有 environment/shared-state 依賴，可由 review 改為 `not-required`。若有 shared mutation、固定 fixture、parallelism 或 cleanup 條件，改用 `environment_gate=policy` 並依 `../../references/e2e-promotion-schema.md` 填 `environment` object。
+
+hardcoded record ID 不必一律禁止，但必須使用 environment policy 說明 fixture contract；不得只靠 REVIEW waiver 宣稱 `not-required`。
 
 ## 8. 產出後
 
