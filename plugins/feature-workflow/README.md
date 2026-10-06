@@ -323,6 +323,8 @@ flowchart TD
     Pre -- "not ready" --> Blocked["BLOCKED<br/>not product FAIL"]
     Blocked --> Evidence
     Evidence --> Result["state.json results.verify"]
+    Evidence --> IR["Verification IR"]
+    IR --> Draft["E2E candidate<br/>maturity=draft"]
     Result --> Status{"PASS / WARN / FAIL"}
     Status -- "FAIL" --> Build["/plan-build"]
     Status -- "WARN" --> Recheck["/plan-verify --recheck"]
@@ -339,9 +341,12 @@ flowchart TD
 - Browser 驗收（Playwright preferred；chrome-devtools / local CDP fallback）
 - `BLOCKED`：前置條件不成立，不誤報產品 FAIL
 - `--recheck`：重跑 FAIL + BLOCKED
+- `--e2e`：重用既有 E2E coverage
+- `--e2e-draft`：由 Verification IR 產出 draft candidate
 - Excel report
 - Word report
-- E2E runner
+
+> 本 batch 只定義 portable authoring contract；candidate 固定為 `draft`。CI result ingestion 與 promotion 分別由後續 PR 處理。
 
 外部 browser/DB 工具以 `tool_probe` 判斷目前 Host 是否真的可呼叫；不能用某一家 CLI listing 代替 capability probe。
 

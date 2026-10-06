@@ -138,6 +138,11 @@ git_repo: {Git Repo 識別碼}
 stack: {技術棧 ID，選填}
 prod_branch: {正式環境分支}
 uat_branch: {測試環境分支，選填}
+product_id: {產品知識 ID，選填}
+e2e_adapter: {E2E adapter ID，選填}
+e2e_workspace: {相對於 application repo root 的 E2E repo path，選填}
+e2e_profile: {邏輯 Profile ID，選填；不得放 secret}
+e2e_command: {E2E runner command，選填}
 ---
 {專案說明}
 ```
@@ -153,6 +158,11 @@ git_repo: ORG01P2401/PushAPIService
 stack: spring-boot-jpa
 prod_branch: production
 uat_branch: uat
+product_id: example-admin
+e2e_adapter: company-admin-e2e
+e2e_workspace: ../AdminE2ETest
+e2e_profile: uat
+e2e_command: npx playwright test
 ---
 範例銀行 LINE 推播微服務
 ```
