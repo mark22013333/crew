@@ -47,6 +47,8 @@ export type WorldOptions = {
   version?: string
   /** 視為「存在的空目錄」的絕對路徑。 */
   dirs?: readonly string[]
+  /** 列目錄時以指定訊息拒絕（模擬權限錯誤）：絕對路徑 → deny 訊息。 */
+  listDenied?: Readonly<Record<string, string>>
 }
 
 /** 以 .spec 相對路徑描述 fixture：{ 'push-tag-query/state.json': '...' }。 */
@@ -132,6 +134,10 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
   on('fs.list', ($, e) => {
     world.asked.push(`list ${e.path}`)
     const dir = strip(e.path)
+    const denied = options.listDenied?.[dir]
+    if (denied !== undefined) {
+      return { deny: denied }
+    }
     if (!isDir(dir)) {
       return { deny: `ENOENT: ${e.path}` }
     }

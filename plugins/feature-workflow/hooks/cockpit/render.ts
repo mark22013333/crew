@@ -127,11 +127,13 @@ export function paneView(kit: CockpitKit, data: PaneData, cb: PaneCallbacks): Re
     snapshot.repoRoot === null ||
     (snapshot.tasks.length === 0 && snapshot.invalidTasks.length === 0 && snapshot.untrackedDirCount === 0)
   ) {
+    // §16：載入錯誤（例如 .spec 列不出來）必須看得到，不能被「沒有任務」蓋掉
+    const errors = snapshot?.errors ?? []
     return column(
       kit,
       {},
-      el(kit.Text, {}, TEXT.noTasks),
-      dim(kit, TEXT.noTasksHint),
+      errors.length > 0 ? heading(kit, TEXT.loadErrors) : el(kit.Text, {}, TEXT.noTasks),
+      errors.length > 0 ? errorRows(kit, errors) : dim(kit, TEXT.noTasksHint),
       el(kit.Box, { marginTop: 1 }, el(kit.Button, { key: 'refresh', label: TEXT.refresh, hotkey: 'r', onPress: () => cb.refresh() })),
     )
   }
@@ -169,10 +171,14 @@ export function paneView(kit: CockpitKit, data: PaneData, cb: PaneCallbacks): Re
     {},
     tabBar,
     body,
-    snapshot.errors.length > 0 &&
-      section(kit, TEXT.loadErrors, ...snapshot.errors.map(error => line(kit, `${error.path ?? error.scope} · ${error.message}`, 'warning'))),
+    snapshot.errors.length > 0 && section(kit, TEXT.loadErrors, errorRows(kit, snapshot.errors)),
     el(kit.Box, { marginTop: 1 }, dim(kit, TEXT.loadedAt(formatClock(snapshot.loadedAt)))),
   )
+}
+
+/** 載入錯誤列（path 與 message 已由 loader 依 §18.1 清理），警示色。 */
+function errorRows(kit: CockpitKit, errors: CockpitSnapshot['errors']): RenderElement {
+  return column(kit, {}, ...errors.map(error => line(kit, `${error.path ?? error.scope} · ${error.message}`, 'warning')))
 }
 
 /** §11 Overview：目前任務的 phase／進度／核准閘／結果／工作單元／上次建議／Fill。 */

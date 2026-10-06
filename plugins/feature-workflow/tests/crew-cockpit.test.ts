@@ -166,6 +166,32 @@ describe('T-1 沒有 .spec', () => {
   })
 })
 
+describe('§16 載入錯誤可見', () => {
+  test('.spec 列不出來 → pane 顯示「載入問題」與清理過的錯誤，不顯示「沒有任務」', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }), {
+      listDenied: { [`${ROOT}/.spec`]: 'EACCES: permission denied\x1b[31m紅\nX' },
+    })
+
+    await $.session.start(SESSION)
+    const snapshot = snapshotOf(world)
+    expect(snapshot.errors.length, '正對照：loader 確實記下錯誤').toBe(1)
+
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    const drawn = textOf(await pane.drawn())
+    expect(drawn).toContain(TEXT.loadErrors)
+    // 引擎會在 deny 訊息前加上「feature-workflow: $.fs.list: 」；控制字元已清掉、換行壓成空白
+    expect(drawn).toContain(`${ROOT}/.spec · `)
+    expect(drawn).toContain('EACCES: permission denied紅 X')
+    expect(drawn).not.toContain(TEXT.noTasks)
+    expect(CONTROL_CHARS.test(drawn)).toBe(false)
+    const [errorLine] = await textColors(pane, /EACCES/)
+    expect(errorLine?.color).toBe('warning')
+    expect(await pane.find({ key: 'refresh' }), '仍可重新整理').not.toBe(undefined)
+    expect(world.forbidden).toEqual([])
+  })
+})
+
 describe('T-2 一個 active feature task', () => {
   test('phase=verify、verify=PASS、next 快照=/plan-review；不產生任何寫入／process／model 呼叫', async ($, on) => {
     const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
