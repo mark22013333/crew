@@ -253,6 +253,11 @@ export type CockpitRuntime = {
    * 也看得到新世代，不會把較舊的結果寫回 snapshot。缺值視為 0。
    */
   refreshGeneration?: number
+  /**
+   * 任務 tab 的「已結案」分組是否展開（UI state，按 e 切換）。缺值視為收合（只顯示最近 5 筆）。
+   * 放在 runtime 而非新 key：不增加 Mod 的 state 讀寫清單（capability baseline 不變）。
+   */
+  isClosedExpanded?: boolean
 }
 
 /** Cockpit pane 的 tab（UI state，§10）。 */

@@ -123,6 +123,16 @@ export const TEXT = {
   schemaUnknown: 'schema ?',
   schema: (v: number) => `schema v${v}`,
   selected: '▶',
+  // ---- 以下為分組色帶樣式新增（只增不改）----
+  groupActive: (n: number) => `● 進行中 ${n}`,
+  groupParked: (n: number) => `◐ 已擱置 ${n}`,
+  groupClosed: (n: number) => `○ 已結案 ${n}`,
+  closedVerifyCount: (n: number, status: string) => `其中 ${n} 項驗收 ${status}`,
+  closedRecent: (n: number) => `最近 ${n} 筆`,
+  expandClosed: '展開全部',
+  collapseClosed: '收合',
+  invalidMark: '✕',
+  gatePending: '（待核准）',
 } as const
 
 // ---------------------------------------------------------------------------

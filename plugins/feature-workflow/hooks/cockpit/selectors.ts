@@ -80,11 +80,14 @@ export function fillCommandFor(task: CockpitTaskView | null): string | null {
 // Batch 3–6 新增：顯示用的色調與驗收狀態映射（presentation，不是 workflow 判定）
 // ---------------------------------------------------------------------------
 
-/** §11.3 顏色只是 presentation。 */
-export type Tone = 'positive' | 'warning' | 'negative' | 'neutral'
+/**
+ * §11.3 顏色只是 presentation。blocked 是 BLOCKED（衍生或原值）專用的色調：
+ * 刻意與 negative 分開，守住「BLOCKED 不得呈現成 FAIL」。
+ */
+export type Tone = 'positive' | 'warning' | 'negative' | 'neutral' | 'blocked'
 
 /**
- * §11.3 一般狀態值的色調：PASS／approved／done → positive；WARN／BLOCKED → warning；
+ * §11.3 一般狀態值的色調：PASS／approved／done → positive；WARN → warning；BLOCKED → blocked；
  * FAIL／rejected／failed → negative；其他（pending／waived／MANUAL／SKIP／未知）→ neutral。
  */
 export function toneOf(status: string | null): Tone {
@@ -94,8 +97,9 @@ export function toneOf(status: string | null): Tone {
     case 'done':
       return 'positive'
     case 'WARN':
-    case 'BLOCKED':
       return 'warning'
+    case 'BLOCKED':
+      return 'blocked'
     case 'FAIL':
     case 'rejected':
     case 'failed':
@@ -132,7 +136,7 @@ export function verifyDisplay(verify: CockpitVerifyView): VerifyDisplay {
   }
   if (status === 'WARN') {
     if (blocked > 0) {
-      return { label: `WARN（BLOCKED ×${blocked}）`, short: `BLOCKED ×${blocked}`, tone: 'warning', isBlocked: true, blocked, note: null }
+      return { label: `WARN（BLOCKED ×${blocked}）`, short: `BLOCKED ×${blocked}`, tone: 'blocked', isBlocked: true, blocked, note: null }
     }
     return plain('WARN', 'warning')
   }
@@ -140,10 +144,111 @@ export function verifyDisplay(verify: CockpitVerifyView): VerifyDisplay {
     return { ...plain('FAIL', 'negative'), note: blocked > 0 ? TEXT.otherBlocked(blocked) : null }
   }
   if (status === 'BLOCKED') {
-    return plain('BLOCKED', 'warning')
+    return plain('BLOCKED', 'blocked')
   }
   if (status === null) {
     return plain('—', 'neutral')
   }
   return plain(status, 'neutral')
+}
+
+// ---------------------------------------------------------------------------
+// 分組色帶樣式（方向 B＋C 的進度方塊）：顏色一律是 ThemeKey，深淺主題自動切換；
+// 顏色永遠搭配文字，不單靠顏色傳達狀態。
+// ---------------------------------------------------------------------------
+
+/** 色調 → ThemeKey；neutral 不上色。 */
+export const TONE_COLOR: Record<Tone, string | undefined> = {
+  positive: 'success',
+  warning: 'warning',
+  negative: 'error',
+  neutral: undefined,
+  blocked: 'claude',
+}
+
+/** 驗收標籤顏色：沒有結果（—）用 inactive，其餘依色調。 */
+export function verifyColor(display: VerifyDisplay): string | undefined {
+  return display.label === '—' ? 'inactive' : TONE_COLOR[display.tone]
+}
+
+/** 核准閘顏色：approved success、rejected error、pending inactive，其他不上色。 */
+export function gateColor(status: string | null): string | undefined {
+  if (status === 'pending') {
+    return 'inactive'
+  }
+  return TONE_COLOR[toneOf(status)]
+}
+
+/** Phase 顏色：規劃 planMode、實作 suggestion、驗證審查 warning、結案 success，其他 text。 */
+export function phaseColor(phase: string | null): string {
+  switch (phase) {
+    case 'spec':
+    case 'db':
+    case 'arch':
+      return 'planMode'
+    case 'build':
+    case 'fix':
+      return 'suggestion'
+    case 'verify':
+    case 'review':
+    case 'uat':
+    case 'security':
+      return 'warning'
+    case 'close':
+      return 'success'
+    default:
+      return 'text'
+  }
+}
+
+/** type 顏色：bug error、feature planMode，其他不上色。 */
+export function typeColor(type: string): string | undefined {
+  return type === 'bug' ? 'error' : type === 'feature' ? 'planMode' : undefined
+}
+
+/** 停滯天數顏色：0–6 inactive、7–13 warning、≥14 error。 */
+export function staleColor(days: number): string {
+  return days >= 14 ? 'error' : days >= 7 ? 'warning' : 'inactive'
+}
+
+/** 停滯天數只對進行中的任務顯示；已結案、已擱置不顯示（避免「已結案卻停滯 N 天」的矛盾）。 */
+export function showsStale(task: CockpitTaskView): boolean {
+  return task.active
+}
+
+/** 進度方塊最多畫幾格；超過時只顯示 done/total（HUD 欄位 ≤ 60 字，§18.1）。 */
+export const PROGRESS_GLYPH_MAX = 20
+
+/** C 的進度方塊：■ 已完成（done＋skipped）、□ 未完成，格數＝實際存在的 steps（§11.1 A6）。 */
+export function progressGlyphs(task: CockpitTaskView): { filled: string; empty: string; count: string } {
+  const { done, total } = progressOf(task)
+  const count = `${done}/${total}`
+  if (total > PROGRESS_GLYPH_MAX) {
+    return { filled: '', empty: '', count }
+  }
+  return { filled: '■'.repeat(done), empty: '□'.repeat(Math.max(0, total - done)), count }
+}
+
+const CLOCK_PATTERN = /^\d{4}-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/
+
+/** 時間戳縮成 `MM-DD HH:mm`：直接取字串本身的欄位（不換時區）；解析不了就顯示原文前 16 字。 */
+export function shortTime(value: string | null): string {
+  if (value === null || value === '') {
+    return '—'
+  }
+  const match = CLOCK_PATTERN.exec(value)
+  if (match === null) {
+    return clip(value, 16)
+  }
+  const [, month, day, hour, minute] = match
+  return hour === undefined ? `${month}-${day}` : `${month}-${day} ${hour}:${minute}`
+}
+
+/** 任務 tab 的三段分組（保持 loader 的排序）。 */
+export function taskGroups<T extends CockpitTaskView>(tasks: readonly T[]): { active: T[]; parked: T[]; closed: T[] } {
+  return {
+    active: tasks.filter(task => task.active),
+    parked: tasks.filter(task => !task.closed && task.parked !== null),
+    closed: tasks.filter(task => task.closed),
+  }
 }

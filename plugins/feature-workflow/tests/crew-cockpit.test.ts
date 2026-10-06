@@ -13,6 +13,10 @@ import type { CockpitSnapshot, CockpitTaskView } from '../hooks/cockpit/model'
 import {
   fillCommandFor,
   formatClock,
+  phaseColor,
+  progressGlyphs,
+  shortTime,
+  staleColor,
   hudText,
   otherActiveCount,
   progressOf,
@@ -1011,9 +1015,10 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
 
 describe('T-4 BLOCKED semantics（Batch 4）', () => {
   const cases = [
-    { name: 'WARN＋blocked=2 → WARN（BLOCKED ×2）警示色', verify: { status: 'WARN', blocked: 2 }, label: 'WARN（BLOCKED ×2）', color: 'warning', hasBlocked: true },
+    // BLOCKED 用 claude（橘）而不是 error：樣式改版後 BLOCKED 有自己的顏色，仍不得呈現成 FAIL
+    { name: 'WARN＋blocked=2 → WARN（BLOCKED ×2）BLOCKED 色（claude）', verify: { status: 'WARN', blocked: 2 }, label: 'WARN（BLOCKED ×2）', color: 'claude', hasBlocked: true },
     { name: 'WARN＋blocked=0 → 只有 WARN，不得出現 BLOCKED', verify: { status: 'WARN', blocked: 0 }, label: 'WARN', color: 'warning', hasBlocked: false },
-    { name: 'WARN＋blocked="2"（字串計數）→ 同第一列', verify: { status: 'WARN', blocked: '2' }, label: 'WARN（BLOCKED ×2）', color: 'warning', hasBlocked: true },
+    { name: 'WARN＋blocked="2"（字串計數）→ 同第一列', verify: { status: 'WARN', blocked: '2' }, label: 'WARN（BLOCKED ×2）', color: 'claude', hasBlocked: true },
     { name: 'FAIL＋blocked=1 → FAIL 附「另有 BLOCKED ×1」', verify: { status: 'FAIL', blocked: 1 }, label: 'FAIL', color: 'error', hasBlocked: true },
   ] as const
 
@@ -1068,10 +1073,10 @@ describe('T-4 BLOCKED semantics（Batch 4）', () => {
   test('verifyDisplay 純函式：BLOCKED 只在 WARN＋blocked>0；status 原值 BLOCKED 照原值警示色；缺值為 —', () => {
     const base = { entries: [], isEmpty: false, hasBlockedKey: true }
     expect(verifyDisplay({ ...base, status: 'WARN', blocked: 0 }).label).toBe('WARN')
-    expect(verifyDisplay({ ...base, status: 'WARN', blocked: 3 })).toMatchObject({ label: 'WARN（BLOCKED ×3）', short: 'BLOCKED ×3', tone: 'warning', isBlocked: true })
+    expect(verifyDisplay({ ...base, status: 'WARN', blocked: 3 })).toMatchObject({ label: 'WARN（BLOCKED ×3）', short: 'BLOCKED ×3', tone: 'blocked', isBlocked: true })
     expect(verifyDisplay({ ...base, status: 'WARN', blocked: -1 }).isBlocked).toBe(false)
     expect(verifyDisplay({ ...base, status: 'FAIL', blocked: 2 })).toMatchObject({ label: 'FAIL', tone: 'negative', isBlocked: false, note: TEXT.otherBlocked(2) })
-    expect(verifyDisplay({ ...base, status: 'BLOCKED', blocked: 0 })).toMatchObject({ label: 'BLOCKED', tone: 'warning' })
+    expect(verifyDisplay({ ...base, status: 'BLOCKED', blocked: 0 })).toMatchObject({ label: 'BLOCKED', tone: 'blocked' })
     expect(verifyDisplay({ ...base, status: null, blocked: 0 })).toMatchObject({ label: '—', tone: 'neutral' })
     expect(verifyDisplay({ ...base, status: 'PASS', blocked: 5 })).toMatchObject({ label: 'PASS', tone: 'positive', isBlocked: false })
   })
@@ -1168,7 +1173,8 @@ describe('Batch 5 HUD＋composition（T-7、T-15）', () => {
     const wide = await mountBand($, 'terminal')
     const wideTree = await wide.drawn()
     const wideText = textOf(wideTree)
-    expect(wideText).toContain('CREW · push-tag-query · feature / verify · 中斷於 3/5 · 驗收 WARN（BLOCKED ×2） · 停滯 3 天 · ＋1 個進行中')
+    // 樣式改版：phase 後加進度方塊（6 個 done/skipped、3 個未完成，依實際 9 個 steps）
+    expect(wideText).toContain('CREW · push-tag-query · feature / verify · ■■■■■■□□□ · 中斷於 3/5 · 驗收 WARN（BLOCKED ×2） · 停滯 3 天 · ＋1 個進行中')
     expect(wideText).toContain(`${TEXT.uatPendingShort} · ${TEXT.recordedNextShort} /plan-verify --recheck · ${TEXT.loadedAt(formatClock(NOW))} · /plan-next push-tag-query`)
     expect(wideText).not.toMatch(/ci-ready/i)
     expect((await wide.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'row')).toHaveLength(2)
@@ -1441,3 +1447,234 @@ describe('D-3／AC-13 render 純度：ui.render 期間不做 I/O', () => {
     expect(world.forbidden).toEqual([])
   })
 })
+
+// ===========================================================================
+// 樣式改版（方向 B 分組色帶＋C 的進度方塊與結案摘要）：色彩語意與分組行為
+// ===========================================================================
+
+/** 以 fixture 為底覆寫頂層欄位（slug、updated、results …）。 */
+const variant = (fixture: string, patch: Record<string, unknown>): string =>
+  JSON.stringify({ ...(JSON.parse(fixture) as Record<string, unknown>), ...patch }, null, 2)
+
+describe('樣式：停滯天數色階、BLOCKED 色、進度方塊、已結案收合', () => {
+  test('純函式：停滯色階 0–6 inactive／7–13 warning／≥14 error；phase 色；時間戳 MM-DD HH:mm 不換時區', () => {
+    expect([0, 6, 7, 13, 14, 40].map(staleColor)).toEqual(['inactive', 'inactive', 'warning', 'warning', 'error', 'error'])
+    expect(['spec', 'db', 'arch', 'build', 'fix', 'verify', 'review', 'uat', 'security', 'close', 'start', null].map(phaseColor)).toEqual([
+      'planMode',
+      'planMode',
+      'planMode',
+      'suggestion',
+      'suggestion',
+      'warning',
+      'warning',
+      'warning',
+      'warning',
+      'success',
+      'text',
+      'text',
+    ])
+    expect(shortTime('2026-10-05T17:43:09+08:00')).toBe('10-05 17:43')
+    expect(shortTime('2026-10-05T23:58:00Z'), '取字串本身的欄位，不換成本機時區').toBe('10-05 23:58')
+    expect(shortTime('2026-10-05')).toBe('10-05')
+    expect(shortTime('昨天下午大概三點左右吧還有一些字喔'), '解析失敗：清理後原文截到 16 字').toBe('昨天下午大概三點左右吧還有一些…')
+    expect(shortTime(null)).toBe('—')
+  })
+
+  for (const surface of SURFACES) {
+    test(`${surface}：停滯天數只對進行中顯示且依天數上色；已結案／已擱置（即使很久沒動）不顯示`, async ($, on) => {
+      const world = worldOf(
+        on,
+        specFiles({
+          'fresh-task/state.json': variant(V2_FEATURE_VERIFY_PASS, { slug: 'fresh-task', updated: '2026-10-03T12:00:00+08:00' }),
+          'week-task/state.json': variant(V2_FEATURE_VERIFY_PASS, { slug: 'week-task', updated: '2026-09-29T12:00:00+08:00' }),
+          'stuck-task/state.json': variant(V2_FEATURE_VERIFY_PASS, { slug: 'stuck-task', updated: '2026-09-22T12:00:00+08:00' }),
+          'search-synonyms/state.json': variant(V2_FEATURE_PARKED, { updated: '2026-09-01T12:00:00+08:00' }),
+          'profile-avatar-upload/state.json': variant(V2_FEATURE_CLOSED, { updated: '2026-09-01T12:00:00+08:00' }),
+        }),
+      )
+      nothingBeneathBand(on)
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const snapshot = snapshotOf(world)
+      // 正對照：已結案／已擱置的 staleDays 確實很大，若顯示必然看得到
+      expect(taskOf(snapshot, 'search-synonyms').staleDays).toBe(35)
+      expect(taskOf(snapshot, 'profile-avatar-upload').staleDays).toBe(35)
+
+      const pane = await mountPane($, surface, 120)
+      await pressAndRedraw(pane, 'tab-tasks')
+      const tasks = textOf(await pane.drawn())
+      expect(tasks).toContain('search-synonyms')
+      expect(tasks).toContain('profile-avatar-upload')
+      expect(await textColors(pane, /^停滯 \d+ 天/)).toEqual([
+        { text: '停滯 3 天', color: 'inactive' },
+        { text: '停滯 7 天', color: 'warning' },
+        { text: '停滯 14 天', color: 'error' },
+      ])
+      expect(tasks).not.toContain('停滯 35 天')
+
+      // 總覽與 HUD 同一條規則：選已結案的任務時不顯示停滯天數
+      world.setState(PLUGIN, 'selectedSlug', 'profile-avatar-upload')
+      world.setState(PLUGIN, 'tab', 'overview')
+      await pane.redraw()
+      const overview = textOf(await pane.drawn())
+      expect(overview, '正對照：確實畫出已結案任務的總覽').toContain(`○ ${TEXT.closedTask}`)
+      expect(overview).not.toContain('停滯')
+      const band = await mountBand($, surface)
+      const hud = textOf(await band.drawn())
+      expect(hud, '正對照：HUD 畫的是已結案任務').toContain('CREW · profile-avatar-upload')
+      expect(hud).not.toContain('停滯')
+
+      world.setState(PLUGIN, 'selectedSlug', 'stuck-task')
+      await band.redraw()
+      expect(await textColors(band, /^停滯/)).toEqual([{ text: '停滯 14 天', color: 'error' }])
+      expect(world.forbidden).toEqual([])
+    })
+
+    test(`${surface}：BLOCKED（衍生與 FAIL 附註）一律用 claude 色，任何 BLOCKED 字樣都不用 error`, async ($, on) => {
+      const world = worldOf(
+        on,
+        specFiles({
+          'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+          'fail-task/state.json': variant(withVerify(V2_FEATURE_VERIFY_PASS, { status: 'FAIL', blocked: 1 }), { slug: 'fail-task' }),
+        }),
+      )
+      nothingBeneathBand(on)
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'selectedSlug', 'push-tag-query')
+      const pane = await mountPane($, surface)
+      const band = await mountBand($, surface)
+      const blockedColors = async () => [
+        ...(await textColors(pane, /BLOCKED/)),
+        ...(await textColors(band, /BLOCKED/)),
+      ]
+
+      const overview = await blockedColors()
+      expect(overview.length, '正對照：總覽與 HUD 確實畫出 BLOCKED').toBeGreaterThanOrEqual(2)
+      expect(overview.every(found => found.color === 'claude')).toBe(true)
+
+      await pressAndRedraw(pane, 'tab-verify')
+      const verifyTab = await textColors(pane, /BLOCKED/)
+      expect(verifyTab.map(found => found.text)).toContain(TEXT.blockedNote(2))
+      expect(verifyTab.every(found => found.color === 'claude')).toBe(true)
+
+      await pressAndRedraw(pane, 'tab-tasks')
+      const rows = await textColors(pane, /BLOCKED/)
+      expect(rows.length, '任務列也畫出 BLOCKED').toBeGreaterThanOrEqual(1)
+      expect(rows.every(found => found.color === 'claude')).toBe(true)
+
+      // FAIL 仍是 error，但它的「另有 BLOCKED ×1」附註不是
+      world.setState(PLUGIN, 'selectedSlug', 'fail-task')
+      world.setState(PLUGIN, 'tab', 'overview')
+      await pane.redraw()
+      const [failLabel] = await textColors(pane, /^verify {4}FAIL/)
+      expect(failLabel?.color).toBe('error')
+      const notes = await textColors(pane, /BLOCKED/)
+      expect(notes.map(found => found.text)).toEqual([` · ${TEXT.otherBlocked(1)}`])
+      expect(notes.every(found => found.color === 'claude')).toBe(true)
+    })
+
+    test(`${surface}：進度方塊數量＝實際存在的 steps（feature v2 9 步、bug v2 4 步、v1 bug 9 步）`, async ($, on) => {
+      worldOf(
+        on,
+        specFiles({
+          'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+          'login-timeout-fix/state.json': V2_BUG_MINIMAL,
+          'cache-ttl-bug/state.json': V1_BUG_9STEPS,
+        }),
+      )
+      nothingBeneathBand(on)
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface, 120)
+      await pressAndRedraw(pane, 'tab-tasks')
+      const filled = await textColors(pane, /^■+$/)
+      const empty = await textColors(pane, /^□+$/)
+      // 依 updated 新到舊：order-export-csv（7/9）→ login-timeout-fix（3/4）→ cache-ttl-bug（1/9）
+      expect(filled).toEqual([
+        { text: '■'.repeat(7), color: 'success' },
+        { text: '■'.repeat(3), color: 'success' },
+        { text: '■', color: 'success' },
+      ])
+      expect(empty).toEqual([
+        { text: '□'.repeat(2), color: 'inactive' },
+        { text: '□', color: 'inactive' },
+        { text: '□'.repeat(8), color: 'inactive' },
+      ])
+      expect((await pane.findAll({ type: 'Text', text: /^ \d+\/\d+$/ })).map(found => found.text)).toEqual([' 7/9', ' 3/4', ' 1/9'])
+
+      // HUD 用同一套方塊（選取的 order-export-csv）
+      const band = await mountBand($, surface)
+      expect(textOf(await band.drawn())).toContain('feature / verify · ■■■■■■■□□')
+    })
+
+    test(`${surface}：分組色帶計數與結案摘要；已結案預設 5 筆，按 e 展開全部、再按收合；重新整理不重設`, async ($, on) => {
+      const closedFiles: Record<string, string> = {}
+      for (let i = 1; i <= 7; i += 1) {
+        const slug = `closed-task-${i}`
+        const day = String(10 - i).padStart(2, '0')
+        const verify = i === 2 || i === 6 ? { status: 'WARN', blocked: 0 } : {}
+        closedFiles[`${slug}/state.json`] = variant(withVerify(V2_FEATURE_CLOSED, verify), { slug, updated: `2026-10-${day}T10:00:00+08:00` })
+      }
+      const world = worldOf(on, specFiles({ ...closedFiles, 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface, 120)
+      await pressAndRedraw(pane, 'tab-tasks')
+      const collapsed = textOf(await pane.drawn())
+
+      // 色帶：整列底色（Box backgroundColor）＋文字計數
+      const bands = (await pane.findAll({ type: 'Box' })).filter(box => box.props.backgroundColor !== undefined && box.props.backgroundColor !== 'subtle')
+      expect(bands.map(box => box.props.backgroundColor)).toEqual(['suggestion', 'merged', 'inactive'])
+      expect(collapsed).toContain(TEXT.groupActive(1))
+      expect(collapsed).toContain(TEXT.groupParked(0))
+      expect(collapsed).toContain(`${TEXT.groupClosed(7)} · ${TEXT.closedVerifyCount(2, 'WARN')} · ${TEXT.closedRecent(5)}`)
+      // 已擱置為 0：只有色帶、沒有空列；任務按鈕＝1 個進行中＋5 筆已結案
+      expect((await pane.findAll({ type: 'Button', text: /^(▶ )?(closed-task|push-tag-query)/ })).length).toBe(6)
+      for (let i = 1; i <= 5; i += 1) {
+        expect(collapsed).toContain(`closed-task-${i}`)
+      }
+      expect(collapsed).not.toContain('closed-task-6')
+      expect(collapsed).not.toContain('closed-task-7')
+
+      const toggle = await pane.find({ key: 'toggle-closed' })
+      expect(toggle?.props.hotkey).toBe('e')
+      expect(toggle?.props.label).toBe(TEXT.expandClosed)
+
+      await pressAndRedraw(pane, 'toggle-closed')
+      const expanded = textOf(await pane.drawn())
+      for (let i = 1; i <= 7; i += 1) {
+        expect(expanded).toContain(`closed-task-${i}`)
+      }
+      expect(expanded).not.toContain(TEXT.closedRecent(5))
+      expect((await pane.find({ key: 'toggle-closed' }))?.props.label).toBe(TEXT.collapseClosed)
+      expect(world.stateOf(PLUGIN, 'runtime')).toMatchObject({ isSupported: true, isClosedExpanded: true })
+
+      // 重新整理（refresh 會更新 runtime 世代號）不得把展開狀態重設
+      await pressAndRedraw(pane, 'refresh')
+      expect(textOf(await pane.drawn())).toContain('closed-task-7')
+
+      await pressAndRedraw(pane, 'toggle-closed')
+      const again = textOf(await pane.drawn())
+      expect(again).not.toContain('closed-task-6')
+      expect(again).toContain(TEXT.closedRecent(5))
+      expect(world.forbidden, '展開／收合只改 UI state').toEqual([])
+    })
+  }
+
+  test('progressGlyphs：格數＝實際 steps；超過 20 步只顯示計數（HUD 欄位上限）', () => {
+    const base = toTaskViewForGlyphs(9, 4)
+    expect(progressGlyphs(base)).toEqual({ filled: '■■■■', empty: '□□□□□', count: '4/9' })
+    expect(progressGlyphs(toTaskViewForGlyphs(30, 3))).toEqual({ filled: '', empty: '', count: '3/30' })
+  })
+})
+
+/** 只有 steps 的最小 task view（progressGlyphs 只讀 steps）。 */
+function toTaskViewForGlyphs(total: number, done: number): CockpitTaskView {
+  const steps = Array.from({ length: total }, (_, i) => ({ key: `s${i}`, status: i < done ? 'done' : 'pending', at: null, reason: null }))
+  return { steps } as unknown as CockpitTaskView
+}

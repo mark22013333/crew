@@ -8,14 +8,24 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { type CockpitInvalidTask, type CockpitSnapshot, type CockpitTab, type CockpitTaskView, TEXT } from './model'
 import {
+  TONE_COLOR,
   type Tone,
   fillCommandFor,
   formatClock,
+  gateColor,
   hudText,
   otherActiveCount,
+  phaseColor,
+  progressGlyphs,
   progressOf,
   resolveSelection,
+  shortTime,
+  showsStale,
+  staleColor,
+  taskGroups,
   toneOf,
+  typeColor,
+  verifyColor,
   verifyDisplay,
   visibleGates,
 } from './selectors'
@@ -30,6 +40,8 @@ export type PaneCallbacks = {
   refresh: () => void | Promise<void>
   /** 以 task id 觸發 Fill；入口檔自行以 fillCommandFor 重算內容，不吃 render 給的字串。 */
   fill: (id: string) => void | Promise<void>
+  /** 任務 tab「已結案」分組展開／收合（只改 UI state）。 */
+  toggleClosed: () => void | Promise<void>
 }
 
 export type PaneData = {
@@ -39,6 +51,8 @@ export type PaneData = {
   tab: CockpitTab
   /** e.props.bodyColumns（§17.2，不假設固定寬度）。 */
   bodyColumns: number
+  /** 任務 tab「已結案」分組是否展開（runtime.isClosedExpanded）。 */
+  isClosedExpanded: boolean
 }
 
 export type HudData = {
@@ -63,12 +77,8 @@ const HINT_ITEMS = 3
 /** IR 的 AC 清單最多列幾筆，避免 pane 過長（§13）。 */
 const IR_AC_LIMIT = 20
 
-const TONE_COLOR: Record<Tone, string | undefined> = {
-  positive: 'success',
-  warning: 'warning',
-  negative: 'error',
-  neutral: undefined,
-}
+/** 已結案分組收合時顯示幾筆（依 loader 既有排序，最近更新在前）。 */
+export const CLOSED_PREVIEW = 5
 
 const STEP_GLYPH: Record<string, string> = {
   done: '✓',
@@ -88,7 +98,11 @@ function el(tag: unknown, props: Record<string, unknown>, ...children: Child[]):
 
 /** 一行文字；tone 決定顏色（§11.3），neutral 不上色。 */
 function line(kit: CockpitKit, text: string, tone: Tone = 'neutral', extra: Record<string, unknown> = {}): RenderElement {
-  const color = TONE_COLOR[tone]
+  return colored(kit, text, TONE_COLOR[tone], extra)
+}
+
+/** 指定 ThemeKey 的文字；color 為 undefined 時不傳 color（不支援的 prop 不傳）。 */
+function colored(kit: CockpitKit, text: string, color: string | undefined, extra: Record<string, unknown> = {}): RenderElement {
   return el(kit.Text, { ...(color !== undefined && { color }), ...extra }, text)
 }
 
@@ -113,7 +127,20 @@ function limited(items: readonly string[], n: number): string {
 const schemaText = (task: CockpitTaskView): string =>
   task.schemaVersion === null ? TEXT.schemaUnknown : TEXT.schema(task.schemaVersion)
 
+/** 結果狀態顏色：缺值（—）inactive，其餘依 §11.3 色調。 */
+const statusColor = (status: string | null): string | undefined => (status === null ? 'inactive' : TONE_COLOR[toneOf(status)])
+
 const staleText = (task: CockpitTaskView): string => TEXT.stale(task.staleDays) + (task.staleUnknown ? TEXT.staleUnknown : '')
+
+/** 進度方塊（■ success、□ inactive）＋ done/total；超過格數上限只顯示計數。 */
+function progressBar(kit: CockpitKit, task: CockpitTaskView, withCount: boolean): RenderElement[] {
+  const glyphs = progressGlyphs(task)
+  return [
+    glyphs.filled !== '' ? colored(kit, glyphs.filled, 'success') : null,
+    glyphs.empty !== '' ? colored(kit, glyphs.empty, 'inactive') : null,
+    withCount || (glyphs.filled === '' && glyphs.empty === '') ? el(kit.Text, { dimColor: true }, `${glyphs.filled !== '' || glyphs.empty !== '' ? ' ' : ''}${glyphs.count}`) : null,
+  ].filter((part): part is RenderElement => part !== null)
+}
 
 // ---------------------------------------------------------------------------
 // Pane
@@ -161,7 +188,7 @@ export function paneView(kit: CockpitKit, data: PaneData, cb: PaneCallbacks): Re
   const selection = resolveSelection(snapshot, data.selectedSlug)
   const body =
     data.tab === 'tasks'
-      ? tasksView(kit, snapshot, selection.task, data.bodyColumns, cb)
+      ? tasksView(kit, snapshot, selection.task, data.bodyColumns, data.isClosedExpanded, cb)
       : data.tab === 'verify'
         ? verifyView(kit, selection.task)
         : overviewView(kit, snapshot, selection, cb)
@@ -205,13 +232,15 @@ function overviewView(
   const gateRows =
     gates === null
       ? [dim(kit, TEXT.v1NoGates)]
-      : gates.map(gate => line(kit, `${gate.key.padEnd(13)} ${gate.status ?? '—'}`, toneOf(gate.status)))
+      : gates.map(gate =>
+          colored(kit, `${gate.key.padEnd(13)} ${gate.status ?? '—'}${gate.status === 'pending' ? TEXT.gatePending : ''}`, gateColor(gate.status)),
+        )
 
   const verify = verifyDisplay(task.results.verify)
   const resultRows = [
-    line(kit, `security  ${task.results.security.status ?? '—'}`, toneOf(task.results.security.status)),
-    row(kit, line(kit, `verify    ${verify.label}`, verify.tone), verify.note !== null && line(kit, ` · ${verify.note}`, 'warning')),
-    line(kit, `review    ${task.results.review.status ?? '—'}`, toneOf(task.results.review.status)),
+    colored(kit, `security  ${task.results.security.status ?? '—'}`, statusColor(task.results.security.status)),
+    row(kit, colored(kit, `verify    ${verify.label}`, verifyColor(verify)), verify.note !== null && line(kit, ` · ${verify.note}`, 'blocked')),
+    colored(kit, `review    ${task.results.review.status ?? '—'}`, statusColor(task.results.review.status)),
   ]
 
   const unit = task.workUnit
@@ -234,13 +263,22 @@ function overviewView(
     row(kit, heading(kit, `CREW / ${TEXT.currentTask}`), headNotes.length > 0 && dim(kit, `  （${headNotes.join(' · ')}）`)),
     el(kit.Box, { marginTop: 1 }, el(kit.Text, { bold: true }, task.slug)),
     task.name !== task.slug && dim(kit, task.name),
-    el(kit.Text, {}, `${task.type} · ${task.phase ?? '—'} · ${schemaText(task)} · ${staleText(task)}`),
-    task.parked !== null && el(kit.Text, {}, `${TEXT.parked}${task.parked.reason !== null ? `：${task.parked.reason}` : ''}`),
-    task.closed && dim(kit, TEXT.closedTask),
+    row(
+      kit,
+      colored(kit, task.type, typeColor(task.type)),
+      el(kit.Text, {}, ' · '),
+      colored(kit, task.phase ?? '—', phaseColor(task.phase)),
+      el(kit.Text, {}, ` · ${schemaText(task)}`),
+      showsStale(task) && el(kit.Text, {}, ' · '),
+      showsStale(task) && colored(kit, staleText(task), staleColor(task.staleDays)),
+    ),
+    task.parked !== null &&
+      colored(kit, `◐ ${TEXT.parked}${task.parked.reason !== null ? `：${task.parked.reason}` : ''}`, 'merged'),
+    task.closed && colored(kit, `○ ${TEXT.closedTask}`, 'inactive'),
     task.inferred && line(kit, TEXT.inferred, 'warning'),
     task.isSchemaNewer && task.schemaVersion !== null && line(kit, TEXT.schemaNewer(task.schemaVersion), 'warning'),
     task.branch !== null && dim(kit, `branch: ${task.branch} ${TEXT.branchNote}`),
-    section(kit, `${TEXT.progress}（${progress.done} / ${progress.total}）`, el(kit.Text, {}, stepsText)),
+    section(kit, `${TEXT.progress}（${progress.done} / ${progress.total}）`, row(kit, ...progressBar(kit, task, false)), el(kit.Text, {}, stepsText)),
     section(kit, TEXT.approval, ...gateRows),
     section(kit, TEXT.results, ...resultRows),
     // 空的 work_unit（total 為 0，例如 new_state 的預設值）不顯示；未完成的才醒目（§11、A8）
@@ -271,36 +309,121 @@ function overviewView(
   )
 }
 
-/** §12 Tasks：active → parked → closed（loader 已排序），最多 50 筆；壞檔列 invalid row；底部列缺 state.json 的目錄數。 */
+/** 任務列屬於哪一段：決定欄位與樣式。 */
+type TaskGroup = 'active' | 'parked' | 'closed'
+
+/** 分組色帶：整列底色＋對比文字（ThemeKey，深淺主題自動切換），文字本身就說明狀態。 */
+function groupBand(kit: CockpitKit, text: string, backgroundColor: string, ...extra: Child[]): RenderElement {
+  return el(
+    kit.Box,
+    { flexDirection: 'row', flexWrap: 'wrap', marginTop: 1, backgroundColor, gap: 1 },
+    el(kit.Text, { color: 'inverseText', bold: true }, ` ${text} `),
+    ...extra,
+  )
+}
+
+/**
+ * 一列任務。進行中：▶ slug、type、phase、進度方塊、驗收、停滯天數、時間；
+ * 已擱置：同上但不顯示停滯天數、加「已擱置」標記；已結案：整列 dim（驗收結果仍上色）、不顯示停滯天數。
+ */
+function taskRow(
+  kit: CockpitKit,
+  task: CockpitTaskView,
+  index: number,
+  group: TaskGroup,
+  isSelected: boolean,
+  isCompact: boolean,
+  cb: PaneCallbacks,
+): RenderElement {
+  const isClosed = group === 'closed'
+  const verify = verifyDisplay(task.results.verify)
+  // 已結案整列降成 dim；只有驗收結果維持語意色（WARN／FAIL 不漏看）
+  const tint = (text: string, color: string | undefined): RenderElement =>
+    isClosed ? el(kit.Text, { dimColor: true }, text) : colored(kit, text, color)
+  const sep = (): RenderElement => el(kit.Text, { dimColor: true }, ' · ')
+  const button = el(kit.Button, {
+    // key 用序號，不用目錄名（目錄名是不可信的 repo 字串）
+    key: `task-${index}`,
+    label: `${isSelected ? `${TEXT.selected} ` : ''}${task.slug}`,
+    ...(isSelected && { variant: 'primary' }),
+    ...(isClosed && !isSelected && { dimColor: true }),
+    onPress: () => cb.selectTask(task.id),
+  })
+  const info = row(
+    kit,
+    isCompact ? null : el(kit.Text, {}, ' '),
+    tint(task.type, typeColor(task.type)),
+    sep(),
+    tint(task.phase ?? '—', phaseColor(task.phase)),
+    group === 'parked' && sep(),
+    group === 'parked' && colored(kit, TEXT.parked, 'merged'),
+    isClosed && sep(),
+    isClosed && el(kit.Text, { dimColor: true }, TEXT.closedTask),
+    !isClosed && sep(),
+    ...(isClosed ? [] : progressBar(kit, task, true)),
+    sep(),
+    el(kit.Text, { dimColor: isClosed }, `${TEXT.verifyLabel} `),
+    colored(kit, verify.label, verifyColor(verify)),
+    showsStale(task) && sep(),
+    showsStale(task) && colored(kit, staleText(task), staleColor(task.staleDays), { bold: task.staleDays >= 14 }),
+    sep(),
+    el(kit.Text, { dimColor: true }, shortTime(task.updated)),
+  )
+  const props = isSelected ? { backgroundColor: 'subtle' } : {}
+  return isCompact ? column(kit, props, button, info) : el(kit.Box, { flexDirection: 'row', flexWrap: 'wrap', ...props }, button, info)
+}
+
+/**
+ * §12 Tasks（方向 B 分組色帶）：● 進行中 → ◐ 已擱置 → ○ 已結案（loader 已排序），最多 50 筆；
+ * 已結案預設只顯示最近 5 筆，按 e 展開；壞檔列 invalid row；底部列缺 state.json 的目錄數。
+ */
 function tasksView(
   kit: CockpitKit,
   snapshot: CockpitSnapshot,
   selected: CockpitTaskView | null,
   bodyColumns: number,
+  isClosedExpanded: boolean,
   cb: PaneCallbacks,
 ): RenderElement {
   const isCompact = bodyColumns < PANE_COMPACT_COLUMNS
-  const rows = snapshot.tasks.slice(0, TASK_ROW_LIMIT).map((task, index) => {
-    const verify = verifyDisplay(task.results.verify)
-    const state = task.closed ? ` · ${TEXT.closedTask}` : task.parked !== null ? ` · ${TEXT.parked}` : ''
-    const meta = `${task.type} · ${task.phase ?? '—'}${state} · ${TEXT.verifyLabel} `
-    const tail = ` · ${staleText(task)} · ${task.updated ?? '—'}`
-    const isSelected = selected !== null && selected.id === task.id
-    const button = el(kit.Button, {
-      // key 用序號，不用目錄名（目錄名是不可信的 repo 字串）
-      key: `task-${index}`,
-      label: `${isSelected ? `${TEXT.selected} ` : ''}${task.slug}`,
-      ...(isSelected && { variant: 'primary' }),
-      onPress: () => cb.selectTask(task.id),
+  const shown = snapshot.tasks.slice(0, TASK_ROW_LIMIT).map((task, index) => ({ task, index }))
+  const groups = taskGroups(snapshot.tasks)
+  const isSelected = (task: CockpitTaskView) => selected !== null && selected.id === task.id
+  const rowsOf = (group: TaskGroup, items: readonly { task: CockpitTaskView; index: number }[]) =>
+    items.map(({ task, index }) => taskRow(kit, task, index, group, isSelected(task), isCompact, cb))
+
+  const activeRows = shown.filter(({ task }) => task.active)
+  const parkedRows = shown.filter(({ task }) => !task.closed && task.parked !== null)
+  const closedRows = shown.filter(({ task }) => task.closed)
+  const closedVisible = isClosedExpanded ? closedRows : closedRows.slice(0, CLOSED_PREVIEW)
+
+  // 結案摘要（借 C）：WARN／FAIL 不漏看，也不會誤以為要處理
+  const countBy = (status: string) => groups.closed.filter(task => task.results.verify.status === status).length
+  const closedNotes = [
+    countBy('WARN') > 0 ? TEXT.closedVerifyCount(countBy('WARN'), 'WARN') : null,
+    countBy('FAIL') > 0 ? TEXT.closedVerifyCount(countBy('FAIL'), 'FAIL') : null,
+    closedRows.length > CLOSED_PREVIEW && !isClosedExpanded ? TEXT.closedRecent(CLOSED_PREVIEW) : null,
+  ].filter((note): note is string => note !== null)
+  const closedToggle =
+    closedRows.length > CLOSED_PREVIEW &&
+    el(kit.Button, {
+      key: 'toggle-closed',
+      label: isClosedExpanded ? TEXT.collapseClosed : TEXT.expandClosed,
+      hotkey: 'e',
+      plain: true,
+      onPress: () => cb.toggleClosed(),
     })
-    const info = row(kit, el(kit.Text, {}, isCompact ? meta : ` ${meta}`), line(kit, verify.label, verify.tone), el(kit.Text, {}, tail))
-    return isCompact ? column(kit, {}, button, info) : row(kit, button, info)
-  })
 
   return column(
     kit,
-    { marginTop: 1 },
-    ...rows,
+    {},
+    groupBand(kit, TEXT.groupActive(groups.active.length), 'suggestion'),
+    ...rowsOf('active', activeRows),
+    // 已擱置為 0：只顯示色帶，不顯示空列
+    groupBand(kit, TEXT.groupParked(groups.parked.length), 'merged'),
+    ...rowsOf('parked', parkedRows),
+    groupBand(kit, [TEXT.groupClosed(groups.closed.length), ...closedNotes].join(' · '), 'inactive', closedToggle),
+    ...rowsOf('closed', closedVisible),
     snapshot.tasks.length > TASK_ROW_LIMIT && dim(kit, TEXT.tasksTruncated(TASK_ROW_LIMIT)),
     ...snapshot.invalidTasks.map(invalid => invalidRow(kit, invalid)),
     snapshot.untrackedDirCount > 0 && el(kit.Box, { marginTop: 1 }, dim(kit, TEXT.untracked(snapshot.untrackedDirCount))),
@@ -310,8 +433,8 @@ function tasksView(
 function invalidRow(kit: CockpitKit, invalid: CockpitInvalidTask): RenderElement {
   return column(
     kit,
-    {},
-    line(kit, `${invalid.slug} · ${TEXT.invalidState}`, 'warning'),
+    { marginTop: 1 },
+    colored(kit, `${TEXT.invalidMark} ${invalid.slug} · ${TEXT.invalidState}`, 'error', { bold: true }),
     dim(kit, `${invalid.statePath} · ${invalid.message}（${TEXT.invalidStateNote}）`),
   )
 }
@@ -326,9 +449,9 @@ function verifyView(kit: CockpitKit, task: CockpitTaskView | null): RenderElemen
   const runtime: Child[] = task.results.verify.isEmpty
     ? [dim(kit, TEXT.noVerifyResult)]
     : [
-        row(kit, el(kit.Text, {}, 'status  '), line(kit, verify.label, verify.tone), verify.note !== null && line(kit, ` · ${verify.note}`, 'warning')),
+        row(kit, el(kit.Text, {}, 'status  '), colored(kit, verify.label, verifyColor(verify)), verify.note !== null && line(kit, ` · ${verify.note}`, 'blocked')),
         ...task.results.verify.entries.map(entry => el(kit.Text, {}, `${entry.key}  ${entry.value}`)),
-        verify.isBlocked && line(kit, TEXT.blockedNote(verify.blocked), 'warning'),
+        verify.isBlocked && line(kit, TEXT.blockedNote(verify.blocked), 'blocked'),
       ]
 
   const ir = task.verificationIr
@@ -361,13 +484,17 @@ function verifyView(kit: CockpitKit, task: CockpitTaskView | null): RenderElemen
 // AbovePrompt HUD（§9）
 // ---------------------------------------------------------------------------
 
-/** HUD 一行的片段：text 與色調（只有驗收狀態等少數片段上色）。 */
-export type HudSegment = { text: string; tone: Tone }
+/**
+ * HUD 一行的片段：text 與樣式。color／backgroundColor 一律是 ThemeKey；
+ * tone 是 §11.3 的語意色調（color 未指定時套用）。
+ */
+export type HudSegment = { text: string; tone: Tone; color?: string; backgroundColor?: string; bold?: boolean; dim?: boolean }
 
 /**
  * HUD 的內容（純資料）：沒有 active task 或沒有選取時回 null（§9.1：不佔空間）。
- * 寬畫面最多 2 行；bodyColumns < 60 退成 1 行。state.next 一律標「上次建議」，不是現況（§6.3）。
- * 不顯示 ci-ready（§9.3、AC-11）。
+ * 寬畫面最多 2 行：CREW 色塊 → slug → type／phase（上色）→ 進度方塊 → 中斷 → 驗收 → 停滯天數（上色，只對進行中）
+ * → ＋N 個進行中；第二行 UAT、上次建議（dim）、載入時間、權威入口。bodyColumns < 60 退成 1 行。
+ * state.next 一律標「上次建議」，不是現況（§6.3）。不顯示 ci-ready（§9.3、AC-11）。
  */
 export function hudModel(data: HudData): HudSegment[][] | null {
   const { snapshot } = data
@@ -381,41 +508,69 @@ export function hudModel(data: HudData): HudSegment[][] | null {
   const others = otherActiveCount(snapshot, task)
   const verify = verifyDisplay(task.results.verify)
   const hasVerify = task.results.verify.status !== null
-  const seg = (text: string, tone: Tone = 'neutral'): HudSegment => ({ text, tone })
+  const seg = (text: string, tone: Tone = 'neutral', style: Omit<HudSegment, 'text' | 'tone'> = {}): HudSegment => ({ text, tone, ...style })
+  const sep = seg(' · ')
   const slug = hudText(task.slug)
   const phase = hudText(task.phase ?? '—')
+  const chip = seg(TEXT.paneTitle, 'neutral', { backgroundColor: 'suggestion', color: 'inverseText', bold: true })
+  const phaseSeg = seg(phase, 'neutral', { color: phaseColor(task.phase) })
+  const verifySeg = seg(hudText(verify.short), verify.tone, { color: verifyColor(verify) })
 
   if (data.bodyColumns < HUD_COMPACT_COLUMNS) {
     return [
       [
-        seg(`CREW · ${slug} · ${phase}`),
-        ...(hasVerify ? [seg(' · '), seg(hudText(verify.short), verify.tone)] : []),
-        ...(others > 0 ? [seg(` · ＋${others}`)] : []),
+        chip,
+        sep,
+        seg(slug, 'neutral', { bold: true }),
+        sep,
+        phaseSeg,
+        ...(hasVerify ? [sep, verifySeg] : []),
+        ...(others > 0 ? [seg(` · ＋${others}`, 'neutral', { color: 'suggestion' })] : []),
       ],
     ]
   }
 
   const unit = task.workUnit
+  const glyphs = progressGlyphs(task)
+  const hasGlyphs = glyphs.filled !== '' || glyphs.empty !== ''
+  const typeTone = typeColor(task.type)
   const first: HudSegment[] = [
-    seg(`CREW · ${slug} · ${hudText(task.type)} / ${phase}`),
+    chip,
+    sep,
+    seg(slug, 'neutral', { bold: true }),
+    sep,
+    seg(hudText(task.type), 'neutral', typeTone !== undefined ? { color: typeTone } : {}),
+    seg(' / '),
+    phaseSeg,
+    sep,
+    ...(hasGlyphs
+      ? [
+          ...(glyphs.filled !== '' ? [seg(glyphs.filled, 'neutral', { color: 'success' })] : []),
+          ...(glyphs.empty !== '' ? [seg(glyphs.empty, 'neutral', { color: 'inactive' })] : []),
+        ]
+      : [seg(glyphs.count, 'neutral', { dim: true })]),
     ...(unit !== null && unit.isInterrupted ? [seg(` · ${TEXT.interrupted(unit.done, unit.total)}`, 'warning')] : []),
-    ...(hasVerify ? [seg(` · ${TEXT.verifyLabel} `), seg(hudText(verify.label), verify.tone)] : []),
-    ...(verify.note !== null ? [seg(` · ${verify.note}`, 'warning')] : []),
-    seg(` · ${TEXT.stale(task.staleDays)}`),
-    ...(others > 0 ? [seg(` · ${TEXT.otherActive(others)}`)] : []),
+    ...(hasVerify ? [seg(` · ${TEXT.verifyLabel} `), seg(hudText(verify.label), verify.tone, { color: verifyColor(verify) })] : []),
+    ...(verify.note !== null ? [seg(` · ${verify.note}`, 'blocked')] : []),
+    ...(showsStale(task) ? [sep, seg(TEXT.stale(task.staleDays), 'neutral', { color: staleColor(task.staleDays) })] : []),
+    ...(others > 0 ? [sep, seg(TEXT.otherActive(others), 'neutral', { color: 'suggestion' })] : []),
     ...(task.inferred ? [seg(` · ${TEXT.inferredShort}`, 'warning')] : []),
   ]
 
   const uat = (visibleGates(task) ?? []).find(gate => gate.key === 'uat')
   const recorded = task.recordedNext?.command ?? null
-  const second = [
-    uat !== undefined ? (uat.status === 'pending' ? TEXT.uatPendingShort : `UAT ${hudText(uat.status ?? '—')}`) : null,
-    recorded !== null ? `${TEXT.recordedNextShort} ${hudText(recorded)}` : null,
-    TEXT.loadedAt(formatClock(snapshot.loadedAt)),
-    fillCommandFor(task),
-  ].filter((part): part is string => part !== null)
+  const fill = fillCommandFor(task)
+  const parts: HudSegment[] = [
+    ...(uat !== undefined
+      ? [seg(uat.status === 'pending' ? TEXT.uatPendingShort : `UAT ${hudText(uat.status ?? '—')}`, 'neutral', { color: gateColor(uat.status) ?? 'text' })]
+      : []),
+    ...(recorded !== null ? [seg(`${TEXT.recordedNextShort} ${hudText(recorded)}`, 'neutral', { dim: true })] : []),
+    seg(TEXT.loadedAt(formatClock(snapshot.loadedAt)), 'neutral', { dim: true }),
+    ...(fill !== null ? [seg(fill)] : []),
+  ]
+  const second = parts.flatMap((part, index) => (index === 0 ? [part] : [seg(' · ', 'neutral', { dim: true }), part]))
 
-  return [first, [seg(second.join(' · '))]]
+  return [first, second]
 }
 
 /** HUD 片段轉成 element（每行一個 row Box，單行截斷）。 */
@@ -424,7 +579,18 @@ export function hudView(kit: CockpitKit, lines: readonly HudSegment[][]): Render
     kit,
     {},
     ...lines.map(segments =>
-      el(kit.Box, { flexDirection: 'row' }, ...segments.map(segment => line(kit, segment.text, segment.tone, { wrap: 'truncate-end' }))),
+      el(
+        kit.Box,
+        { flexDirection: 'row' },
+        ...segments.map(segment =>
+          colored(kit, segment.text, segment.color ?? TONE_COLOR[segment.tone], {
+            wrap: 'truncate-end',
+            ...(segment.backgroundColor !== undefined && { backgroundColor: segment.backgroundColor }),
+            ...(segment.bold === true && { bold: true }),
+            ...(segment.dim === true && { dimColor: true }),
+          }),
+        ),
+      ),
     ),
   )
 }

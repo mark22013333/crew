@@ -59,6 +59,8 @@ function portsOf($: EngineInterface): LoaderPorts {
 export async function refreshSnapshot($: EngineInterface): Promise<void> {
   try {
     const claimed = await update($, runtimeAtom, current => ({
+      // 保留 runtime 上的 UI state（isClosedExpanded），refresh 不得把展開狀態重設
+      ...current,
       isSupported: current?.isSupported ?? false,
       version: current?.version ?? null,
       minimum: current?.minimum ?? MIN_CLAUDE_CODE_VERSION,
@@ -170,6 +172,12 @@ function paneCallbacks($: EngineInterface): PaneCallbacks {
     },
     refresh: () => refreshSnapshot($),
     fill: (id: string) => fillPlanNext($, id).catch(() => undefined),
+    toggleClosed: async () => {
+      // 展開狀態只存 UI state（runtime.isClosedExpanded），不寫任何 project file
+      await update($, runtimeAtom, current => (current === null ? current : { ...current, isClosedExpanded: current.isClosedExpanded !== true })).catch(
+        () => undefined,
+      )
+    },
   }
 }
 
@@ -257,6 +265,7 @@ export const register: Register = on => {
         selectedSlug: await read($, selectedSlugAtom),
         tab: await read($, tabAtom),
         bodyColumns: e.props.bodyColumns,
+        isClosedExpanded: (await read($, runtimeAtom))?.isClosedExpanded === true,
       }
       return paneView({ Box, Text, Button }, data, paneCallbacks($))
     } catch {
