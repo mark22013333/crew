@@ -28,6 +28,7 @@ import {
   MODEL_VERSION,
   TEXT,
   asInt,
+  crewStaleRef,
   isFillableSlug,
   isTruthy,
   parseIsoMs,
@@ -309,6 +310,8 @@ export function toTaskView(
   const parked = parkedOf(raw.parked)
   const updatedMs = parseIsoMs(raw.updated)
   const updatedRefMs = updatedMs ?? parseIsoMs(raw.created)
+  // 停滯天數另依 crew-state.py 的 normalize 語意取參考時間（null／缺漏＝現在），不沿用排序用的 updatedRefMs
+  const stale = crewStaleRef(raw.updated, raw.created)
   const git = fieldsOf(raw.git)
   const name = sanitizeText(raw.name)
   const type = typeof raw.type === 'string' && raw.type !== '' ? sanitizeText(raw.type) : 'feature'
@@ -328,8 +331,9 @@ export function toTaskView(
     parked,
     closed,
     active: !closed && parked === null,
-    staleDays: staleDaysOf(updatedRefMs, nowMs),
-    staleUnknown: updatedRefMs === null,
+    staleDays: staleDaysOf(stale.refMs, nowMs),
+    staleUnknown: stale.isUnknown,
+    staleRefMs: stale.refMs,
     updated: sanitizeOrNull(raw.updated),
     created: sanitizeOrNull(raw.created),
     updatedRefMs,
@@ -671,7 +675,7 @@ export async function loadCockpitSnapshot(io: LoaderPorts, options: LoadOptions)
         previous.sizes[statePath] === found.size
       if (isSame && before !== undefined) {
         out.reused += 1
-        out.task = { ...before, staleDays: staleDaysOf(before.updatedRefMs, nowMs), verificationIr: ir }
+        out.task = { ...before, staleDays: staleDaysOf(before.staleRefMs, nowMs), verificationIr: ir }
         return out
       }
       out.reread += 1

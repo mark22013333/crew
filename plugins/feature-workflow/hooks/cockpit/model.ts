@@ -22,7 +22,7 @@ export type {
 } from '../../types'
 
 /** 讀取模型版本；改動 snapshot 形狀時遞增，loader 會丟棄舊版快取。 */
-export const MODEL_VERSION = 1
+export const MODEL_VERSION = 2
 
 /** Pane id（§10）。 */
 export const PANE_ID = 'crew-cockpit'
@@ -287,6 +287,30 @@ export function parseIsoMs(value: unknown): number | null {
     return null
   }
   return utc - sign * (offH * 60 + offM) * 60 * 1000
+}
+
+/**
+ * 停滯天數的參考時間，逐步重現 crew-state.py 的 normalize() ＋ stale_days()（CS:299-312、1364-1369）：
+ * 1. normalize 只把「null 或缺漏」的 updated／created 補成現在（空字串、壞字串原樣保留）；
+ * 2. stale_days 取 parse_iso(updated) or parse_iso(created)。
+ * 因此 updated 為 null／缺漏 → 參考值是現在（0 天），不會退到 created；
+ * updated 解析失敗才看 created，created 為 null／缺漏同樣是現在（0 天）；兩者都解析失敗 → 0 天且 isUnknown。
+ * refMs 為 null 代表 crew-state.py 會算出 0 天（不論是「現在」還是無法解析），增量重讀時仍是 0。
+ */
+export function crewStaleRef(updated: unknown, created: unknown): { refMs: number | null; isUnknown: boolean } {
+  const isFilledByNormalize = (value: unknown) => value === null || value === undefined
+  if (isFilledByNormalize(updated)) {
+    return { refMs: null, isUnknown: false }
+  }
+  const updatedMs = parseIsoMs(updated)
+  if (updatedMs !== null) {
+    return { refMs: updatedMs, isUnknown: false }
+  }
+  if (isFilledByNormalize(created)) {
+    return { refMs: null, isUnknown: false }
+  }
+  const createdMs = parseIsoMs(created)
+  return createdMs !== null ? { refMs: createdMs, isUnknown: false } : { refMs: null, isUnknown: true }
 }
 
 /** CS stale_days：max(0, floor((now − ref) / 1 day))；ref 為 null 時 0。 */

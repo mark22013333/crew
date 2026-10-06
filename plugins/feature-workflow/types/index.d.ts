@@ -148,15 +148,23 @@ export type CockpitTaskView = {
   closed: boolean
   /** !closed && !parked。 */
   active: boolean
-  /** max(0, floor((now − (updated ?? created)) / 1 day))；解析失敗為 0（CS:1364-1369）。 */
+  /**
+   * 對齊 crew-state.py：normalize() 先把 null／缺漏的 updated、created 補成「現在」，
+   * 再 stale_days = max(0, floor((now − (parse(updated) or parse(created))) / 1 day))；都解析失敗為 0（CS:299-312、1364-1369）。
+   */
   staleDays: number
-  /** updated 與 created 都無法解析（附加資訊；staleDays 仍為 0）。 */
+  /** 補值後 updated 與 created 仍都無法解析（空字串或壞字串；附加資訊，staleDays 仍為 0）。 */
   staleUnknown: boolean
+  /**
+   * 停滯天數的參考時間（epoch ms）。null 表示 crew-state.py 會算出 0 天：
+   * 參考值是被 normalize 補成的「現在」，或兩者都無法解析。增量重讀沿用舊 view 時以它重算 staleDays。
+   */
+  staleRefMs: number | null
   /** updated 原值（已清理）。 */
   updated: string | null
   /** created 原值（已清理）。 */
   created: string | null
-  /** parse(updated) ?? parse(created)，epoch ms；供停滯天數與「最近更新」排序。 */
+  /** parse(updated) ?? parse(created)，epoch ms；供「最近更新」排序與選取（停滯天數改用 staleRefMs）。 */
   updatedRefMs: number | null
   /** state.next 快照（§6.3）：只能標成「上次記錄的建議」，不得當成現況、不得當成 Fill 內容。 */
   recordedNext: { command: string | null; reason: string } | null

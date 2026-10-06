@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
 import type { RenderInput, SessionStartInput } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 
-import { resolveRepoRoot, toIrSummary } from '../hooks/cockpit/loader'
+import { resolveRepoRoot, toIrSummary, toTaskView } from '../hooks/cockpit/loader'
 import { TEXT, asInt, isFillableSlug, parseIsoMs, sanitizeText } from '../hooks/cockpit/model'
 import type { CockpitSnapshot, CockpitTaskView } from '../hooks/cockpit/model'
 import {
@@ -538,6 +538,53 @@ describe('純函式', () => {
 
     expect(task.staleDays).toBe(0)
     expect(task.staleUnknown).toBe(true)
+  })
+
+  /**
+   * 標準答案取自 crew-state.py list --format json 實跑（2026-10-07，fixture 產生器與輸出在 scratchpad fix2/oracle/）：
+   * normalize() 把 null／缺漏補成「現在」→ 0 天；空字串與壞字串不補，parse 失敗才退到 created。
+   * updated 有效＝now−2天1小時 → 2；created 有效＝now−5天1小時 → 5。
+   */
+  test('停滯天數對齊 crew-state.py normalize＋stale_days：updated null／缺漏／空字串／壞字串 × created 五種', () => {
+    const HOUR = 60 * 60 * 1000
+    const iso = (ms: number) => new Date(ms).toISOString()
+    const UPDATED = { null: null, missing: undefined, empty: '', bad: 'soon', valid: iso(NOW - (2 * 24 + 1) * HOUR) } as const
+    const CREATED = { valid5: iso(NOW - (5 * 24 + 1) * HOUR), null: null, missing: undefined, empty: '', bad: 'yesterday' } as const
+    // crew-state.py 實跑的 stale_days（u-{updated}--c-{created}）
+    const ORACLE: Record<string, number> = {
+      'u-bad--c-bad': 0, 'u-bad--c-empty': 0, 'u-bad--c-missing': 0, 'u-bad--c-null': 0, 'u-bad--c-valid5': 5,
+      'u-empty--c-bad': 0, 'u-empty--c-empty': 0, 'u-empty--c-missing': 0, 'u-empty--c-null': 0, 'u-empty--c-valid5': 5,
+      'u-missing--c-bad': 0, 'u-missing--c-empty': 0, 'u-missing--c-missing': 0, 'u-missing--c-null': 0, 'u-missing--c-valid5': 0,
+      'u-null--c-bad': 0, 'u-null--c-empty': 0, 'u-null--c-missing': 0, 'u-null--c-null': 0, 'u-null--c-valid5': 0,
+      'u-valid--c-bad': 2, 'u-valid--c-empty': 2, 'u-valid--c-missing': 2, 'u-valid--c-null': 2, 'u-valid--c-valid5': 2,
+    }
+    const unparseable = new Set(['empty', 'bad'])
+    const got: Record<string, number> = {}
+    for (const [un, uv] of Object.entries(UPDATED)) {
+      for (const [cn, cv] of Object.entries(CREATED)) {
+        const raw: Record<string, unknown> = { schema_version: 2, type: 'feature', phase: 'spec' }
+        if (uv !== undefined) raw.updated = uv
+        if (cv !== undefined) raw.created = cv
+        const view = toTaskView(raw, 'x', '/s', { status: 'missing' }, NOW)
+        got[`u-${un}--c-${cn}`] = view.staleDays
+        // staleUnknown 只在「補值後兩者都無法解析」：updated 與 created 都是空字串／壞字串
+        expect(view.staleUnknown, `staleUnknown u-${un}--c-${cn}`).toBe(unparseable.has(un) && unparseable.has(cn))
+      }
+    }
+    expect(got).toEqual(ORACLE)
+  })
+
+  test('停滯天數：updated 為 null 時增量重讀沿用舊 view 仍是 0 天（不退回 created）', async ($, on) => {
+    const raw = JSON.parse(V2_FEATURE_VERIFY_PASS) as Record<string, unknown>
+    const world = worldOf(on, specFiles({ 'order-export-csv/state.json': JSON.stringify({ ...raw, updated: null }) }))
+
+    await $.session.start(SESSION)
+    expect(taskOf(snapshotOf(world), 'order-export-csv').staleDays).toBe(0)
+    await $.turn.complete(TURN() as never)
+    const again = snapshotOf(world)
+    expect(again.stats.reused, '確實走沿用舊 view 的路徑').toBe(1)
+    expect(taskOf(again, 'order-export-csv').staleDays).toBe(0)
+    expect(taskOf(again, 'order-export-csv').staleUnknown).toBe(false)
   })
 })
 
