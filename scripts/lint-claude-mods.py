@@ -185,6 +185,9 @@ NOTE_RE = re.compile(r"^(\S+) (hooks|calls|state writes|state reads|gating hook 
 KIND = {"hooks": "hook", "calls": "call", "state writes": "state-write", "state reads": "state-read"}
 
 
+VIA_RE = re.compile(r"\s+\(via [^()]*\)$")
+
+
 def parse_validate(data: dict) -> tuple[set[str], list[str], list[str]]:
     """回傳 (能力項目集合, errors, 無 catch 的 gating hook 提示)。"""
     items: set[str] = set()
@@ -203,6 +206,9 @@ def parse_validate(data: dict) -> tuple[set[str], list[str], list[str]]:
             module, what, rest = m.groups()
             if what in KIND:
                 for spec in split_top_level(rest):
+                    # validate 對經由 helper 的呼叫會加註「 (via 函式名)」；能力本身與 helper 名稱無關，
+                    # 去掉後綴才不會因重新命名 helper 而誤報新能力
+                    spec = VIA_RE.sub("", spec)
                     items.add(f"{module} {KIND[what]} {spec}")
             else:
                 gating.append(f"{module} {rest}")
@@ -404,6 +410,11 @@ def self_test() -> int:
     _, errs2, _ = parse_validate(fake("session.start", "$.ui.open", errors=[{"path": "p", "message": "boom"}]))
     check(errs2 == ["p: boom"], f"validate errors 應被收集：{errs2}")
     check(split_top_level("a{x=1, y=2}, b") == ["a{x=1, y=2}", "b"], "split_top_level 錯誤")
+    via, _, _ = parse_validate(fake("session.start", "$.fs.read (via portsOf), $.ui.open"))
+    check("./register.tsx call $.fs.read" in via and "./register.tsx call $.fs.read (via portsOf)" not in via,
+          f"「(via helper)」後綴應被去除：{sorted(via)}")
+    via2, _, _ = parse_validate(fake("session.start", "$.fs.write (via helper)"))
+    check("./register.tsx call $.fs.write" in via2, f"經 helper 的禁止呼叫仍須以本名列入：{sorted(via2)}")
 
     if fails:
         for f in fails:
