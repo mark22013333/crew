@@ -22,6 +22,8 @@ public sealed class PendingRenderer
     {
         DetailStatus.Pass => "通過",
         DetailStatus.Fail => "未通過",
+        DetailStatus.Warn => "警告",
+        DetailStatus.Blocked => "前置阻擋",
         DetailStatus.Skip => "略過",
         DetailStatus.Manual => "待人工確認",
         _ => s.ToString()
