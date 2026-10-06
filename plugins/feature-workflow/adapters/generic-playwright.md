@@ -57,7 +57,7 @@ Runtime fallback 可更寬鬆，但 XPath、長 CSS chain、`nth-child` 等預�
 - URL
 - element state
 
-固定 `waitForTimeout` 只可作 draft diagnostics；promotion gate 會要求理由或替換。
+固定 `waitForTimeout` 只可作 draft diagnostics；後續 CI promotion 必須另外審查理由或替換。
 
 ## Authentication
 
