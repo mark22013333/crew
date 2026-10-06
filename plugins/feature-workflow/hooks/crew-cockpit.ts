@@ -51,12 +51,28 @@ function portsOf($: EngineInterface): LoaderPorts {
   }
 }
 
-/** 重新載入 snapshot 並寫進 $.state（讀者自動重繪）。失敗不 throw。 */
+/**
+ * 重新載入 snapshot 並寫進 $.state（讀者自動重繪）。失敗不 throw。
+ * 競態：多次 refresh 可能並行（turn.complete、重新整理按鈕、/crew-cockpit），較早開始的那次可能較晚讀完。
+ * 每次先在 runtime 領一個遞增世代號，讀完時只有「仍是最新世代」的結果才寫入，舊結果直接丟棄。
+ */
 export async function refreshSnapshot($: EngineInterface): Promise<void> {
   try {
+    const claimed = await update($, runtimeAtom, current => ({
+      isSupported: current?.isSupported ?? false,
+      version: current?.version ?? null,
+      minimum: current?.minimum ?? MIN_CLAUDE_CODE_VERSION,
+      refreshGeneration: (current?.refreshGeneration ?? 0) + 1,
+    }))
+    const generation = claimed?.refreshGeneration ?? 0
     const previous = await read($, snapshotAtom)
     const userSelectedSlug = await read($, selectedSlugAtom)
     const snapshot = await loadCockpitSnapshot(portsOf($), { previous, userSelectedSlug })
+    const latest = (await read($, runtimeAtom))?.refreshGeneration ?? 0
+    if (latest !== generation) {
+      // 已有較新的 refresh 開始（可能已寫入）：這份是舊的，不得覆蓋
+      return
+    }
     await update($, snapshotAtom, () => snapshot)
   } catch {
     // §16：Cockpit error → pass through
@@ -67,7 +83,8 @@ const checkVersion = async ($: EngineInterface): Promise<boolean> => {
   try {
     const { version } = await $.session.version()
     const isSupported = compareVersions(version, MIN_CLAUDE_CODE_VERSION) >= 0
-    await update($, runtimeAtom, () => ({ isSupported, version, minimum: MIN_CLAUDE_CODE_VERSION }))
+    // 保留 refreshGeneration：重設會讓世代號倒退，與進行中的 refresh 比對失準
+    await update($, runtimeAtom, current => ({ ...current, isSupported, version, minimum: MIN_CLAUDE_CODE_VERSION }))
     return isSupported
   } catch {
     return false

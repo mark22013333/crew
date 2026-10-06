@@ -248,6 +248,11 @@ export type CockpitRuntime = {
   isSupported: boolean
   version: string | null
   minimum: string
+  /**
+   * 最近一次 refresh 領到的世代號（遞增）。存在 $.state 而非模組變數：熱重載後舊模組還在跑的 refresh
+   * 也看得到新世代，不會把較舊的結果寫回 snapshot。缺值視為 0。
+   */
+  refreshGeneration?: number
 }
 
 /** Cockpit pane 的 tab（UI state，§10）。 */

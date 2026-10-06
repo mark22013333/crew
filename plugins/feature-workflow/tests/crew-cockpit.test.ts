@@ -1185,6 +1185,40 @@ describe('Lifecycle（T-9、T-13）', () => {
     expect(textOf(await band.drawn())).toContain('CREW · order-export-csv · feature / review')
   })
 
+  test('refresh 競態：較早開始、較晚讀完的 refresh 不得覆蓋較新的 snapshot（世代號）', async ($, on) => {
+    const statePath = `${ROOT}/.spec/order-export-csv/state.json`
+    const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+
+    await $.session.start(SESSION)
+    expect(taskOf(snapshotOf(world), 'order-export-csv').phase).toBe('verify')
+
+    // A：讀到 review 後卡住（慢 I/O）
+    world.put(statePath, V2_FEATURE_VERIFY_PASS.replace('"phase": "verify"', '"phase": "review"'))
+    const release = world.holdNextRead(statePath)
+    world.asked.length = 0
+    const slow = $.turn.complete(TURN() as never)
+    for (let i = 0; i < 50 && !world.asked.includes(`read ${statePath}`); i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+    expect(world.asked, '正對照：A 確實已在讀檔途中').toContain(`read ${statePath}`)
+
+    // B：之後開始、先讀完（close）並寫入
+    world.put(statePath, V2_FEATURE_VERIFY_PASS.replace('"phase": "verify"', '"phase": "close"'))
+    await $.command.run(COMMAND())
+    expect(taskOf(snapshotOf(world), 'order-export-csv').phase).toBe('close')
+
+    // 放行 A：它的結果較舊，必須丟棄
+    release()
+    await slow
+    expect(taskOf(snapshotOf(world), 'order-export-csv').phase, '舊世代的 refresh 不得覆蓋').toBe('close')
+    expect(world.stateOf('feature-workflow', 'runtime')).toMatchObject({ isSupported: true, refreshGeneration: 3 })
+
+    // 之後的 refresh 照常生效（世代號沒有卡死）
+    world.put(statePath, V2_FEATURE_VERIFY_PASS.replace('"phase": "verify"', '"phase": "security"'))
+    await $.turn.complete(TURN() as never)
+    expect(taskOf(snapshotOf(world), 'order-export-csv').phase).toBe('security')
+  })
+
   test('T-13：子代理 turn.complete → 0 次 fs.list／fs.read，回傳 next(e) 的結果', async ($, on) => {
     const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
 

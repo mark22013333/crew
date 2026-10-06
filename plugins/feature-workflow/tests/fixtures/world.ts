@@ -36,6 +36,11 @@ export type World = {
   stateOf: (plugin: string, key: string) => unknown
   /** 模擬「別處」寫入 plugin 的 state（例如使用者在 Tasks tab 點選）。 */
   setState: (plugin: string, key: string, value: unknown) => void
+  /**
+   * 讓下一次讀 path 先取當下內容、再停住等放行（模擬慢的 I/O，用來重現並行 refresh 的競態）。
+   * 回傳放行函式；2 秒後自動放行，避免測試卡死。
+   */
+  holdNextRead: (path: string) => () => void
 }
 
 export type WorldOptions = {
@@ -61,6 +66,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
   const extraDirs = new Set(options.dirs ?? [])
 
   const states = new Map<string, { value: unknown; version: number }>()
+  const holds = new Map<string, Promise<void>>()
   const stateKey = (plugin: string, key: string, id?: string) => `${plugin}\u0000${key}\u0000${id ?? ''}`
 
   const world: World = {
@@ -86,6 +92,15 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
       const current = states.get(stateKey(plugin, key))
       states.set(stateKey(plugin, key), { value, version: (current?.version ?? 0) + 1 })
     },
+    holdNextRead: path => {
+      let release: () => void = () => undefined
+      const gate = new Promise<void>(resolve => {
+        release = resolve
+        setTimeout(resolve, 2_000)
+      })
+      holds.set(path, gate)
+      return () => release()
+    },
   }
 
   on('state.get', ($, e) => {
@@ -109,9 +124,14 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
     return extraDirs.has(dir) || [...world.files.keys()].some(file => file.startsWith(`${dir}/`))
   }
 
-  on('fs.read', ($, e) => {
+  on('fs.read', async ($, e) => {
     world.asked.push(`read ${e.path}`)
     const text = world.files.get(e.path)
+    const gate = holds.get(e.path)
+    if (gate !== undefined) {
+      holds.delete(e.path)
+      await gate
+    }
     return text === undefined ? { deny: `ENOENT: ${e.path}` } : { value: text }
   })
 
