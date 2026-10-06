@@ -176,6 +176,22 @@ AI 分析 snapshot 輸出（無障礙樹）來判斷：
   確認執行？[Y/n/skip]
 ```
 
+#### 同步記錄 Verification IR
+
+browser / API / 可結構化的 product recipe 在執行時同步寫入 `.spec/{slug}/.cache/verification-ir.json`，格式見 `../../references/verification-ir.md`。
+
+IR 記錄「實際做了什麼」：
+
+- verifier type
+- precondition
+- action
+- semantic locator / component recipe
+- assertion
+- safety invariant
+- AC join key
+
+不要等驗證完成後再從 `verify.md` 人話反推 selector / action。脆弱 fallback 可以如實記錄，但 E2E draft 必須保留 TODO / reason，不能假裝是穩定資產。
+
 #### 記錄結果
 
 每條記錄：
