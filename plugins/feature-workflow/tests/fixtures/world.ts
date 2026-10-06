@@ -19,6 +19,8 @@ export type World = {
   forbidden: string[]
   commands: { name: string; immediate: boolean }[]
   opened: { id: string; focus: boolean; closeOnEscape: boolean; holdToasts: boolean }[]
+  /** 引擎記錄中「目前開著」的 pane（$.ui.panes 的回答）；ui.open 加入、ui.close 移除。可預先放入以模擬熱重載前已開的 pane。 */
+  panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[]
   toasts: string[]
   /** 輸入框目前的草稿（$.prompt.read 的回答）。 */
   draft: string
@@ -76,6 +78,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
     forbidden: [],
     commands: [],
     opened: [],
+    panes: [],
     toasts: [],
     draft: '',
     fillAnswer: { isFilled: true },
@@ -231,14 +234,19 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
       closeOnEscape: e.closeOnEscape === true,
       holdToasts: e.holdToasts === true,
     })
+    if (!world.panes.some(pane => pane.id === e.id)) {
+      world.panes.push({ id: e.id, title: e.title ?? e.id, isShown: true, isFocused: e.focus === true, isPlaced: true })
+    }
     return { value: { isPlaced: true } } as never
   })
+  on('ui.panes', () => ({ value: world.panes.map(pane => ({ ...pane })) }))
   on('ui.toast', ($, e) => {
     world.toasts.push(e.text)
     return { value: undefined }
   })
   on('ui.close', ($, e) => {
     world.promptLog.push(`ui.close ${e.id}`)
+    world.panes = world.panes.filter(pane => pane.id !== e.id)
     return { value: undefined }
   })
   on('prompt.read', () => {

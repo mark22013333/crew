@@ -218,6 +218,15 @@ export const register: Register = on => {
         return { text: TEXT.usageFull }
       }
       await refreshSnapshot($)
+      // §10：先問引擎 pane 是否已開著（熱重載後模組不記得，但引擎記得），已開就不重複開啟
+      const panes = await $.ui.panes().catch(() => [])
+      const existing = panes.find(pane => pane.id === PANE_ID)
+      if (existing !== undefined) {
+        if (!existing.isPlaced) {
+          $.ui.toast(TEXT.paneNotPlaced)
+        }
+        return { text: TEXT.paneOpened }
+      }
       // 不設 holdToasts：否則 pane 變成 dialog，所有 toast 都要等它關閉（§10）
       const opened = await $.ui.open({ id: PANE_ID, title: TEXT.paneTitle, focus: true, closeOnEscape: true })
       if (!opened.isPlaced) {

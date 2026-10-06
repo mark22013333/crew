@@ -18,6 +18,7 @@
 ./crew-cockpit.ts call $.store.set
 ./crew-cockpit.ts call $.ui.close
 ./crew-cockpit.ts call $.ui.open
+./crew-cockpit.ts call $.ui.panes
 ./crew-cockpit.ts call $.ui.resolve
 ./crew-cockpit.ts call $.ui.toast
 ./crew-cockpit.ts hook command.run{command=crew-cockpit}

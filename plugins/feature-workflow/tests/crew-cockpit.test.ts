@@ -131,6 +131,31 @@ describe('Batch 1：Mod boot', () => {
     expect(world.opened).toEqual([{ id: 'crew-cockpit', focus: true, closeOnEscape: true, holdToasts: false }])
   })
 
+  test('§10：pane 已開著（$.ui.panes）→ 再次 /crew-cockpit 不重複開啟；關閉後可再開', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    expect(world.opened.length, '正對照：第一次確實開啟').toBe(1)
+    expect(await $.command.run(COMMAND())).toEqual({ text: TEXT.paneOpened })
+    expect(world.opened.length, '已開著就不再呼叫 ui.open').toBe(1)
+    expect(world.toasts).toEqual([])
+
+    world.panes = []
+    await $.command.run(COMMAND())
+    expect(world.opened.length, '關閉後再下指令會重新開啟').toBe(2)
+  })
+
+  test('§10：熱重載前已開但尚未就位的 pane → 不重複開啟，只 toast 提示', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+    world.panes = [{ id: 'crew-cockpit', title: 'CREW', isShown: false, isFocused: false, isPlaced: false }]
+
+    await $.session.start(SESSION)
+    expect(await $.command.run(COMMAND())).toEqual({ text: TEXT.paneOpened })
+    expect(world.opened).toEqual([])
+    expect(world.toasts).toEqual([TEXT.paneNotPlaced])
+  })
+
   test('Claude Code 版本過舊：不載入、/crew-cockpit 只回版本需求（§19）', async ($, on) => {
     const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }), { version: '2.1.200' })
 
