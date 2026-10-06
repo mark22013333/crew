@@ -195,21 +195,40 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --format json
 
 ### 第 4 層：產品知識庫（需要產品操作知識時）
 
-從 `projects/{id}.md` 的 `product_id` 欄位取得產品 ID：
+從 `projects/{id}.md` 的 `product_id` 欄位取得產品 ID。Resolution precedence：
 
-- 有 product_id → 讀取 plugin 目錄的 `products/{product_id}.md`
-- 無 product_id → 通用模式（不載入產品知識庫）
+1. 專案 repo `.crew/products/{product_id}.md`
+2. plugin `products/{product_id}.md`
+3. 都不存在 → 通用模式
+
+project-local knowledge 優先，用來承載公司／客戶／環境特有的路由、helper、元件 recipe 等資訊；公開 plugin bundle 只保留可公開、可泛用的產品知識。
 
 取得：頁面導航地圖、常用 Selector、i18n 對照表、特殊操作 Recipe、API 格式。
 
 ### 第 4.1 層：產品級記憶（需要驗證記憶時）
 
-有 product_id 時，額外讀取 `products/{product_id}-memory.md`。
+有 product_id 時，產品級記憶依序解析：
 
-### projects/{id}.md 新增選填欄位
+1. 專案 repo `.crew/products/{product_id}-memory.md`
+2. plugin `products/{product_id}-memory.md`
+3. 都不存在 → Layer 3 為空
+
+### 第 4.2 層：E2E framework adapter（需要產生／執行 E2E 時）
+
+若 `projects/{id}.md` 有 `e2e_adapter`，依 `references/e2e-contract.md` 解析：
+
+1. 專案 repo `.crew/adapters/{e2e_adapter}.md`
+2. plugin `adapters/{e2e_adapter}.md`
+3. 找不到 → generic-playwright
+
+### projects/{id}.md 選填欄位
 
 | 欄位 | 必要性 | 說明 |
 |------|--------|------|
-| product_id | 選填 | 指向 products/{id}.md 的產品知識庫 |
-| e2e_repo | 選填 | E2E 測試 repo 的本機路徑（Phase 3 --e2e 模式用） |
-| e2e_profile | 選填 | E2E 測試的預設 Profile ID |
+| product_id | 選填 | 指向 project-local / plugin product knowledge |
+| e2e_adapter | 選填 | E2E framework adapter ID |
+| e2e_workspace | 選填 | E2E repo 相對於受測 application repo root 的路徑 |
+| e2e_profile | 選填 | E2E 測試預設 Profile ID（不得存 secret） |
+| e2e_command | 選填 | 在 E2E workspace 內執行的 runner 指令 |
+
+舊欄位 `e2e_repo` 僅作 read compatibility；新設定使用 flat `e2e_*` contract。完整規則見 `references/e2e-contract.md`。
