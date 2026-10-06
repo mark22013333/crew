@@ -52,6 +52,17 @@ PLAN_VERIFY_MCP = REPO / "plugins" / "feature-workflow" / "references" / "mcp-in
 PLAN_VERIFY_PRODUCT_MEMORY = REPO / "plugins" / "feature-workflow" / "products" / "smartrobot-memory.md"
 PLAN_VERIFY_ROUTE = PLAN_VERIFY.parent / "phases" / "route-verification.md"
 PLAN_VERIFY_PRECONDITIONS = PLAN_VERIFY.parent / "phases" / "preconditions.md"
+PLAN_VERIFY_E2E_RUNNER = PLAN_VERIFY.parent / "phases" / "e2e-runner.md"
+PLAN_VERIFY_E2E_AUTHORING = PLAN_VERIFY.parent / "phases" / "e2e-authoring.md"
+PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verification-ir.md"
+PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
+PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
+PLAN_VERIFY_E2E_LINTER = REPO / "plugins" / "feature-workflow" / "scripts" / "lint-playwright-e2e.py"
+PLAN_VERIFY_GENERIC_ADAPTER = REPO / "plugins" / "feature-workflow" / "adapters" / "generic-playwright.md"
+PLAN_COMMON = REPO / "plugins" / "feature-workflow" / "references" / "plan-common.md"
+PLAN_VERIFY_CONFIG_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "config.template.md"
+PLAN_VERIFY_CONFIG_RESOLVER = REPO / "plugins" / "feature-workflow" / "references" / "config-resolver.md"
+PROJECT_ADD = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
 
 PLAN_VERIFY_REQUIRED = (
     "CREW_PLUGIN_ROOT",
@@ -63,6 +74,11 @@ PLAN_VERIFY_REQUIRED = (
     "phases/route-verification.md",
     "phases/preconditions.md",
     "BLOCKED",
+    "--e2e-draft",
+    "phases/e2e-runner.md",
+    "phases/e2e-authoring.md",
+    "../../references/verification-ir.md",
+    "../../references/e2e-contract.md",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -186,6 +202,17 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_PRODUCT_MEMORY,
         PLAN_VERIFY_ROUTE,
         PLAN_VERIFY_PRECONDITIONS,
+        PLAN_VERIFY_E2E_RUNNER,
+        PLAN_VERIFY_E2E_AUTHORING,
+        PLAN_VERIFY_IR,
+        PLAN_VERIFY_E2E_CONTRACT,
+        PLAN_VERIFY_E2E_RESULT,
+        PLAN_VERIFY_E2E_LINTER,
+        PLAN_VERIFY_GENERIC_ADAPTER,
+        PLAN_COMMON,
+        PLAN_VERIFY_CONFIG_TEMPLATE,
+        PLAN_VERIFY_CONFIG_RESOLVER,
+        PROJECT_ADD,
     )
     for path in required_files:
         if not path.is_file():
@@ -246,6 +273,52 @@ def check_plan_verify_contract() -> list[str]:
     for marker in ("BLOCKED", "前置條件失敗不等於產品功能失敗", "不計入 FAIL"):
         if marker not in preconditions:
             errors.append(f"{PLAN_VERIFY_PRECONDITIONS.relative_to(REPO)} 缺 precondition marker：{marker}")
+
+    e2e_runner = PLAN_VERIFY_E2E_RUNNER.read_text(encoding="utf-8")
+    for marker in ("{slug}#AC-n", "legacy `verify-map.json`", "BLOCKED", "crew-results.json"):
+        if marker not in e2e_runner:
+            errors.append(f"{PLAN_VERIFY_E2E_RUNNER.relative_to(REPO)} 缺 E2E runner marker：{marker}")
+
+    e2e_authoring = PLAN_VERIFY_E2E_AUTHORING.read_text(encoding="utf-8")
+    for marker in ("maturity = draft", "Verification IR", "test.step", "ci_eligible=false"):
+        if marker not in e2e_authoring:
+            errors.append(f"{PLAN_VERIFY_E2E_AUTHORING.relative_to(REPO)} 缺 E2E authoring marker：{marker}")
+
+    ir = PLAN_VERIFY_IR.read_text(encoding="utf-8")
+    for marker in ("schema_version", ".cache/verification-ir.json", "{slug}#AC-{n}", "forbid_request"):
+        if marker not in ir:
+            errors.append(f"{PLAN_VERIFY_IR.relative_to(REPO)} 缺 Verification IR marker：{marker}")
+
+    e2e = PLAN_VERIFY_E2E_CONTRACT.read_text(encoding="utf-8")
+    for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "e2e_workspace", "受測 application repo root"):
+        if marker not in e2e:
+            errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} 缺 portable E2E marker：{marker}")
+
+    result_schema = PLAN_VERIFY_E2E_RESULT.read_text(encoding="utf-8")
+    for marker in ("crew-results.json", "flaky", "blocked", "coverage"):
+        if marker not in result_schema:
+            errors.append(f"{PLAN_VERIFY_E2E_RESULT.relative_to(REPO)} 缺 E2E result schema marker：{marker}")
+
+    e2e_linter = PLAN_VERIFY_E2E_LINTER.read_text(encoding="utf-8")
+    for marker in ("TEST_ONLY", "UNRESOLVED_MARKER", "MISSING_AC", "MISSING_ASSERTION", "--strict-review"):
+        if marker not in e2e_linter:
+            errors.append(f"{PLAN_VERIFY_E2E_LINTER.relative_to(REPO)} 缺 E2E authoring linter marker：{marker}")
+
+    plan_common = PLAN_COMMON.read_text(encoding="utf-8")
+    for marker in (".crew/products/{product_id}.md", "e2e_adapter", "e2e_workspace", "e2e_profile", "舊欄位 `e2e_repo`"):
+        if marker not in plan_common:
+            errors.append(f"{PLAN_COMMON.relative_to(REPO)} 缺 project-local E2E/product resolution marker：{marker}")
+
+    config_template = PLAN_VERIFY_CONFIG_TEMPLATE.read_text(encoding="utf-8")
+    config_resolver = PLAN_VERIFY_CONFIG_RESOLVER.read_text(encoding="utf-8")
+    project_add = PROJECT_ADD.read_text(encoding="utf-8")
+    for marker in ("product_id", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command", "e2e_results"):
+        if marker not in config_template:
+            errors.append(f"{PLAN_VERIFY_CONFIG_TEMPLATE.relative_to(REPO)} 缺 project E2E 欄位：{marker}")
+        if marker not in config_resolver:
+            errors.append(f"{PLAN_VERIFY_CONFIG_RESOLVER.relative_to(REPO)} 缺 project E2E 欄位說明：{marker}")
+        if marker not in project_add:
+            errors.append(f"{PROJECT_ADD.relative_to(REPO)} 寫入 project mapping 時未保留 E2E 欄位：{marker}")
 
     return errors
 
