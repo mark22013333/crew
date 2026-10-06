@@ -32,7 +32,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-results.py" summarize \
 - blocked 必須有 reason
 - 只保留目前 slug，其他結果計入 ignored
 - 同一 AC 多筆 coverage 採最差狀態聚合
-- git SHA freshness
+- git SHA freshness（fresh / stale / unknown）
 - deterministic counts / partial coverage / overall PASS|WARN|FAIL
 
 Health Score 不在此腳本發明新公式，仍由 plan-verify 既有評分邏輯處理。
@@ -82,6 +82,9 @@ CI 本身不得 commit / patch `state.json`。
 
 ## 6. Freshness
 
-若 result 的 git_sha 與目前受測 commit 明顯不一致：
-- 標 WARN
-- 不得把 stale CI result 宣稱為目前程式碼的最新驗收證據
+若目前受測 commit 已知：
+- result git_sha 相符 → fresh
+- result git_sha 不同 → stale，標 WARN
+- result 缺 git_sha → unknown，標 WARN
+
+stale / unknown 都不得宣稱為目前程式碼的最新驗收證據。
