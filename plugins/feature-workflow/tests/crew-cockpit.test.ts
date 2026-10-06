@@ -512,6 +512,44 @@ describe('缺 state.json 的目錄、repo root 判定、增量重讀', () => {
     expect(await resolveRepoRoot(io('/work/worktree-a', ROOT))).toEqual({ root: ROOT, source: 'git-root' })
     expect(await resolveRepoRoot(io('/work', null)), '多 repo workspace 根目錄').toEqual({ root: null, source: null })
     expect(await resolveRepoRoot(io(`${ROOT}/src`, null)), '沒有 git 根時不往上走').toEqual({ root: null, source: null })
+
+    // ---- git worktree：repo().root 是主工作樹（ROOT），邊界改由 `.git`（worktree 是檔案）判定 ----
+    // 主工作樹外的 worktree：從子目錄啟動也要往上找到 worktree 自己的 .spec，不得 fallback 到主工作樹
+    world.put('/work/wt-b/.git', 'gitdir: /work/repo/.git/worktrees/wt-b')
+    world.put('/work/wt-b/.spec/wt-task/state.json', V2_FEATURE_VERIFY_PASS)
+    expect(await resolveRepoRoot(io('/work/wt-b/src/app', ROOT))).toEqual({ root: '/work/wt-b', source: 'ancestor' })
+    // worktree 根之外的 .spec（例如 /work/.spec）不得被撿到：越過 worktree 根就停，交給 git 根 fallback
+    world.put('/work/wt-c/.git', 'gitdir: /work/repo/.git/worktrees/wt-c')
+    world.put('/work/.spec/stray/state.json', '{}')
+    expect(await resolveRepoRoot(io('/work/wt-c/src', ROOT))).toEqual({ root: ROOT, source: 'git-root' })
+    // worktree 放在主工作樹底下（.claude/worktrees/w1）：往上不得越過 worktree 根撿到主工作樹的 .spec
+    world.put(`${ROOT}/.claude/worktrees/w1/.git`, 'gitdir: /work/repo/.git/worktrees/w1')
+    world.put(`${ROOT}/.claude/.spec/inner/state.json`, '{}')
+    expect(await resolveRepoRoot(io(`${ROOT}/.claude/worktrees/w1/src`, ROOT))).toEqual({ root: ROOT, source: 'git-root' })
+    world.put(`${ROOT}/.claude/worktrees/w1/.spec/w1-task/state.json`, V2_FEATURE_VERIFY_PASS)
+    expect(await resolveRepoRoot(io(`${ROOT}/.claude/worktrees/w1/src`, ROOT))).toEqual({
+      root: `${ROOT}/.claude/worktrees/w1`,
+      source: 'ancestor',
+    })
+  })
+
+  test('§6.1：在 worktree 子目錄啟動時，snapshot 讀的是 worktree 的 .spec 而非主工作樹', async ($, on) => {
+    const world = worldOf(
+      on,
+      {
+        ...specFiles({ 'main-task/state.json': V2_FEATURE_VERIFY_PASS }),
+        '/work/wt-b/.git': 'gitdir: /work/repo/.git/worktrees/wt-b',
+        ...specFiles({ 'wt-task/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }, '/work/wt-b'),
+      },
+      { sessionRoot: '/work/wt-b/src', gitRoot: ROOT },
+    )
+
+    await $.session.start(SESSION)
+    const snapshot = snapshotOf(world)
+    expect(snapshot.repoRoot).toBe('/work/wt-b')
+    expect(snapshot.rootSource).toBe('ancestor')
+    expect(snapshot.tasks.map(task => task.id)).toEqual(['wt-task'])
+    expect(world.asked.filter(entry => entry.startsWith('read ')).some(entry => entry.includes(`${ROOT}/.spec`)), '不讀主工作樹的 .spec').toBe(false)
   })
 
   test('§15：主 turn 結束只重讀 mtime 變了的檔；子代理 turn.complete 不重掃', async ($, on) => {

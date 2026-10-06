@@ -130,10 +130,41 @@ const hasSpecDir = async (io: LoaderPorts, dir: string): Promise<boolean> => {
   }
 }
 
+/** 往上找工作樹根時最多走幾層（防呆，正常 repo 不會這麼深）。 */
+const MAX_ROOT_DEPTH = 64
+
+/** dir 底下是否有 `.git`（主工作樹是目錄、git worktree 是檔案）；只問存在與否，不讀內容、不解析 HEAD（§8）。 */
+const hasGitMarker = async (io: LoaderPorts, dir: string): Promise<boolean> => {
+  try {
+    return await io.exists(joinPath(dir, '.git'))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 包含 start 的工作樹根：從 start（含）往上第一個含 `.git` 的目錄。
+ * 在 git worktree 裡，$.session.repo().root 是「主工作樹」，不是目前所在的 worktree，
+ * 所以只能靠 `.git` 這個標記判定邊界：worktree 根的 `.git` 是檔案，主工作樹的是目錄，兩者都算。
+ * 找不到回 null。
+ */
+const findWorkTreeRoot = async (io: LoaderPorts, start: string): Promise<string | null> => {
+  let current: string | null = start
+  for (let depth = 0; current !== null && depth < MAX_ROOT_DEPTH; depth += 1) {
+    if (await hasGitMarker(io, current)) {
+      return current
+    }
+    current = parentOf(current)
+  }
+  return null
+}
+
 /**
  * §6.1 repo root：依序檢查，第一個含 .spec/ 目錄者勝出。
  * 1. $.session.root()（啟動目錄／worktree 位置，不是 git 根）
- * 2. 從 session root 逐層往上，最多到 git 根（session root 必須在 git 根之下才走）
+ * 2. 從 session root 逐層往上，最多到「目前所在工作樹的根」：
+ *    一般 repo 就是 git 根；在 git worktree 裡則是 worktree 根（含 `.git` 檔案的那層），
+ *    不越過它去讀到主工作樹或更上層的 .spec。找不到工作樹根時，session root 在 git 根之下才以 git 根為界。
  * 3. $.session.repo()?.root（worktree 時是主工作樹，只能當最後 fallback）
  * 都沒有 → null（例如多 repo workspace 根目錄；不往下掃 sub-repo）。
  */
@@ -155,17 +186,28 @@ export async function resolveRepoRoot(io: LoaderPorts): Promise<RepoRootResult> 
     if (await hasSpecDir(io, sessionRoot)) {
       return { root: sessionRoot, source: 'session-root' }
     }
-    if (gitRoot !== null && !samePath(sessionRoot, gitRoot) && isUnder(sessionRoot, gitRoot)) {
-      let current = parentOf(sessionRoot)
-      // 往上走到（含）git 根為止
-      while (current !== null && isUnder(current, gitRoot)) {
-        if (await hasSpecDir(io, current)) {
-          return { root: current, source: 'ancestor' }
+    if (gitRoot !== null && gitRoot !== '') {
+      const isInsideGitRoot = !samePath(sessionRoot, gitRoot) && isUnder(sessionRoot, gitRoot)
+      // 邊界：最近的工作樹根；在 git 根之下卻找不到標記（例如 fs 不給看）時退回 git 根
+      const found = await findWorkTreeRoot(io, sessionRoot)
+      const boundary =
+        found !== null && (!isInsideGitRoot || isUnder(found, gitRoot)) ? found : isInsideGitRoot ? gitRoot : null
+      if (boundary !== null && !samePath(boundary, sessionRoot)) {
+        let current = parentOf(sessionRoot)
+        // 往上走到（含）邊界為止
+        while (current !== null && isUnder(current, boundary)) {
+          if (await hasSpecDir(io, current)) {
+            return { root: current, source: 'ancestor' }
+          }
+          if (samePath(current, boundary)) {
+            break
+          }
+          current = parentOf(current)
         }
-        if (samePath(current, gitRoot)) {
+        if (samePath(boundary, gitRoot)) {
+          // git 根已經檢查過了
           return { root: null, source: null }
         }
-        current = parentOf(current)
       }
     }
   }
