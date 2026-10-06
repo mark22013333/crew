@@ -46,15 +46,29 @@ test('scenario', async ({ page }) => {
 
 每個 step title 直接包含 `{slug}#AC-n`，避免 reporter 需要 fuzzy mapping。
 
-獨立 test 也必須在 title / annotation / tag 中保留 `{slug}#AC-n`，具體形式由 adapter 決定。
+獨立 test 也必須在 title / annotation / tag 中保留 `{slug}#AC-n`，具體形式由 adapter 決定。Generic reporter 建議使用：
 
-若 precondition 不成立，candidate 必須把 precondition 與 product assertion 分開，避免環境失敗被寫成產品 assertion failure。
+```js
+annotation: { type: 'crew-ac', description: '{slug}#AC-1' }
+```
+
+若 precondition 不成立，candidate 必須把 precondition 與 product assertion 分開。整支 scenario blocked 可用 `crew-blocked`；只影響部分 AC 時使用 `crew-ac-status` JSON 指定 `{slug}#AC-n`。需要支援 Playwright < 1.52 時，可同步使用同名 JSON attachment。
 
 ## 3. Precondition 與 assertion
 
 Candidate 必須把 precondition 與 product assertion 分開，例如 auth/session verify、fixture existence、dependency availability。
 
 Precondition 失敗應能被 reporter 辨識為 blocked，而不是讓後面每條 AC 一起 fail。
+
+### Partial coverage
+
+若 browser 只證明 AC 的一部分，不得把該 AC 當 full PASS。使用 adapter 定義的 `crew-ac-status` metadata 記：
+
+```json
+{"ac":"{slug}#AC-9","coverage":"partial","reason":"browser evidence only"}
+```
+
+`passed + partial` 在 `--from-e2e` 匯入時會轉成 WARN。
 
 ## 4. Safety invariant
 
