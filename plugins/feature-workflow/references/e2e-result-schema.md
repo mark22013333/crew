@@ -108,6 +108,16 @@ failed > blocked > flaky > manual > skipped > passed
 
 coverage 聚合：只要任一筆明確宣告 `full`，聚合 coverage 為 `full`；若所有 coverage 都是 `partial`，聚合結果維持 `partial`。
 
+## Freshness
+
+當 `--from-e2e` 知道目前受測 commit：
+
+- artifact `git_sha` 相符 → `fresh`
+- artifact `git_sha` 不同 → `stale`，overall 至少 WARN
+- artifact 沒有 `git_sha` → `unknown`，overall 至少 WARN
+
+缺 SHA 不能當成「沒有 stale」。
+
 ## Boundaries
 
 - CI 只產 result artifact，不 commit / patch `.spec/{slug}/state.json`。
