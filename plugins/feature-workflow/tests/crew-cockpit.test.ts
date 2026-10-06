@@ -1,14 +1,25 @@
 // CREW Cockpit（Batch 1 Mod boot＋Batch 2 Read model）的自動測試：`claude plugin test plugins/feature-workflow`。
 // 依規格 §22：fixture 以 fs hook 注入（tests/fixtures/world.ts），同時 spy 不得發生的呼叫。
-// 涵蓋 T-1、T-2、T-3、T-6、T-11、T-14 的讀取模型層；HUD／Overview 的畫面斷言由 Batch 3／5 補上。
+// Batch 1/2 涵蓋 T-1、T-2、T-3、T-6、T-11、T-14 的讀取模型層；
+// Batch 3–6 補上 Pane／HUD 畫面斷言與 T-4、T-5、T-7、T-8、T-9、T-10、T-12、T-13、T-15（見檔尾）。
 
+import type { Engine } from 'claude-code/testing'
 import type { RenderInput, SessionStartInput } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 
 import { resolveRepoRoot, toIrSummary } from '../hooks/cockpit/loader'
 import { TEXT, asInt, isFillableSlug, parseIsoMs, sanitizeText } from '../hooks/cockpit/model'
 import type { CockpitSnapshot, CockpitTaskView } from '../hooks/cockpit/model'
-import { fillCommandFor, hudText, otherActiveCount, progressOf, resolveSelection, visibleGates } from '../hooks/cockpit/selectors'
+import {
+  fillCommandFor,
+  formatClock,
+  hudText,
+  otherActiveCount,
+  progressOf,
+  resolveSelection,
+  verifyDisplay,
+  visibleGates,
+} from '../hooks/cockpit/selectors'
 import {
   HOSTILE,
   IR_MALFORMED,
@@ -24,7 +35,7 @@ import {
   V3_FUTURE,
   VERIFICATION_IR,
 } from './fixtures/states'
-import { ROOT, specFiles, textOf, type World, worldOf } from './fixtures/world'
+import { NOW, ROOT, specFiles, textOf, type World, worldOf } from './fixtures/world'
 
 const SESSION: SessionStartInput = { surface: 'terminal', isInteractive: true, cwd: ROOT }
 
@@ -278,8 +289,15 @@ describe('T-6 壞掉的 state', () => {
     expect(snapshot.invalidTasks.find(row => row.id === 'huge-task')?.message).toBe(TEXT.fileTooLarge)
     expect(world.asked, '過大的檔不讀').not.toContain(`read ${ROOT}/.spec/huge-task/state.json`)
 
+    // 畫面：任務 tab 列出 invalid row（§16），其他 task 照常
     await $.command.run(COMMAND())
-    expect(textOf((await $.ui.render(PANE)) as never)).toContain('3 筆無法解析')
+    const pane = await mountPane($, 'terminal')
+    await pressAndRedraw(pane, 'tab-tasks')
+    const drawn = textOf(await pane.drawn())
+    for (const id of ['broken-task', 'array-task', 'huge-task']) {
+      expect(drawn).toContain(`${id} · ${TEXT.invalidState}`)
+    }
+    expect(drawn).toContain('order-export-csv')
   })
 
   test('IR：存在＝ready（route 依實際值統計）、壞掉＝invalid、不存在＝missing（常態）', async ($, on) => {
@@ -521,4 +539,568 @@ describe('純函式', () => {
     expect(task.staleDays).toBe(0)
     expect(task.staleUnknown).toBe(true)
   })
+})
+
+// ===========================================================================
+// Batch 3–6：Pane／HUD 畫面、Verify、Fill
+// ===========================================================================
+
+const PLUGIN = 'feature-workflow'
+const SURFACES = ['terminal', 'desktop'] as const
+type Surface = (typeof SURFACES)[number]
+
+/**
+ * 按下按鈕後重繪。測試的 $.state 由 tests/fixtures/world.ts 的 state.get/state.set hook 以記憶體實作
+ * （測試引擎沒有 state noun），引擎的「寫入即通知讀者重繪」不在這條路上，所以按完要明確 redraw。
+ * 真實 session 由引擎自動重繪（§3 D-3）。
+ */
+async function pressAndRedraw(mounted: { press: (target: { key: string }) => Promise<unknown>; redraw: () => Promise<void> }, key: string): Promise<void> {
+  await mounted.press({ key })
+  await mounted.redraw()
+}
+
+/** AbovePrompt 下方沒有其他 mod 時，代表引擎的「什麼都不畫」。 */
+function nothingBeneathBand(on: Parameters<typeof worldOf>[0]): void {
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] }) as never)
+}
+
+/** 以指定 surface 掛載 Cockpit pane（T-10：不假設 surface）。 */
+async function mountPane($: Engine, surface: Surface, bodyColumns: number = PANE.props.bodyColumns) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'Pane',
+    requestId: 'crew-cockpit',
+    props: { ...PANE.props, bodyColumns },
+    viewport: PANE.viewport,
+  })
+}
+
+/** 以指定 surface 掛載 AbovePrompt band。 */
+async function mountBand($: Engine, surface: Surface, props: Partial<RenderInput<'AbovePrompt'>['props']> = {}) {
+  return $.ui.mount({
+    plugin: PLUGIN,
+    surface,
+    component: 'AbovePrompt',
+    requestId: 'band',
+    props: { ...BAND.props, ...props },
+    viewport: BAND.viewport,
+  })
+}
+
+/** 其他 mod 畫在 AbovePrompt 的內容（測試 hook 位於 plugin 之下，代表 next(e) 的既有 drawing）。 */
+const OTHER_MOD = 'OTHER-MOD-BAND'
+/** 改寫 fixture 的 results.verify（T-4 用）。 */
+const withVerify = (fixture: string, verify: Record<string, unknown>): string => {
+  const raw = JSON.parse(fixture) as Record<string, unknown>
+  const results = (raw.results ?? {}) as Record<string, unknown>
+  return JSON.stringify({ ...raw, results: { ...results, verify } }, null, 2)
+}
+
+/** 畫面上所有文字元素（type=Text）與其顏色。 */
+async function textColors(mounted: { findAll: (query: { type?: string; text?: string | RegExp }) => Promise<{ text: string; props: Record<string, unknown> }[]> }, text: RegExp) {
+  return (await mounted.findAll({ type: 'Text', text })).map(found => ({ text: found.text, color: found.props.color }))
+}
+
+describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫面）', () => {
+  test('T-2 畫面：Overview 顯示 phase、核准閘、結果、上次記錄的建議（快照）與 Fill；不寫檔', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    const drawn = textOf(await pane.drawn())
+
+    expect(drawn).toContain('order-export-csv')
+    expect(drawn).toContain('feature · verify · schema v2')
+    expect(drawn).toContain(TEXT.approval)
+    expect(drawn).toContain('requirement   approved')
+    expect(drawn).toContain('uat           pending')
+    expect(drawn).toContain('verify    PASS')
+    expect(drawn).toContain(`${TEXT.progress}（7 / 9）`)
+    expect(drawn).toContain(TEXT.recordedNext)
+    expect(drawn).toContain('/plan-review')
+    expect(drawn).toContain('branch: feature/order-export-csv')
+    expect(drawn).toContain(TEXT.branchNote)
+    expect(drawn).toContain(TEXT.loadedAt(formatClock(NOW)))
+    expect((await pane.find({ key: 'fill' }))?.props.label).toBe(TEXT.fill('order-export-csv'))
+    expect(world.forbidden).toEqual([])
+  })
+
+  test('T-3 畫面：自動選最新 active 並標「自動選取」；在任務 tab 點另一個 task 後 Overview 切換，只改 UI state', async ($, on) => {
+    const world = worldOf(
+      on,
+      specFiles({
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+        'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+        'search-synonyms/state.json': V2_FEATURE_PARKED,
+        'profile-avatar-upload/state.json': V2_FEATURE_CLOSED,
+      }),
+    )
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    const before = textOf(await pane.drawn())
+    expect(before).toContain(TEXT.autoSelected)
+    expect(before).toContain('另有 1 個進行中')
+    expect((await pane.find({ key: 'fill' }))?.props.label).toBe(TEXT.fill('order-export-csv'))
+
+    await pressAndRedraw(pane, 'tab-tasks')
+    const tasks = textOf(await pane.drawn())
+    // 排序 active → parked → closed；選取列標 ▶
+    const order = ['order-export-csv', 'push-tag-query', 'search-synonyms', 'profile-avatar-upload'].map(id => tasks.indexOf(id))
+    expect(order.every(index => index >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+    expect((await pane.find({ key: 'task-0' }))?.props.label).toBe(`${TEXT.selected} order-export-csv`)
+
+    await pressAndRedraw(pane, 'task-1')
+    expect(world.stateOf('feature-workflow', 'selectedSlug')).toBe('push-tag-query')
+    expect(world.stateOf('feature-workflow', 'tab')).toBe('overview')
+    const after = textOf(await pane.drawn())
+    expect((await pane.find({ key: 'fill' }))?.props.label).toBe(TEXT.fill('push-tag-query'))
+    expect(after).not.toContain(TEXT.autoSelected)
+    expect(after).toContain('verify    WARN（BLOCKED ×2）')
+    expect(world.forbidden, '只改 UI state，不寫任何 project file').toEqual([])
+  })
+
+  test('Refresh：重新整理按鈕重讀 snapshot，畫面反映外部變更', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    world.put(`${ROOT}/.spec/order-export-csv/state.json`, V2_FEATURE_VERIFY_PASS.replace('"phase": "verify"', '"phase": "review"'))
+    expect(textOf(await pane.drawn())).toContain('feature · verify')
+
+    await pressAndRedraw(pane, 'refresh')
+    expect(textOf(await pane.drawn())).toContain('feature · review')
+    expect(world.forbidden).toEqual([])
+  })
+
+  test('T-11 畫面：v1 feature 顯示「舊版格式」、無 pending、無升級提示；v1 bug 列出 9 步；v2 bug 只顯示 4 步與 uat', async ($, on) => {
+    const world = worldOf(
+      on,
+      specFiles({
+        'legacy-report-filter/state.json': V1_FEATURE_LEGACY,
+        'cache-ttl-bug/state.json': V1_BUG_9STEPS,
+        'login-timeout-fix/state.json': V2_BUG_MINIMAL,
+      }),
+    )
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+
+    world.setState('feature-workflow', 'selectedSlug', 'legacy-report-filter')
+    const pane = await mountPane($, 'terminal')
+    const v1 = textOf(await pane.drawn())
+    expect(v1).toContain(TEXT.v1NoGates)
+    expect(v1).not.toContain('pending')
+    expect(v1).not.toMatch(/升級|upgrade/i)
+    expect(await pane.findAll({ type: 'Button', text: /升級|upgrade/i })).toEqual([])
+
+    world.setState('feature-workflow', 'selectedSlug', 'cache-ttl-bug')
+    await pane.redraw()
+    const v1Bug = textOf(await pane.drawn())
+    expect(v1Bug).toContain(`${TEXT.progress}（1 / 9）`)
+    for (const key of ['start', 'spec', 'db', 'arch', 'build', 'security', 'verify', 'review', 'close']) {
+      expect(v1Bug).toContain(`${key} `)
+    }
+
+    world.setState('feature-workflow', 'selectedSlug', 'login-timeout-fix')
+    await pane.redraw()
+    const v2Bug = textOf(await pane.drawn())
+    expect(v2Bug).toContain(`${TEXT.progress}（3 / 4）`)
+    expect(v2Bug).toContain('start ✓  investigate ✓  fix ✓  close ○')
+    expect(v2Bug).toContain('uat ')
+    expect(v2Bug).not.toContain('requirement')
+    expect(v2Bug).not.toContain('architecture')
+  })
+
+  test('T-14 畫面：HUD 與 Pane 都沒有控制字元、單行截斷；slug 含空白 → 沒有 Fill 按鈕，改顯示說明', async ($, on) => {
+    worldOf(on, specFiles({ 'evil task/state.json': HOSTILE }))
+    nothingBeneathBand(on)
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    const band = await mountBand($, 'terminal')
+    const paneText = textOf(await pane.drawn())
+    const bandText = textOf(await band.drawn())
+
+    // 正對照：HUD 與 pane 確實畫出了這個 task（否則「沒有控制字元」是空洞的通過）
+    expect(bandText).toContain('CREW · evil task · feature / spec')
+    expect(paneText).toContain('紅字第一行 第二行 長')
+    expect(CONTROL_CHARS.test(paneText)).toBe(false)
+    expect(CONTROL_CHARS.test(bandText)).toBe(false)
+    expect(await pane.find({ key: 'fill' })).toBe(undefined)
+    expect(paneText).toContain(TEXT.slugNotFillable)
+    expect(bandText).not.toContain('/plan-next')
+    expect(bandText, 'HUD 不得出現 state.next 的惡意指令換行片段').not.toContain('injected\n')
+    for (const found of await band.findAll({ type: 'Text' })) {
+      expect(Array.from(found.text).length <= 200, 'HUD 每段都已截斷').toBe(true)
+    }
+  })
+})
+
+describe('T-4 BLOCKED semantics（Batch 4）', () => {
+  const cases = [
+    { name: 'WARN＋blocked=2 → WARN（BLOCKED ×2）警示色', verify: { status: 'WARN', blocked: 2 }, label: 'WARN（BLOCKED ×2）', color: 'warning', hasBlocked: true },
+    { name: 'WARN＋blocked=0 → 只有 WARN，不得出現 BLOCKED', verify: { status: 'WARN', blocked: 0 }, label: 'WARN', color: 'warning', hasBlocked: false },
+    { name: 'WARN＋blocked="2"（字串計數）→ 同第一列', verify: { status: 'WARN', blocked: '2' }, label: 'WARN（BLOCKED ×2）', color: 'warning', hasBlocked: true },
+    { name: 'FAIL＋blocked=1 → FAIL 附「另有 BLOCKED ×1」', verify: { status: 'FAIL', blocked: 1 }, label: 'FAIL', color: 'error', hasBlocked: true },
+  ] as const
+
+  for (const item of cases) {
+    test(item.name, async ($, on) => {
+      worldOf(on, specFiles({ 'push-tag-query/state.json': withVerify(V2_FEATURE_VERIFY_WARN_BLOCKED, item.verify) }))
+      nothingBeneathBand(on)
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, 'terminal')
+      const band = await mountBand($, 'terminal')
+
+      // Overview 結果列
+      const overview = textOf(await pane.drawn())
+      expect(overview).toContain(`verify    ${item.label}`)
+      const [overviewLabel] = await textColors(pane, /^verify {4}/)
+      expect(overviewLabel?.color).toBe(item.color)
+
+      // Verify tab
+      await pressAndRedraw(pane, 'tab-verify')
+      const verifyTab = textOf(await pane.drawn())
+      const [statusLabel] = await textColors(pane, new RegExp(`^${item.label.replace(/[()（）×]/g, '.')}$`))
+      expect(statusLabel?.color).toBe(item.color)
+      expect(verifyTab).toContain(TEXT.truthSeparator)
+
+      // HUD
+      const hud = textOf(await band.drawn())
+      expect(hud).toContain(`${TEXT.verifyLabel} ${item.label}`)
+
+      if (item.verify.status === 'WARN') {
+        // 狀態標籤絕不是 FAIL，也不用 negative 色
+        expect(overviewLabel?.color).not.toBe('error')
+        expect(statusLabel?.text).not.toContain('FAIL')
+      }
+      if (item.hasBlocked && item.verify.status === 'WARN') {
+        expect(verifyTab).toContain(TEXT.blockedNote(2))
+      }
+      if (!item.hasBlocked) {
+        expect(overview).not.toContain('BLOCKED')
+        expect(verifyTab).not.toContain('BLOCKED')
+        expect(hud).not.toContain('BLOCKED')
+      }
+      if (item.verify.status === 'FAIL') {
+        expect(overview).toContain(TEXT.otherBlocked(1))
+        expect(verifyTab).toContain(TEXT.otherBlocked(1))
+        expect(verifyTab, 'FAIL 不套用 BLOCKED 說明句').not.toContain(TEXT.blockedNote(1))
+      }
+    })
+  }
+
+  test('verifyDisplay 純函式：BLOCKED 只在 WARN＋blocked>0；status 原值 BLOCKED 照原值警示色；缺值為 —', () => {
+    const base = { entries: [], isEmpty: false, hasBlockedKey: true }
+    expect(verifyDisplay({ ...base, status: 'WARN', blocked: 0 }).label).toBe('WARN')
+    expect(verifyDisplay({ ...base, status: 'WARN', blocked: 3 })).toMatchObject({ label: 'WARN（BLOCKED ×3）', short: 'BLOCKED ×3', tone: 'warning', isBlocked: true })
+    expect(verifyDisplay({ ...base, status: 'WARN', blocked: -1 }).isBlocked).toBe(false)
+    expect(verifyDisplay({ ...base, status: 'FAIL', blocked: 2 })).toMatchObject({ label: 'FAIL', tone: 'negative', isBlocked: false, note: TEXT.otherBlocked(2) })
+    expect(verifyDisplay({ ...base, status: 'BLOCKED', blocked: 0 })).toMatchObject({ label: 'BLOCKED', tone: 'warning' })
+    expect(verifyDisplay({ ...base, status: null, blocked: 0 })).toMatchObject({ label: '—', tone: 'neutral' })
+    expect(verifyDisplay({ ...base, status: 'PASS', blocked: 5 })).toMatchObject({ label: 'PASS', tone: 'positive', isBlocked: false })
+  })
+})
+
+describe('T-5 IR summary（Batch 4）', () => {
+  test('Verify tab 依實際值統計 route（browser 2、api 1、custom-x 1），不出現 fixture 沒有的類別', async ($, on) => {
+    worldOf(
+      on,
+      specFiles({
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+        'push-tag-query/.cache/verification-ir.json': VERIFICATION_IR,
+      }),
+    )
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    await pressAndRedraw(pane, 'tab-verify')
+    const drawn = textOf(await pane.drawn())
+
+    expect(drawn).toContain(`IR  ${TEXT.irReady}`)
+    expect(drawn).toContain('ACs  4')
+    expect(drawn).toContain('Routes  browser 2 · api 1 · custom-x 1')
+    expect(drawn).toContain('Preconditions  2')
+    expect(drawn).toContain('Safety  1')
+    expect(drawn).toContain('AC-4  custom-x')
+    // Routes 一行只能有 fixture 實際出現的值，不得補出固定類別（manual／e2e／database…）或「未標 type」組
+    const routes = await pane.findAll({ type: 'Text', text: /^Routes / })
+    expect(routes.map(found => found.text)).toEqual(['Routes  browser 2 · api 1 · custom-x 1'])
+    const acLines = (await pane.findAll({ type: 'Text', text: /^AC-\d+ / })).map(found => found.text)
+    expect(acLines).toEqual(['AC-1  browser', 'AC-2  api', 'AC-3  browser', 'AC-4  custom-x'])
+    expect(drawn).not.toContain(TEXT.irUntyped)
+    expect(drawn).not.toMatch(/ci-ready(?! ≠)/)
+    // results.verify 摘要 key 存在才顯示
+    expect(drawn).toContain('health_score  82')
+    expect(drawn).toContain('mode  full')
+  })
+
+  test('IR 不存在 → 「尚未產生 E2E 候選」中性色；IR 壞掉 → 無法解析提示', async ($, on) => {
+    const world = worldOf(
+      on,
+      specFiles({
+        'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+        'push-tag-query/.cache/verification-ir.json': IR_MALFORMED,
+      }),
+    )
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    world.setState('feature-workflow', 'selectedSlug', 'order-export-csv')
+    world.setState('feature-workflow', 'tab', 'verify')
+    const pane = await mountPane($, 'terminal')
+    const missing = textOf(await pane.drawn())
+    expect(missing).toContain(TEXT.irMissing)
+    const [irLine] = await textColors(pane, new RegExp(TEXT.irMissing))
+    expect(irLine?.color, '中性色：不上 warning／error').toBe(undefined)
+    expect(missing).toContain(TEXT.truthSeparator)
+
+    world.setState('feature-workflow', 'selectedSlug', 'push-tag-query')
+    await pane.redraw()
+    const invalid = textOf(await pane.drawn())
+    expect(invalid).toContain('Verification IR：檔案無法解析')
+    expect(invalid).toContain('重新執行 /plan-verify 可重新產生。')
+  })
+})
+
+describe('Batch 5 HUD＋composition（T-7、T-15）', () => {
+  test('T-7：其他 mod 的 band（next(e)）與 HUD 同時存在', async ($, on) => {
+    worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [OTHER_MOD] }) as never)
+
+    await $.session.start(SESSION)
+    const band = await mountBand($, 'terminal')
+    const drawn = textOf(await band.drawn())
+
+    expect(drawn).toContain(OTHER_MOD)
+    expect(drawn).toContain('CREW · push-tag-query · feature / verify')
+    expect(drawn.indexOf(OTHER_MOD)).toBeLessThan(drawn.indexOf('CREW ·'))
+  })
+
+  test('AC-4：寬畫面 2 行（slug／phase／驗收／停滯／＋N／上次建議／載入時間／權威入口）；窄畫面退成 1 行', async ($, on) => {
+    worldOf(
+      on,
+      specFiles({
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+        'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS.replace('"updated": "2026-10-04T09:00:00+08:00"', '"updated": "2026-10-02T09:00:00+08:00"'),
+      }),
+    )
+    nothingBeneathBand(on)
+
+    await $.session.start(SESSION)
+    const wide = await mountBand($, 'terminal')
+    const wideTree = await wide.drawn()
+    const wideText = textOf(wideTree)
+    expect(wideText).toContain('CREW · push-tag-query · feature / verify · 中斷於 3/5 · 驗收 WARN（BLOCKED ×2） · 停滯 3 天 · ＋1 個進行中')
+    expect(wideText).toContain(`uat pending · ${TEXT.recordedNextShort} /plan-verify --recheck · ${TEXT.loadedAt(formatClock(NOW))} · /plan-next push-tag-query`)
+    expect(wideText).not.toMatch(/ci-ready/i)
+    expect((await wide.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'row')).toHaveLength(2)
+
+    await wide.unmount()
+    const narrow = await mountBand($, 'terminal', { bodyColumns: 50 })
+    const narrowText = textOf(await narrow.drawn())
+    expect(narrowText).toBe('CREW · push-tag-query · verify · BLOCKED ×2 · ＋1')
+    expect((await narrow.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'row')).toHaveLength(1)
+  })
+
+  test('AC-3：沒有 active task（只有 closed／parked）→ HUD 不佔空間，原樣放行', async ($, on) => {
+    worldOf(on, specFiles({ 'profile-avatar-upload/state.json': V2_FEATURE_CLOSED, 'search-synonyms/state.json': V2_FEATURE_PARKED }))
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [OTHER_MOD] }) as never)
+
+    await $.session.start(SESSION)
+    expect(textOf((await $.ui.render(BAND)) as never)).toBe(OTHER_MOD)
+  })
+
+  test('T-15：2 個沒有 state.json 的目錄 → 任務 tab 底部「另有 2 個…」；hud off → 放行、hud on → 恢復；hasSurvey → 放行', async ($, on) => {
+    const world = worldOf(
+      on,
+      specFiles({
+        'old-task/.state.lock': '',
+        'no-state/plan.md': '# plan',
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+      }),
+    )
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [OTHER_MOD] }) as never)
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    await pressAndRedraw(pane, 'tab-tasks')
+    const tasks = textOf(await pane.drawn())
+    expect(tasks).toContain(TEXT.untracked(2))
+    expect(tasks.indexOf(TEXT.untracked(2))).toBeGreaterThan(tasks.indexOf('push-tag-query'))
+
+    expect(textOf((await $.ui.render(BAND)) as never)).toContain('CREW · push-tag-query')
+
+    expect(await $.command.run(COMMAND('hud off'))).toEqual({ text: TEXT.hudOff })
+    expect(textOf((await $.ui.render(BAND)) as never)).toBe(OTHER_MOD)
+    expect([...world.store.values()]).toEqual([false])
+    expect([...world.store.keys()][0]?.startsWith('hud:')).toBe(true)
+
+    expect(await $.command.run(COMMAND('hud on'))).toEqual({ text: TEXT.hudOn })
+    expect(textOf((await $.ui.render(BAND)) as never)).toContain('CREW · push-tag-query')
+
+    const survey = await $.ui.render({ ...BAND, props: { ...BAND.props, hasSurvey: true } })
+    expect(textOf(survey as never)).toBe(OTHER_MOD)
+
+    expect(await $.command.run(COMMAND('nonsense'))).toEqual({ text: TEXT.usageFull })
+    expect(world.opened.length, 'hud 子指令不開 pane').toBe(1)
+    expect(world.forbidden).toEqual([])
+  })
+
+  test('T-15：HUD 關閉持久化在 $.store，下個 session 啟動仍維持關閉（key 含 repo identity）', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [OTHER_MOD] }) as never)
+    world.store.set(`hud:${ROOT}`, false)
+
+    await $.session.start(SESSION)
+
+    expect(world.stateOf('feature-workflow', 'hudEnabled')).toBe(false)
+    expect(textOf((await $.ui.render(BAND)) as never)).toBe(OTHER_MOD)
+  })
+})
+
+describe('Batch 6 Safe action：Fill（T-8、T-12）', () => {
+  test('T-8：輸入框空白 → 先讀草稿、關 pane、再 fill 固定的 /plan-next {slug}（不是 state.next.command），不送出', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    await pressAndRedraw(pane, 'fill')
+
+    // 引擎在 $.prompt.fill 之後會經 prompt.read 取回輸入框內容，所以只比對前三步的順序
+    expect(world.promptLog.slice(0, 3)).toEqual(['prompt.read', 'ui.close crew-cockpit', 'prompt.fill'])
+    expect(world.promptLog.filter(entry => entry !== 'prompt.read')).toEqual(['ui.close crew-cockpit', 'prompt.fill'])
+    expect(world.filled).toEqual([{ text: '/plan-next push-tag-query', mode: 'replace' }])
+    expect(world.filled[0]?.text).not.toBe('/plan-verify --recheck')
+    expect(world.toasts).toEqual([])
+    expect(world.forbidden, '全程不得 prompt.submit／寫檔').toEqual([])
+  })
+
+  test('T-8：輸入框有草稿 → 不 fill、不關 pane，toast 顯示指令', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+    world.draft = '我打到一半的訊息'
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    const pane = await mountPane($, 'terminal')
+    await pressAndRedraw(pane, 'fill')
+
+    expect(world.promptLog).toEqual(['prompt.read'])
+    expect(world.filled).toEqual([])
+    expect(world.toasts).toEqual([TEXT.draftExists('/plan-next push-tag-query')])
+    expect(world.forbidden).toEqual([])
+  })
+
+  for (const answer of [{ isFilled: false, refusal: 'dialog' as const }, { isFilled: false }]) {
+    test(`T-12：prompt.fill 被拒（${answer.refusal ?? '無 refusal'}）→ toast 完整指令，不 crash`, async ($, on) => {
+      const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+      world.fillAnswer = answer
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, 'terminal')
+      await pressAndRedraw(pane, 'fill')
+
+      expect(world.filled).toEqual([{ text: '/plan-next push-tag-query', mode: 'replace' }])
+      expect(world.toasts).toEqual([TEXT.fillRefused('/plan-next push-tag-query')])
+      expect(world.forbidden).toEqual([])
+      // session 仍正常：之後的 turn 與 render 照常
+      expect(await $.turn.complete(TURN() as never)).toEqual({ text: 'ok' })
+    })
+  }
+})
+
+describe('Lifecycle（T-9、T-13）', () => {
+  test('T-9：改 fixture 後主 turn.complete → 畫面反映新 snapshot；只重讀 mtime 變了的那個檔', async ($, on) => {
+    const world = worldOf(
+      on,
+      specFiles({
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+        'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+      }),
+    )
+    nothingBeneathBand(on)
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    world.setState('feature-workflow', 'selectedSlug', 'order-export-csv')
+    const pane = await mountPane($, 'terminal')
+    const band = await mountBand($, 'terminal')
+    expect(textOf(await pane.drawn())).toContain('feature · verify')
+
+    world.put(`${ROOT}/.spec/order-export-csv/state.json`, V2_FEATURE_VERIFY_PASS.replace('"phase": "verify"', '"phase": "review"'))
+    world.asked.length = 0
+    await $.turn.complete(TURN() as never)
+
+    expect(world.asked.filter(entry => entry.startsWith('read '))).toEqual([`read ${ROOT}/.spec/order-export-csv/state.json`])
+    await pane.redraw()
+    await band.redraw()
+    expect(textOf(await pane.drawn())).toContain('feature · review')
+    expect(textOf(await band.drawn())).toContain('CREW · order-export-csv · feature / review')
+  })
+
+  test('T-13：子代理 turn.complete → 0 次 fs.list／fs.read，回傳 next(e) 的結果', async ($, on) => {
+    const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+
+    await $.session.start(SESSION)
+    world.asked.length = 0
+    const result = await $.turn.complete(TURN('agent-7') as never)
+
+    expect(result).toEqual({ text: 'ok' })
+    expect(world.asked.filter(entry => entry.startsWith('list ') || entry.startsWith('read '))).toEqual([])
+  })
+})
+
+describe('T-10 Desktop＋Terminal', () => {
+  for (const surface of SURFACES) {
+    test(`${surface}：Pane 三個 tab 與 HUD 都能繪製（只用 baseline 元素）`, async ($, on) => {
+      const world = worldOf(
+        on,
+        specFiles({
+          'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+          'push-tag-query/.cache/verification-ir.json': VERIFICATION_IR,
+          'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+        }),
+      )
+      nothingBeneathBand(on)
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState('feature-workflow', 'selectedSlug', 'push-tag-query')
+      const pane = await mountPane($, surface)
+
+      expect(textOf(await pane.drawn())).toContain('verify    WARN（BLOCKED ×2）')
+      await pressAndRedraw(pane, 'tab-tasks')
+      expect(textOf(await pane.drawn())).toContain('order-export-csv')
+      await pressAndRedraw(pane, 'tab-verify')
+      const verifyTab = textOf(await pane.drawn())
+      expect(verifyTab).toContain('Routes  browser 2 · api 1 · custom-x 1')
+      expect(verifyTab).toContain(TEXT.blockedNote(2))
+
+      const types = new Set((await pane.findAll({})).map(found => found.type))
+      expect([...types].every(type => ['Box', 'Text', 'Button'].includes(type))).toBe(true)
+
+      const band = await mountBand($, surface)
+      expect(textOf(await band.drawn())).toContain('CREW · push-tag-query')
+
+      await pane.unmount()
+      const narrow = await mountPane($, surface, 40)
+      await pressAndRedraw(narrow, 'tab-tasks')
+      expect(textOf(await narrow.drawn())).toContain('push-tag-query')
+      expect(world.forbidden).toEqual([])
+    })
+  }
 })

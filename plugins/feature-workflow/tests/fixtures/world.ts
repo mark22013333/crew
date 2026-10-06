@@ -20,6 +20,16 @@ export type World = {
   commands: { name: string; immediate: boolean }[]
   opened: { id: string; focus: boolean; closeOnEscape: boolean; holdToasts: boolean }[]
   toasts: string[]
+  /** 輸入框目前的草稿（$.prompt.read 的回答）。 */
+  draft: string
+  /** prompt.fill 的回答（預設接受）；改成 { isFilled: false, refusal } 模擬被拒。 */
+  fillAnswer: { isFilled: boolean; refusal?: 'no_composer' | 'dialog' }
+  /** 每次 prompt.fill 的內容。 */
+  filled: { text: string; mode: string }[]
+  /** 依序記錄 prompt.read／ui.close／prompt.fill（驗 Fill 流程順序）。 */
+  promptLog: string[]
+  /** $.store 的記憶體實作。 */
+  store: Map<string, unknown>
   /** 改檔：內容與 mtime 一起變（像外部工具寫檔）。 */
   put: (path: string, text: string) => void
   /** 測試的 $ 沒有 state noun：$.state 由這裡的記憶體實作回答（測試 hook 就是引擎底層）。 */
@@ -59,6 +69,11 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
     commands: [],
     opened: [],
     toasts: [],
+    draft: '',
+    fillAnswer: { isFilled: true },
+    filled: [],
+    promptLog: [],
+    store: new Map(),
     put: (path, text) => {
       tick += 1_000
       world.files.set(path, text)
@@ -194,6 +209,24 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
   })
   on('ui.toast', ($, e) => {
     world.toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.close', ($, e) => {
+    world.promptLog.push(`ui.close ${e.id}`)
+    return { value: undefined }
+  })
+  on('prompt.read', () => {
+    world.promptLog.push('prompt.read')
+    return { value: { text: world.draft, cursor: world.draft.length } }
+  })
+  on('prompt.fill', ($, e) => {
+    world.promptLog.push('prompt.fill')
+    world.filled.push({ text: e.text, mode: e.mode })
+    return world.fillAnswer
+  })
+  on('store.get', ($, e) => ({ value: world.store.get(e.key) }))
+  on('store.set', ($, e) => {
+    world.store.set(e.key, e.value)
     return { value: undefined }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))

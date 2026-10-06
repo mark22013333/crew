@@ -1,16 +1,18 @@
 // CREW Cockpit：feature-workflow 在 Claude Code 上的唯讀視覺化層（Mods 模組入口）。
 //
 // Core owns truth. Cockpit owns presentation.
-// - 不寫 .spec/{slug}/state.json、不跑 crew-state.py、不 submit prompt、不攔截 tool.call（規格 §0、§3 D-2）。
-// - snapshot 只在 session.start／主 turn 結束／/crew-cockpit 時重讀，存進 $.state；render 只讀 $.state（§3 D-3、§15）。
+// - 不寫 .spec/{slug}/state.json、不跑 crew-state.py、不送出 prompt、不攔截 tool.call（規格 §0、§3 D-2）。
+// - snapshot 只在 session.start／主 turn 結束／/crew-cockpit／重新整理時重讀，存進 $.state；render 只讀 $.state（§3 D-3、§15）。
+// - 唯一的「動作」是 Fill：把固定模板 `/plan-next {slug}` 填進空的輸入框，絕不送出（§14）。
 // - 任何 Cockpit 錯誤都只吞掉並放行，不阻擋 Claude Code 正常工作（§16）。
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import { type LoaderPorts, loadCockpitSnapshot } from './cockpit/loader'
-import { COMMAND_NAME, MIN_CLAUDE_CODE_VERSION, PANE_ID, TEXT, compareVersions } from './cockpit/model'
-import { paneStubView } from './cockpit/render'
+import { COMMAND_NAME, MIN_CLAUDE_CODE_VERSION, PANE_ID, TEXT, type CockpitTab, compareVersions } from './cockpit/model'
+import { type PaneCallbacks, composeBand, hudModel, hudView, paneView } from './cockpit/render'
+import { fillCommandFor } from './cockpit/selectors'
 
 // ---------------------------------------------------------------------------
 // $.state 參照（契約在 types/index.d.ts）。
@@ -24,10 +26,10 @@ export const snapshotAtom = atom({ plugin: 'feature-workflow', key: 'snapshot' }
 /** 使用者本 session 選的 task id（UI state，不是 workflow state）。 */
 export const selectedSlugAtom = atom({ plugin: 'feature-workflow', key: 'selectedSlug' } as const, null)
 
-/** pane 目前的 tab（Batch 3 使用）。 */
+/** pane 目前的 tab。 */
 export const tabAtom = atom({ plugin: 'feature-workflow', key: 'tab' } as const, 'overview')
 
-/** HUD 開關鏡像（§9.4；預設開啟，Batch 5 使用）。 */
+/** HUD 開關鏡像（§9.4；預設開啟；持久化值在 $.store）。 */
 export const hudEnabledAtom = atom({ plugin: 'feature-workflow', key: 'hudEnabled' } as const, true)
 
 /** 版本檢查結果（§19）；尚未檢查為 null。 */
@@ -74,16 +76,110 @@ const checkVersion = async ($: EngineInterface): Promise<boolean> => {
 
 const isSupported = async ($: EngineInterface): Promise<boolean> => (await read($, runtimeAtom))?.isSupported === true
 
+// ---------------------------------------------------------------------------
+// §9.4 HUD 開關：$.store 持久化（key 含 repo identity），$.state hudEnabled 鏡像給 render 讀。
+// ---------------------------------------------------------------------------
+
+/** $.store 的 HUD 開關 key：`hud:{repo.remote ?? repoRoot ?? session root}`。 */
+async function hudStoreKey($: EngineInterface): Promise<string> {
+  const repo = await $.session.repo().catch(() => null)
+  if (repo?.remote) {
+    return `hud:${repo.remote}`
+  }
+  const snapshot = await read($, snapshotAtom).catch(() => null)
+  if (snapshot?.repoRoot) {
+    return `hud:${snapshot.repoRoot}`
+  }
+  return `hud:${repo?.root ?? (await $.session.root())}`
+}
+
+/** session.start：把持久化的 HUD 開關鏡像到 $.state（缺值＝預設開啟）。 */
+async function loadHudPreference($: EngineInterface): Promise<void> {
+  try {
+    const stored = await $.store.get(await hudStoreKey($))
+    await update($, hudEnabledAtom, () => stored !== false)
+  } catch {
+    // §16：讀不到偏好就維持預設
+  }
+}
+
+async function setHudPreference($: EngineInterface, isEnabled: boolean): Promise<void> {
+  await update($, hudEnabledAtom, () => isEnabled)
+  try {
+    await $.store.set(await hudStoreKey($), isEnabled)
+  } catch {
+    // 持久化失敗只影響下個 session；本 session 已生效
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §14 Fill：只填固定模板 `/plan-next {slug}`；先讀草稿（不覆蓋）→ 關 pane → fill → 被拒就 toast。
+// ---------------------------------------------------------------------------
+
+async function fillPlanNext($: EngineInterface, taskId: string): Promise<void> {
+  const snapshot = await read($, snapshotAtom).catch(() => null)
+  const task = snapshot?.tasks.find(item => item.id === taskId) ?? null
+  // 內容只由固定模板＋白名單 slug 組成；不用 state.next.command 或任何 render 傳來的字串
+  const command = fillCommandFor(task)
+  if (command === null) {
+    return
+  }
+  try {
+    const box = await $.prompt.read()
+    if (box.text !== '') {
+      $.ui.toast(TEXT.draftExists(command))
+      return
+    }
+    await $.ui.close({ id: PANE_ID }).catch(() => undefined)
+    const filled = await $.prompt.fill({ text: command, mode: 'replace' })
+    if (!filled.isFilled) {
+      // refusal 為 dialog／no_composer／缺省（被其他 hook 擋下）皆同：toast 完整指令讓使用者自行輸入
+      $.ui.toast(TEXT.fillRefused(command))
+    }
+  } catch {
+    $.ui.toast(TEXT.fillRefused(command))
+  }
+}
+
+/** Pane 按鈕的處理：只改 UI state（tab／selection）、重讀 snapshot、或 Fill；不寫任何 project file。 */
+function paneCallbacks($: EngineInterface): PaneCallbacks {
+  return {
+    selectTab: async (tab: CockpitTab) => {
+      await update($, tabAtom, () => tab).catch(() => undefined)
+    },
+    selectTask: async (id: string) => {
+      await update($, selectedSlugAtom, () => id).catch(() => undefined)
+      await update($, tabAtom, () => 'overview' as const).catch(() => undefined)
+    },
+    refresh: () => refreshSnapshot($),
+    fill: (id: string) => fillPlanNext($, id).catch(() => undefined),
+  }
+}
+
+/** /crew-cockpit 的參數：空白＝開 pane；`hud on|off`＝HUD 開關；其他＝用法。 */
+function parseArgs(args: string): 'open' | 'hud-on' | 'hud-off' | 'usage' {
+  const words = args.trim().toLowerCase().split(/\s+/).filter(word => word !== '')
+  if (words.length === 0) {
+    return 'open'
+  }
+  if (words.length === 2 && words[0] === 'hud' && (words[1] === 'on' || words[1] === 'off')) {
+    return words[1] === 'on' ? 'hud-on' : 'hud-off'
+  }
+  return 'usage'
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     try {
       await $.command.register({
         name: COMMAND_NAME,
-        description: '開啟 CREW Cockpit：唯讀檢視 .spec 任務、phase、核准閘與驗收狀態',
+        description: '開啟 CREW Cockpit：唯讀檢視 .spec 任務、phase、核准閘與驗收狀態（hud on|off 開關 HUD）',
+        argumentHint: '[hud on|off]',
         immediate: true,
       })
       if (await checkVersion($)) {
         await refreshSnapshot($)
+        await loadHudPreference($)
       }
     } catch {
       // §16：不阻擋 session
@@ -91,12 +187,21 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'crew-cockpit' }, async $ => {
+  on('command.run', { command: 'crew-cockpit' }, async ($, e) => {
     try {
       if (!(await isSupported($))) {
         return { text: TEXT.needVersion(MIN_CLAUDE_CODE_VERSION) }
       }
+      const action = parseArgs(e.args ?? '')
+      if (action === 'hud-on' || action === 'hud-off') {
+        await setHudPreference($, action === 'hud-on')
+        return { text: action === 'hud-on' ? TEXT.hudOn : TEXT.hudOff }
+      }
+      if (action === 'usage') {
+        return { text: TEXT.usageFull }
+      }
       await refreshSnapshot($)
+      // 不設 holdToasts：否則 pane 變成 dialog，所有 toast 都要等它關閉（§10）
       const opened = await $.ui.open({ id: PANE_ID, title: TEXT.paneTitle, focus: true, closeOnEscape: true })
       if (!opened.isPlaced) {
         $.ui.toast(TEXT.paneNotPlaced)
@@ -120,10 +225,43 @@ export const register: Register = on => {
       if (!(await isSupported($))) {
         return next(e)
       }
-      const { Box, Text } = $.ui.resolve(e)
-      return paneStubView({ Box, Text }, await read($, snapshotAtom))
+      const { Box, Text, Button } = $.ui.resolve(e)
+      const data = {
+        snapshot: await read($, snapshotAtom),
+        selectedSlug: await read($, selectedSlugAtom),
+        tab: await read($, tabAtom),
+        bodyColumns: e.props.bodyColumns,
+      }
+      return paneView({ Box, Text, Button }, data, paneCallbacks($))
     } catch {
       return next(e)
+    }
+  })
+
+  // §9 AbovePrompt HUD：一律 compose next(e)，不蓋掉其他 mod 的 band；survey、關閉、無 active task 時直接放行。
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    let lines: ReturnType<typeof hudModel> = null
+    try {
+      if (!e.props.hasSurvey && (await isSupported($)) && (await read($, hudEnabledAtom))) {
+        lines = hudModel({
+          snapshot: await read($, snapshotAtom),
+          selectedSlug: await read($, selectedSlugAtom),
+          bodyColumns: e.props.bodyColumns,
+        })
+      }
+    } catch {
+      lines = null
+    }
+    if (lines === null) {
+      return next(e)
+    }
+    const other: RenderElement | null | undefined = await next(e)
+    try {
+      const { Box, Text, Button } = $.ui.resolve(e)
+      const kit = { Box, Text, Button }
+      return composeBand(kit, other, hudView(kit, lines))
+    } catch {
+      return other
     }
   })
 }

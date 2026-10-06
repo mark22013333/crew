@@ -7,8 +7,10 @@ import {
   type CockpitSelectionReason,
   type CockpitSnapshot,
   type CockpitTaskView,
+  type CockpitVerifyView,
   DONE_LIKE,
   HUD_FIELD_MAX,
+  TEXT,
   clip,
 } from './model'
 
@@ -72,4 +74,76 @@ export function fillCommandFor(task: CockpitTaskView | null): string | null {
     return null
   }
   return `/plan-next ${task.id}`
+}
+
+// ---------------------------------------------------------------------------
+// Batch 3–6 新增：顯示用的色調與驗收狀態映射（presentation，不是 workflow 判定）
+// ---------------------------------------------------------------------------
+
+/** §11.3 顏色只是 presentation。 */
+export type Tone = 'positive' | 'warning' | 'negative' | 'neutral'
+
+/**
+ * §11.3 一般狀態值的色調：PASS／approved／done → positive；WARN／BLOCKED → warning；
+ * FAIL／rejected／failed → negative；其他（pending／waived／MANUAL／SKIP／未知）→ neutral。
+ */
+export function toneOf(status: string | null): Tone {
+  switch (status) {
+    case 'PASS':
+    case 'approved':
+    case 'done':
+      return 'positive'
+    case 'WARN':
+    case 'BLOCKED':
+      return 'warning'
+    case 'FAIL':
+    case 'rejected':
+    case 'failed':
+      return 'negative'
+    default:
+      return 'neutral'
+  }
+}
+
+/** results.verify 的顯示結果。 */
+export type VerifyDisplay = {
+  /** 狀態標籤，例如 `WARN（BLOCKED ×2）`；缺值為「—」。 */
+  label: string
+  /** 窄畫面用的短標籤（WARN＋blocked>0 時為 `BLOCKED ×n`）。 */
+  short: string
+  tone: Tone
+  /** 衍生 BLOCKED：status == 'WARN' && blocked > 0（§11.3）。 */
+  isBlocked: boolean
+  blocked: number
+  /** FAIL 且 blocked > 0 時的附註「另有 BLOCKED ×n」；其餘為 null。 */
+  note: string | null
+}
+
+/**
+ * §11.3 BLOCKED 衍生顯示：BLOCKED 不是 status 值，只在 WARN 且 blocked > 0 時顯示，且絕不呈現成 FAIL。
+ * WARN 且 blocked == 0 不得出現 BLOCKED；status 真的寫成 "BLOCKED" 時照原值、警示色、不改判。
+ */
+export function verifyDisplay(verify: CockpitVerifyView): VerifyDisplay {
+  const status = verify.status
+  const blocked = verify.blocked > 0 ? verify.blocked : 0
+  const plain = (label: string, tone: Tone): VerifyDisplay => ({ label, short: label, tone, isBlocked: false, blocked, note: null })
+  if (status === 'PASS') {
+    return plain('PASS', 'positive')
+  }
+  if (status === 'WARN') {
+    if (blocked > 0) {
+      return { label: `WARN（BLOCKED ×${blocked}）`, short: `BLOCKED ×${blocked}`, tone: 'warning', isBlocked: true, blocked, note: null }
+    }
+    return plain('WARN', 'warning')
+  }
+  if (status === 'FAIL') {
+    return { ...plain('FAIL', 'negative'), note: blocked > 0 ? TEXT.otherBlocked(blocked) : null }
+  }
+  if (status === 'BLOCKED') {
+    return plain('BLOCKED', 'warning')
+  }
+  if (status === null) {
+    return plain('—', 'neutral')
+  }
+  return plain(status, 'neutral')
 }
