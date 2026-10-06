@@ -39,5 +39,6 @@
     "code-review",
     "explore",
     "browse"
-  ]
+  ],
+  "types": "./types/index.d.ts"
 }
