@@ -55,9 +55,13 @@ PLAN_VERIFY_PRECONDITIONS = PLAN_VERIFY.parent / "phases" / "preconditions.md"
 PLAN_VERIFY_E2E_RUNNER = PLAN_VERIFY.parent / "phases" / "e2e-runner.md"
 PLAN_VERIFY_E2E_AUTHORING = PLAN_VERIFY.parent / "phases" / "e2e-authoring.md"
 PLAN_VERIFY_FROM_E2E = PLAN_VERIFY.parent / "phases" / "from-e2e.md"
+PLAN_VERIFY_E2E_PROMOTION = PLAN_VERIFY.parent / "phases" / "e2e-promotion.md"
 PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verification-ir.md"
 PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
 PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
+PLAN_VERIFY_E2E_CI_POLICY = REPO / "plugins" / "feature-workflow" / "references" / "e2e-ci-policy.md"
+PLAN_VERIFY_E2E_PROMOTION_SCHEMA = REPO / "plugins" / "feature-workflow" / "references" / "e2e-promotion-schema.md"
+PLAN_VERIFY_E2E_PROMOTION_TOOL = REPO / "plugins" / "feature-workflow" / "scripts" / "crew-e2e-promote.py"
 PLAN_VERIFY_E2E_REPORTER = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.js"
 PLAN_VERIFY_E2E_RESULTS_TOOL = REPO / "plugins" / "feature-workflow" / "scripts" / "crew-e2e-results.py"
 PLAN_VERIFY_E2E_ADAPTER_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "e2e-adapter-template.md"
@@ -86,6 +90,9 @@ PLAN_VERIFY_REQUIRED = (
     "--from-e2e",
     "phases/from-e2e.md",
     "../../references/e2e-result-schema.md",
+    "--e2e-promote",
+    "phases/e2e-promotion.md",
+    "../../references/e2e-ci-policy.md",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -212,9 +219,13 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_E2E_RUNNER,
         PLAN_VERIFY_E2E_AUTHORING,
         PLAN_VERIFY_FROM_E2E,
+        PLAN_VERIFY_E2E_PROMOTION,
         PLAN_VERIFY_IR,
         PLAN_VERIFY_E2E_CONTRACT,
         PLAN_VERIFY_E2E_RESULT,
+        PLAN_VERIFY_E2E_CI_POLICY,
+        PLAN_VERIFY_E2E_PROMOTION_SCHEMA,
+        PLAN_VERIFY_E2E_PROMOTION_TOOL,
         PLAN_VERIFY_E2E_REPORTER,
         PLAN_VERIFY_E2E_RESULTS_TOOL,
         PLAN_VERIFY_E2E_ADAPTER_TEMPLATE,
@@ -300,6 +311,11 @@ def check_plan_verify_contract() -> list[str]:
         if marker not in from_e2e:
             errors.append(f"{PLAN_VERIFY_FROM_E2E.relative_to(REPO)} 缺 from-e2e marker：{marker}")
 
+    promotion = PLAN_VERIFY_E2E_PROMOTION.read_text(encoding="utf-8")
+    for marker in ("--e2e-promote", "ci-ready", "retries=0", "repeat-each >= 3", "candidate_sha256", "environment_gate"):
+        if marker not in promotion:
+            errors.append(f"{PLAN_VERIFY_E2E_PROMOTION.relative_to(REPO)} 缺 E2E promotion marker：{marker}")
+
     ir = PLAN_VERIFY_IR.read_text(encoding="utf-8")
     for marker in ("schema_version", ".cache/verification-ir.json", "{slug}#AC-{n}", "forbid_request"):
         if marker not in ir:
@@ -330,6 +346,21 @@ def check_plan_verify_contract() -> list[str]:
     for marker in ("STATUS_PRIORITY", "blocked 必須有 reason", "expected_git_sha", "never writes state.json"):
         if marker not in results_tool:
             errors.append(f"{PLAN_VERIFY_E2E_RESULTS_TOOL.relative_to(REPO)} 缺 E2E result tool marker：{marker}")
+
+    promotion_policy = PLAN_VERIFY_E2E_CI_POLICY.read_text(encoding="utf-8")
+    for marker in ("ci-ready", "review_waivers", "retries=0", "repeat_each < 3", "candidate_sha256", "environment_gate=deferred"):
+        if marker not in promotion_policy:
+            errors.append(f"{PLAN_VERIFY_E2E_CI_POLICY.relative_to(REPO)} 缺 CI promotion marker：{marker}")
+
+    promotion_schema = PLAN_VERIFY_E2E_PROMOTION_SCHEMA.read_text(encoding="utf-8")
+    for marker in ("environment_gate", "review_waivers", "candidate_sha256", "repeat_each", "deferred", "not-required"):
+        if marker not in promotion_schema:
+            errors.append(f"{PLAN_VERIFY_E2E_PROMOTION_SCHEMA.relative_to(REPO)} 缺 promotion metadata marker：{marker}")
+
+    promotion_tool = PLAN_VERIFY_E2E_PROMOTION_TOOL.read_text(encoding="utf-8")
+    for marker in ("ENVIRONMENT_GATE_DEFERRED", "STALE_STABILITY_EVIDENCE", "PROMOTION_RETRIES_NOT_ZERO", "INSUFFICIENT_REPEATS", "sha256_file", "review_waivers"):
+        if marker not in promotion_tool:
+            errors.append(f"{PLAN_VERIFY_E2E_PROMOTION_TOOL.relative_to(REPO)} 缺 promotion evaluator marker：{marker}")
 
     e2e_linter = PLAN_VERIFY_E2E_LINTER.read_text(encoding="utf-8")
     for marker in ("TEST_ONLY", "UNRESOLVED_MARKER", "MISSING_AC", "MISSING_ASSERTION", "--strict-review"):

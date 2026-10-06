@@ -93,6 +93,6 @@ hardcoded record ID 不必一律禁止，但必須能說明 fixture contract。
 2. syntax/framework load
 3. headed/headless 試跑（依 adapter）
 4. 人工 review
-5. 保存為 `draft` candidate；更高成熟度判定不屬本 phase
+5. 保存為 `draft` candidate；需要提升成熟度時交給 `e2e-promotion.md`
 
 Candidate 不自動 commit 到外部 E2E repo；Git write 仍由使用者／Host 權限決定。

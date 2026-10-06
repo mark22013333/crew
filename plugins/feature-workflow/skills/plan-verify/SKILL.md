@@ -1,7 +1,7 @@
 ---
 name: plan-verify
 description: 透過 browser/API/backend-test/database/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
-argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft|--from-e2e <file>]"
+argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft|--e2e-promote|--from-e2e <file>]"
 ---
 
 # plan-verify — 驗收條件驗證
@@ -34,6 +34,7 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft|
 /plan-verify --recheck          # 僅重新驗證上次失敗的項目
 /plan-verify --e2e              # E2E Runner 模式（讀 portable e2e_* contract）
 /plan-verify --e2e-draft        # 由 Verification IR 產 E2E candidate（draft）
+/plan-verify --e2e-promote      # 對 draft candidate 執行 source/review/stability promotion gate
 /plan-verify --from-e2e <file>  # 消費 crew-results.json，不重開瀏覽器
 ```
 
@@ -487,6 +488,12 @@ YES → 依 `../../references/verification-ir.md` 產生／讀取 `.cache/verifi
 - 本模式只產生 `draft` candidate；更高成熟度判定不屬本模式
 
 ---
+
+### E2E candidate promotion（--e2e-promote）
+
+> 📄 **執行前必讀全文**：[`phases/e2e-promotion.md`](./phases/e2e-promotion.md)
+
+Promotion 只判斷 E2E 資產成熟度，不重新判斷產品 AC。依 `../../references/e2e-ci-policy.md` 執行 static source / review waiver / stability / candidate fingerprint / environment gate；全部通過才可由 `draft` 升為 `ci-ready`。
 
 ### 從 CI / E2E 結果匯入（--from-e2e）
 

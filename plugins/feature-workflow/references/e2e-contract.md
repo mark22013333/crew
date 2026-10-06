@@ -86,4 +86,4 @@ E2E candidate 必須：
 draft
 ```
 
-本 contract 只產出 `draft` candidate；更高成熟度判定不屬本 batch。Runtime PASS 也不代表 candidate 已可長期自動執行。
+本 contract 只產出 `draft` candidate；只有通過 `e2e-ci-policy.md` 的 deterministic promotion gate 才可標示 `ci-ready`。Runtime PASS 不等於 E2E ci-ready。
