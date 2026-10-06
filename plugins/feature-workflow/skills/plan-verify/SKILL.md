@@ -1,7 +1,7 @@
 ---
 name: plan-verify
 description: 透過 browser/API/backend-test/database/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
-argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
+argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft|--from-e2e <file>]"
 ---
 
 # plan-verify — 驗收條件驗證
@@ -32,7 +32,9 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 /plan-verify <URL>              # 指定目標頁面
 /plan-verify --api-only         # 只驗證 API（不操作 UI，不需瀏覽器）
 /plan-verify --recheck          # 僅重新驗證上次失敗的項目
-/plan-verify --e2e              # E2E Runner 模式（需 e2e_repo 設定）
+/plan-verify --e2e              # E2E Runner 模式（讀 portable e2e_* contract）
+/plan-verify --e2e-draft        # 由 Verification IR 產 E2E candidate（draft）
+/plan-verify --from-e2e <file>  # 消費 crew-results.json，不重開瀏覽器
 ```
 
 **Word／Excel 報告已移出主流程**，改為驗證完成後的獨立可選指令（見『可選指令：Word／Excel 驗收報告』一節）：
@@ -295,15 +297,18 @@ $CDP list
 
 ### E2E Runner 模式（--e2e，Phase 3）
 
-**前提**：`projects/{repo-id}.md` 設定了 `e2e_repo` 和 `e2e_profile` 欄位。
+> 📄 **執行前必讀全文**：[`phases/e2e-runner.md`](./phases/e2e-runner.md)
 
-1. 讀取 E2E repo 的 `tests/verify-map.json` 匹配映射檔
-2. 對每個驗收條件，嘗試匹配 mappings[*].condition
-3. 有匹配 → `PROFILE={profile} npx playwright test {file}` 直接跑測試
-4. 無匹配 → 退回 MCP 模式（見『逐條驗證』一節原流程）
-5. 收集 JSON 結果 + 截圖 → 轉換成 verify.md 條目
+**前提**：優先使用 `../../references/e2e-contract.md` 的 portable `e2e_*` + `e2e_adapter` 設定；舊 `e2e_repo` 僅作 read compatibility。
 
-Profile 選擇：讀取 E2E repo 的 `tests/config/profile-*.js`，提取 name + baseUrl 顯示給使用者選擇。
+1. 解析 E2E workspace / adapter；project-local `.crew/adapters/{id}.md` 優先於 plugin adapter
+2. 新 coverage 使用 `{slug}#AC-n` 穩定 join key
+3. legacy `tests/verify-map.json` 可作 fallback mapping，但不得成為新資產的 canonical identity
+4. 有匹配 → 依 adapter / `e2e_command` 執行 Playwright 測試
+5. 無匹配 → 退回 Verification Router 所選 verifier；browser 類才使用 browser adapter
+6. 優先收集 `../../references/e2e-result-schema.md` 的 `crew-results.json`，再轉換成 verify.md 條目
+
+Profile 選擇由 framework adapter 決定；generic core 不硬編碼 profile 檔案結構。
 
 verify-map.json 格式：
 ```json
@@ -464,19 +469,28 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 - ✅ 頁面通用操作、全站 selector、專案統一 API 格式。
 - ❌ 一次性操作、測試資料、Bug workaround、任何 secret。
 
-### 測試骨架產出（Phase 3，可選）
+### E2E candidate 產出（--e2e-draft，Phase 3，可選）
 
-plan-verify 完成後（所有 PASS），若 `e2e_repo` 已設定：
+> 📄 **執行前必讀全文**：[`phases/e2e-authoring.md`](./phases/e2e-authoring.md)
+
+plan-verify 完成後（沒有 FAIL / BLOCKED），若 portable E2E contract 已設定：
 
 ```
-所有驗收條件通過。是否產出 E2E 測試骨架？[Y/n]
+本次 runtime 驗證沒有 FAIL / BLOCKED。是否產出 E2E candidate（draft）？[Y/n]
 ```
 
-YES → 從 `.cache/verify.md` 的操作步驟和 selector 產出 `rob{next}-{slug}.spec.js`：
-- 80% 完成度的骨架（import、describe/test、登入、基本操作、截圖）
-- TODO/FIXME 標記需人工調整的地方
-- 試跑：`PROFILE={p} npx playwright test rob{next}* --headed`
-- 人工 review 後 commit
+YES → 依 `../../references/verification-ir.md` 產生／讀取 `.cache/verification-ir.json`，再依 `../../references/e2e-contract.md` 的 framework adapter 產出 E2E candidate：
+- 預設 maturity = `draft`
+- import / auth / profile / helper 寫法由 adapter 決定，不硬編碼 `@playwright/test`
+- Stateful flow 可用單一 scenario + 多個 `test.step("{slug}#AC-n: ...")`
+- Runtime 驗證使用到 `ci_eligible=false` 的 selector / recipe 時，candidate 保持 draft
+- 這個 batch **不宣稱 CI-ready**；CI promotion 由後續獨立 contract 負責
+
+### 從 CI / E2E 結果匯入（--from-e2e）
+
+> 📄 **執行前必讀全文**：[`phases/from-e2e.md`](./phases/from-e2e.md)
+
+讀取 `../../references/e2e-result-schema.md` 的 `crew-results.json`，先由 deterministic summarizer 驗證 schema / `slug#AC-n` / git freshness，再轉成 PASS / WARN / FAIL / BLOCKED / SKIP / MANUAL。最後仍只透過 `crew-state.py result` 寫 `state.json.results.verify`；CI 本身不得 patch task state。
 
 ---
 
