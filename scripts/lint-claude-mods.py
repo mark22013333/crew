@@ -5,7 +5,7 @@
 
   主層（需要 claude CLI）：
     跑 `claude plugin validate --json <plugin dir>`，解析 hooks / calls / state 清單，
-    與 `mod-capabilities.baseline.txt` 比對。
+    與 `tests/mod-capabilities.baseline.txt` 比對。
       - validate 出現 baseline 沒有的項目 → FAIL（新能力）
       - baseline 有但 validate 沒有       → 只提示（能力縮小不算錯）
       - validate 回報 errors              → FAIL
@@ -14,9 +14,11 @@
 
   輔層（純 Python、不需 claude CLI）— 規格 §23 五條：
     R1 hooks.json 的 modules 路徑存在
-    R2 Mod source 不含禁止呼叫（fs.write / model.complete / tool.call / tool.check /
-       prompt.submit / process.run / process.spawn）
-    R3 Mod source 不含 $.fs / $.process / $.model / $.tool 的整體賦值或解構（別名繞過的前置動作）
+    R2 Mod source 的 `$.<noun>` 採 allowlist：noun 只准 session/fs/ui/state/store/command/prompt/clock，
+       fs 只准 read/list/exists/stat、prompt 只准 fill/read；另保留接收者不限的 denylist
+       （fs.write、model.*、tool.*、process.*、http.*、mcp.*、prompt.submit/edit …，規格 §18 全部禁止能力）
+    R3 Mod source 不含 $.fs / $.process / $.model / $.tool 的整體賦值或解構，也不含對 `$` 的
+       轉型（`$ as`、`<T>$`）、computed 存取（`$[`、`($)[`）、Reflect／Object 反射（別名繞過的前置動作）
     R4 既有 SessionStart hook 仍在 hooks.json
     R5 manifest 沒有重複宣告標準 hooks/hooks.json
 
@@ -53,7 +55,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_PLUGIN = Path("plugins/feature-workflow")
-BASELINE_NAME = "mod-capabilities.baseline.txt"
+BASELINE_NAME = "tests/mod-capabilities.baseline.txt"  # 規格 §18：放在 plugin 的 tests/ 下
 FIXTURE_DIR = REPO / "scripts" / "fixtures" / "claude-mods"
 STANDARD_HOOKS = "hooks/hooks.json"
 
@@ -61,19 +63,33 @@ STANDARD_HOOKS = "hooks/hooks.json"
 # 接收者不限 `$`（`ctx.fs.write(` 之類改名也擋），但必須有接收者——
 # 這樣 `on('tool.call', …)` 這種訂閱 hook 事件的字串不會被誤擋。容許空白、換行與 `?.`。
 # key = 規格列出的禁止字串（報錯時顯示），value = 對應 regex。
+_RECV = r"[\w$)\]]\s*\??\.\s*"
 FORBIDDEN_CALLS = {
-    "$.fs.write(": r"[\w$)\]]\s*\??\.\s*fs\s*\??\.\s*write\b",
-    "$.model.complete(": r"[\w$)\]]\s*\??\.\s*model\s*\??\.\s*complete\b",
-    "$.tool.call(": r"[\w$)\]]\s*\??\.\s*tool\s*\??\.\s*call\b",
-    "$.tool.check(": r"[\w$)\]]\s*\??\.\s*tool\s*\??\.\s*check\b",
-    "$.prompt.submit(": r"[\w$)\]]\s*\??\.\s*prompt\s*\??\.\s*submit\b",
-    "$.process.run(": r"[\w$)\]]\s*\??\.\s*process\s*\??\.\s*run\b",
-    "$.process.spawn(": r"[\w$)\]]\s*\??\.\s*process\s*\??\.\s*spawn\b",
+    "$.fs.write(": _RECV + r"fs\s*\??\.\s*write\b",
+    "$.model.complete(": _RECV + r"model\s*\??\.\s*complete\b",
+    "$.tool.call(": _RECV + r"tool\s*\??\.\s*call\b",
+    "$.tool.check(": _RECV + r"tool\s*\??\.\s*check\b",
+    "$.prompt.submit(": _RECV + r"prompt\s*\??\.\s*submit\b",
+    "$.process.run(": _RECV + r"process\s*\??\.\s*run\b",
+    "$.process.spawn(": _RECV + r"process\s*\??\.\s*spawn\b",
+    # 規格 §18「不應出現」補齊（原本漏掉的）：
+    "$.http.fetch(": _RECV + r"http\s*\??\.\s*fetch\b",
+    "$.mcp.call(": _RECV + r"mcp\s*\??\.\s*call\b",
+    "$.model.fork(": _RECV + r"model\s*\??\.\s*fork\b",
+    "$.model.classify(": _RECV + r"model\s*\??\.\s*classify\b",
+    "$.prompt.edit(": _RECV + r"prompt\s*\??\.\s*edit\b",
+    "$.tool.register(": _RECV + r"tool\s*\??\.\s*register\b",
 }
+
+# allowlist：`$.<noun>` 只准這些 noun（MVP 唯讀面）。比 denylist 穩——
+# 型別新增任何 noun／method（EngineInterface 擴充）預設就被擋，不必追著補清單。
+ALLOWED_NOUNS = {"session", "fs", "ui", "state", "store", "command", "prompt", "clock"}
+ALLOWED_METHODS = {"fs": {"read", "list", "exists", "stat"}, "prompt": {"fill", "read"}}
+NOUN_RE = re.compile(r"(?<![\w$.])\$\s*\??\.\s*([A-Za-z_]\w*)(?:\s*\??\.\s*([A-Za-z_]\w*))?")
 FORBIDDEN_RE = {name: re.compile(rx) for name, rx in FORBIDDEN_CALLS.items()}
 
 # --- R3：整體賦值／解構／動態存取 --------------------------------------------
-BANNED_NS = r"(?:fs|process|model|tool)"
+BANNED_NS = r"(?:fs|process|model|tool|http|mcp|agent)"
 ALIAS_RULES = {
     # `$.fs` 後面不是成員存取（`.read`、`?.read`、`['x']`；用運算子判斷，避免換行 ASI 漏判）→ 整體取用（= $.fs、f($.fs)、return $.fs …）
     "整體取用 $.fs/$.process/$.model/$.tool": re.compile(
@@ -92,13 +108,85 @@ ALIAS_RULES = {
     # 動態存取：$['fs']、$.fs['write']、$[name]
     "動態存取 $[...]": re.compile(r"\$\s*\??\.?\s*\["),
     "動態存取 $.fs[...]": re.compile(r"\$\s*\??\.\s*" + BANNED_NS + r"\s*\??\.?\s*\["),
+    # 轉型後存取：($ as any)[k]、($ as X).fs、$ as unknown、$ satisfies
+    "轉型 $ as／satisfies": re.compile(r"(?<![\w$])\$\s+(?:as|satisfies)\b"),
+    # 泛型斷言：<any>$、<Record<string, any>>$
+    "轉型 <T>$": re.compile(r"(?<![=\-])<\s*[A-Za-z_][\w\s,.\[\]|&<>]*(?<![=\-])>\s*\$(?![\w$])"),
+    # 非 null 斷言後再存取：$![k]
+    "非 null 斷言 $!": re.compile(r"(?<![\w$])\$!"),
+    # 括號包住的 $ 再存取：($)[k]、($).fs
+    "括號包 $ 後存取": re.compile(r"(?<![\w$)\]>])\(\s*\$\s*\)\s*(?:\?\.|\.|\[)"),
+    # 反射：Reflect.get($,'process')、Object.entries($)、Object.assign({}, $) 等把 $ 交給內建反射函式
+    "Reflect/Object 反射 $": re.compile(r"\b(?:Reflect|Object)\s*\.\s*\w+\s*\([^)]*(?<![\w$.])\$(?![\w$.])"),
+    # 展開：{ ...$ }、[...$]
+    "展開 $": re.compile(r"\.\.\.\s*\$(?![\w$])"),
 }
+DESTRUCT_DOLLAR = re.compile(r"\{([^{}]*)\}\s*=\s*\$(?![\w$]|\s*\??\.)")
 RULE_FORBIDDEN = "forbidden-call"
 RULE_ALIAS = "alias"
+RULE_NOUN = "forbidden-noun"
 
 
 def line_of(text: str, pos: int) -> int:
     return text.count("\n", 0, pos) + 1
+
+
+def strip_comments(text: str) -> str:
+    """把 // 與 /* */ 註解換成空白（保留換行，行號不變）。
+
+    只在字串（' " `）之外才認註解起點，所以 `"//"; $.http.get()` 這種把程式碼藏在
+    「看起來像註解」之後的寫法不會被吃掉。template 的 `${ … }` 內視為程式碼。
+    regex literal 內含引號時可能誤判——那種殘餘風險由主層負責。
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    stack: list[str] = []  # 目前所在：'\'' '"' '`'（字串）或 '{'（template 的 ${ } 程式碼區）
+    brace_depth: list[int] = []
+    while i < n:
+        c = text[i]
+        top = stack[-1] if stack else None
+        if top in ("'", '"', "`"):
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == top:
+                stack.pop()
+            elif top == "`" and c == "$" and i + 1 < n and text[i + 1] == "{":
+                out.append("{")
+                stack.append("{")
+                brace_depth.append(0)
+                i += 2
+                continue
+            i += 1
+            continue
+        # 程式碼區（含 ${ } 內）
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                out.append(" ")
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append("".join("\n" if ch == "\n" else " " for ch in text[i:j]))
+            i = j
+            continue
+        if c in ("'", '"', "`"):
+            stack.append(c)
+        elif top == "{":
+            if c == "{":
+                brace_depth[-1] += 1
+            elif c == "}":
+                if brace_depth[-1] == 0:
+                    stack.pop()
+                    brace_depth.pop()
+                else:
+                    brace_depth[-1] -= 1
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def scan_source(name: str, text: str) -> list[tuple[str, str]]:
@@ -110,6 +198,20 @@ def scan_source(name: str, text: str) -> list[tuple[str, str]]:
     for label, rx in ALIAS_RULES.items():
         for m in rx.finditer(text):
             out.append((RULE_ALIAS, f"{name}:{line_of(text, m.start())} {label}（規避字串比對的前置動作）"))
+    # allowlist：`$.<noun>[.<method>]`（先去掉註解，註解裡的 `$.fs.*` 說明文字不算呼叫）
+    code = strip_comments(text)
+    for m in NOUN_RE.finditer(code):
+        noun, method = m.group(1), m.group(2)
+        if noun not in ALLOWED_NOUNS:
+            out.append((RULE_NOUN, f"{name}:{line_of(code, m.start())} `$.{noun}` 不在 allowlist（只准 {'/'.join(sorted(ALLOWED_NOUNS))}）"))
+        elif noun in ALLOWED_METHODS and method not in ALLOWED_METHODS[noun]:
+            out.append((RULE_NOUN, f"{name}:{line_of(code, m.start())} `$.{noun}.{method}` 不在 allowlist（{noun} 只准 {'/'.join(sorted(ALLOWED_METHODS[noun]))}）"))
+    # 解構 `{ a, b } = $`：任何不在 allowlist 的 noun（或 fs 整包）都擋
+    for m in DESTRUCT_DOLLAR.finditer(code):
+        for part in m.group(1).split(","):
+            key = part.strip().lstrip(".").split(":")[0].split("=")[0].strip()
+            if key and key not in ALLOWED_NOUNS:
+                out.append((RULE_NOUN, f"{name}:{line_of(code, m.start())} 解構取出 `{key}` 不在 allowlist"))
     return out
 
 
@@ -281,7 +383,7 @@ def aux_layer(root: Path, plugin_rel: Path) -> list[str]:
     for src in mod_sources(plugin_dir):
         rel = str(src.relative_to(root))
         for rule, msg in scan_source(rel, src.read_text(encoding="utf-8")):
-            errs.append(("R2 " if rule == RULE_FORBIDDEN else "R3 ") + msg)
+            errs.append(("R3 " if rule == RULE_ALIAS else "R2 ") + msg)
     return errs
 
 
@@ -332,7 +434,7 @@ def self_test() -> int:
     covered_labels: set[str] = set()
     for f in bad_files:
         text = f.read_text(encoding="utf-8")
-        m = re.search(r"expect:\s*(forbidden-call|alias)(?:[ \t]+(\S+))?", text)
+        m = re.search(r"expect:\s*(forbidden-call|alias|forbidden-noun)(?:[ \t]+(\S+))?", text)
         check(m is not None, f"{f.name} 缺 `expect:` 標頭")
         if not m:
             continue
@@ -346,8 +448,8 @@ def self_test() -> int:
             check(any(want in msg for _, msg in hits), f"{f.name} 應命中 `{want}`，實際訊息：{[x for _, x in hits]}")
             covered_labels.add(want)
     for label in FORBIDDEN_CALLS:
-        check(label in covered_labels, f"七條禁止 pattern 缺反向 fixture：{label}")
-    check(len(bad_files) >= 7 + 4, f"反向 fixture 太少（{len(bad_files)}）")
+        check(label in covered_labels, f"禁止 pattern 缺反向 fixture：{label}")
+    check(len(bad_files) >= len(FORBIDDEN_CALLS) + 4, f"反向 fixture 太少（{len(bad_files)}）")
     for f in good_files:
         hits = scan_source(f.name, f.read_text(encoding="utf-8"))
         check(not hits, f"{f.name} 是正對照卻被擋：{hits}")
