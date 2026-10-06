@@ -8,7 +8,7 @@ stability 截圖、API+UI 交叉比對等驗證執行細節。
 
 ### 5. 逐條驗證
 
-依序對 `plan.md`「驗收條件」節的每條 `AC-n` 執行驗證，結果沿用同一個 `AC-n` 編號。
+依序對 `plan.md`「驗收條件」節的每條 `AC-n` 執行 `route-verification.md` 選定的 verifier，結果沿用同一個 `AC-n` 編號。進入 scenario 前先依 `preconditions.md` 執行 precondition gate；前置不成立時記 `BLOCKED`，不要把環境問題量成產品 FAIL。
 
 **截圖穩定化**：每次截圖前，執行 `references/verify-stability.md` 定義的 6 步前置流程（ESC×2 → 關閉面板 → 回到頂部 → networkidle → 等動畫 → 截圖）。失敗時最多重試 3 次。
 
@@ -45,6 +45,30 @@ curl -s "http://localhost:8080/api/xxx" -H "Cookie: {cookie}" | head -100
 ```
 
 檢查：HTTP 狀態碼、回應格式、資料筆數、欄位完整性。
+
+#### Backend test 驗證
+
+當 Verification Router 選擇 `backend-test`：
+
+1. 從 plan.md 錨點與實際 build 設定確認可執行測試命令，不從文件猜 command。
+2. 優先執行直接覆蓋該 AC 的單元／整合測試；不要為了「看起來像 E2E」強迫改走瀏覽器。
+3. 保存 command、exit code、失敗測試名稱與關鍵輸出到 evidence。
+4. build tool / fixture / test DB 不可用 → `BLOCKED`；測試確實執行且 assertion 失敗 → `FAIL`。
+
+Evidence 建議：
+
+```text
+.spec/{slug}/evidence/verify-AC-{n}-backend-test.txt
+```
+
+#### Database 驗證
+
+只有在 Verification Router 判定資料狀態本身就是最可靠 evidence，且有安全 DB capability 時使用：
+
+- 預設唯讀。
+- query 必須能從 schema / code anchor 證明，不猜 table / column。
+- DB capability 不可用 → `BLOCKED` 或改走已規劃的 secondary verifier。
+- 不因方便而在 production / shared DB 建立破壞性 fixture。
 
 #### 記錄 Evidence 檔案（API 驗證時必做）
 
@@ -158,15 +182,16 @@ AI 分析 snapshot 輸出（無障礙樹）來判斷：
 
 | 欄位 | 說明 |
 |------|------|
-| 狀態 | `PASS` / `WARN` / `FAIL` / `SKIP` / `MANUAL` |
+| 狀態 | `PASS` / `WARN` / `FAIL` / `BLOCKED` / `SKIP` / `MANUAL` |
 | 證據 | API 回應摘要 / snap 關鍵節點 / 截圖路徑 |
-| 失敗原因 | 僅 FAIL 時記錄 |
+| 失敗／阻擋原因 | FAIL / BLOCKED 時記錄；BLOCKED 要指出哪個 precondition 不成立 |
 | 操作敘述 | 人話描述的操作步驟清單（用於 Word 報告） |
 | evidence 檔案 | API 類型時記錄：`evidence/verify-{AC 編號}-request.txt`、`evidence/verify-{AC 編號}-response.json` |
 
 - `PASS`：驗證通過
 - `WARN`：通過但有疑慮（環境差異、selector 不穩定）
-- `FAIL`：驗證失敗（含原因）
+- `FAIL`：前置條件成立，受測功能明確不符合 AC
+- `BLOCKED`：登入、fixture、profile、依賴服務、測試 DB 等前置不成立，沒有資格判定產品功能
 - `SKIP`：`--api-only` 跳過 UI 驗證，或使用者手動跳過
 - `MANUAL`：需人工確認的項目（如視覺效果）
 
