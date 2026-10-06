@@ -444,20 +444,65 @@ export function selectTask(
 
 type FileProbe = { kind: 'missing' } | { kind: 'other' } | { kind: 'file'; mtimeMs: number; size: number }
 
-const probe = async (io: LoaderPorts, path: string): Promise<FileProbe> => {
-  try {
-    if (!(await io.exists(path))) {
-      return { kind: 'missing' }
-    }
-    const stat = await io.stat(path)
-    if (stat.kind !== 'file') {
-      return { kind: 'other' }
-    }
-    return { kind: 'file', mtimeMs: stat.mtimeMs, size: stat.size }
-  } catch {
-    // ENOENT 與權限錯誤一律視為「沒有這個檔」（與 Path.is_file() 回 False 一致）
+/** 同時進行的任務 I/O 上限：每次檔案系統呼叫都是一次 worker 往返，依序 await 會讓 100 個任務的重讀線性變慢（AC-21）。 */
+const IO_CONCURRENCY = 16
+
+/**
+ * 以目錄列表（一次 list）取代逐檔 exists＋stat：FsEntry 對一般檔案已帶 size 與 mtimeMs
+ * （與 stat 同一個值）。只有符號連結才補一次 stat 看它指向什麼。
+ * 判定與舊版逐檔 probe 相同：一般檔（或指向一般檔的連結）→ file；目錄等其他種類 → other；
+ * 不存在、斷掉的連結、列不出來（權限）→ missing（與 Path.is_file() 回 False 一致）。
+ */
+const probeEntry = async (
+  io: LoaderPorts,
+  dir: string,
+  entries: readonly FsEntry[] | null,
+  name: string,
+): Promise<FileProbe> => {
+  const entry = entries?.find(item => item.name === name)
+  if (entry === undefined) {
     return { kind: 'missing' }
   }
+  if (entry.kind === 'file') {
+    return { kind: 'file', mtimeMs: entry.mtimeMs, size: entry.size }
+  }
+  if (entry.kind === 'other' && entry.isLink) {
+    try {
+      const stat = await io.stat(joinPath(dir, name))
+      return stat.kind === 'file' ? { kind: 'file', mtimeMs: stat.mtimeMs, size: stat.size } : { kind: 'other' }
+    } catch {
+      return { kind: 'missing' }
+    }
+  }
+  return { kind: 'other' }
+}
+
+/** 列目錄；不存在或權限錯誤回 null（呼叫端視為裡面什麼都沒有）。 */
+const listOrNull = async (io: LoaderPorts, dir: string): Promise<readonly FsEntry[] | null> => {
+  try {
+    return await io.list(dir)
+  } catch {
+    return null
+  }
+}
+
+/** 子目錄（或指向目錄的連結）是否存在於列表中；連結交給 list 自己跟隨，失敗時 listOrNull 回 null。 */
+const hasDirEntry = (entries: readonly FsEntry[] | null, name: string): boolean =>
+  entries?.some(item => item.name === name && (item.kind === 'dir' || (item.kind === 'other' && item.isLink))) ?? false
+
+/** 以固定並行數跑完 items；結果依輸入順序回傳。 */
+const mapPool = async <T, R>(items: readonly T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> => {
+  const results: R[] = new Array<R>(items.length)
+  let cursor = 0
+  const lane = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await worker(items[index] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => lane()))
+  return results
 }
 
 type ReadJson = { ok: true; value: unknown } | { ok: false; kind: CockpitInvalidTask['kind']; message: string }
@@ -483,13 +528,13 @@ const readJson = async (io: LoaderPorts, path: string, size: number): Promise<Re
 
 const loadIr = async (
   io: LoaderPorts,
+  found: FileProbe,
   path: string,
   previous: CockpitSnapshot | null,
   previousIr: CockpitIrSummary | undefined,
   mtimes: Record<string, number>,
   sizes: Record<string, number>,
 ): Promise<{ ir: CockpitIrSummary; reread: boolean }> => {
-  const found = await probe(io, path)
   if (found.kind !== 'file') {
     return { ir: { status: 'missing' }, reread: false }
   }
@@ -514,22 +559,22 @@ const loadIr = async (
 /** 列出 .spec 第一層的「目錄」名稱（一般檔案如 _index.md 略過；指向目錄的連結算目錄）。 */
 const listSpecDirs = async (io: LoaderPorts, specDir: string): Promise<string[]> => {
   const entries = await io.list(specDir)
-  const names: string[] = []
-  for (const entry of entries) {
+  const picked = await mapPool(entries, IO_CONCURRENCY, async (entry): Promise<string | null> => {
     if (entry.kind === 'dir') {
-      names.push(entry.name)
-    } else if (entry.kind === 'other' && entry.isLink) {
+      return entry.name
+    }
+    if (entry.kind === 'other' && entry.isLink) {
       try {
         const stat = await io.stat(joinPath(specDir, entry.name))
-        if (stat.kind === 'dir') {
-          names.push(entry.name)
-        }
+        return stat.kind === 'dir' ? entry.name : null
       } catch {
         // 斷掉的連結：略過（與 Path.is_dir() 一致）
+        return null
       }
     }
-  }
-  return names.sort()
+    return null
+  })
+  return picked.filter((name): name is string => name !== null).sort()
 }
 
 /**
@@ -583,29 +628,41 @@ export async function loadCockpitSnapshot(io: LoaderPorts, options: LoadOptions)
     return empty()
   }
 
-  const mtimes: Record<string, number> = {}
-  const sizes: Record<string, number> = {}
-  const tasks: CockpitTaskView[] = []
-  const invalidTasks: CockpitInvalidTask[] = []
-  let untracked = 0
-  let reread = 0
-  let reused = 0
+  // 每個任務的結果先各自收好，再依 dirs 順序合併：並行完成的先後不影響 snapshot 內容與順序。
+  type TaskOutcome = {
+    task: CockpitTaskView | null
+    invalid: CockpitInvalidTask | null
+    untracked: boolean
+    reread: number
+    reused: number
+    mtimes: Record<string, number>
+    sizes: Record<string, number>
+  }
 
-  for (const id of dirs) {
-    const statePath = joinPath(specDir, id, 'state.json')
-    const irPath = joinPath(specDir, id, '.cache', 'verification-ir.json')
+  const loadOne = async (id: string): Promise<TaskOutcome> => {
+    const taskDir = joinPath(specDir, id)
+    const statePath = joinPath(taskDir, 'state.json')
+    const cacheDir = joinPath(taskDir, '.cache')
+    const irPath = joinPath(cacheDir, 'verification-ir.json')
+    const out: TaskOutcome = { task: null, invalid: null, untracked: false, reread: 0, reused: 0, mtimes: {}, sizes: {} }
     try {
-      const found = await probe(io, statePath)
+      // 一次 list 同時取得 state.json 的 mtime／size 與 .cache 是否存在
+      const entries = await listOrNull(io, taskDir)
+      const found = await probeEntry(io, taskDir, entries, 'state.json')
       if (found.kind !== 'file') {
-        untracked += 1
-        continue
+        out.untracked = true
+        return out
       }
-      mtimes[statePath] = found.mtimeMs
-      sizes[statePath] = found.size
+      out.mtimes[statePath] = found.mtimeMs
+      out.sizes[statePath] = found.size
       const before = previousTasks.get(id)
-      const { ir, reread: irReread } = await loadIr(io, irPath, previous, before?.verificationIr, mtimes, sizes)
+      // 沒有 .cache 目錄就不必再問 IR（與舊版逐檔 probe 結果相同：missing）
+      const irFound: FileProbe = hasDirEntry(entries, '.cache')
+        ? await probeEntry(io, cacheDir, await listOrNull(io, cacheDir), 'verification-ir.json')
+        : { kind: 'missing' }
+      const { ir, reread: irReread } = await loadIr(io, irFound, irPath, previous, before?.verificationIr, out.mtimes, out.sizes)
       if (irReread) {
-        reread += 1
+        out.reread += 1
       }
       const isSame =
         before !== undefined &&
@@ -613,30 +670,58 @@ export async function loadCockpitSnapshot(io: LoaderPorts, options: LoadOptions)
         previous.mtimes[statePath] === found.mtimeMs &&
         previous.sizes[statePath] === found.size
       if (isSame && before !== undefined) {
-        reused += 1
-        tasks.push({ ...before, staleDays: staleDaysOf(before.updatedRefMs, nowMs), verificationIr: ir })
-        continue
+        out.reused += 1
+        out.task = { ...before, staleDays: staleDaysOf(before.updatedRefMs, nowMs), verificationIr: ir }
+        return out
       }
-      reread += 1
+      out.reread += 1
       const read = await readJson(io, statePath, found.size)
       if (!read.ok) {
-        invalidTasks.push({ id, slug: sanitizeText(id), statePath: sanitizeText(statePath), kind: read.kind, message: read.message })
-        continue
+        out.invalid = { id, slug: sanitizeText(id), statePath: sanitizeText(statePath), kind: read.kind, message: read.message }
+        return out
       }
       if (!isObject(read.value)) {
-        invalidTasks.push({ id, slug: sanitizeText(id), statePath: sanitizeText(statePath), kind: 'not-object', message: TEXT.notObject })
-        continue
+        out.invalid = { id, slug: sanitizeText(id), statePath: sanitizeText(statePath), kind: 'not-object', message: TEXT.notObject }
+        return out
       }
-      tasks.push(toTaskView(read.value, id, statePath, ir, nowMs))
+      out.task = toTaskView(read.value, id, statePath, ir, nowMs)
+      return out
     } catch (error) {
       // 任何未預期錯誤只影響這一筆
-      invalidTasks.push({
+      out.task = null
+      out.invalid = {
         id,
         slug: sanitizeText(id),
         statePath: sanitizeText(statePath),
         kind: 'read',
         message: sanitizeText(errorText(error)),
-      })
+      }
+      return out
+    }
+  }
+
+  const outcomes = await mapPool(dirs, IO_CONCURRENCY, loadOne)
+
+  const mtimes: Record<string, number> = {}
+  const sizes: Record<string, number> = {}
+  const tasks: CockpitTaskView[] = []
+  const invalidTasks: CockpitInvalidTask[] = []
+  let untracked = 0
+  let reread = 0
+  let reused = 0
+  for (const outcome of outcomes) {
+    Object.assign(mtimes, outcome.mtimes)
+    Object.assign(sizes, outcome.sizes)
+    if (outcome.untracked) {
+      untracked += 1
+    }
+    reread += outcome.reread
+    reused += outcome.reused
+    if (outcome.task !== null) {
+      tasks.push(outcome.task)
+    }
+    if (outcome.invalid !== null) {
+      invalidTasks.push(outcome.invalid)
     }
   }
 
