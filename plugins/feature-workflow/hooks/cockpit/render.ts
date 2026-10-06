@@ -243,7 +243,9 @@ function overviewView(
     section(kit, `${TEXT.progress}（${progress.done} / ${progress.total}）`, el(kit.Text, {}, stepsText)),
     section(kit, TEXT.approval, ...gateRows),
     section(kit, TEXT.results, ...resultRows),
+    // 空的 work_unit（total 為 0，例如 new_state 的預設值）不顯示；未完成的才醒目（§11、A8）
     unit !== null &&
+      unit.total > 0 &&
       el(
         kit.Box,
         { marginTop: 1 },

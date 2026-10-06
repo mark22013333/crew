@@ -737,6 +737,39 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     expect(world.forbidden, '只改 UI state，不寫任何 project file').toEqual([])
   })
 
+  test('工作單元：空的（total 0）不顯示；中斷的警示色「中斷於 x/y」；完成的一般顯示（§11、A8）', async ($, on) => {
+    const done = JSON.parse(V2_FEATURE_VERIFY_WARN_BLOCKED) as Record<string, unknown>
+    const world = worldOf(
+      on,
+      specFiles({
+        'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+        'finished-unit/state.json': JSON.stringify({ ...done, slug: 'finished-unit', work_unit: { ...(done.work_unit as object), done: 5, total: 5 } }),
+      }),
+    )
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    world.setState('feature-workflow', 'selectedSlug', 'order-export-csv')
+    const pane = await mountPane($, 'terminal')
+    const empty = textOf(await pane.drawn())
+    expect(empty, '正對照：確實畫出了 order-export-csv 的總覽').toContain('feature · verify · schema v2')
+    expect(empty).not.toContain(TEXT.workUnit)
+    expect(empty).not.toContain('0 / 0')
+
+    world.setState('feature-workflow', 'selectedSlug', 'push-tag-query')
+    await pane.redraw()
+    const [interrupted] = await textColors(pane, new RegExp(`^${TEXT.workUnit}`))
+    expect(interrupted?.text).toBe(`${TEXT.workUnit}   ⚠ ${TEXT.interrupted(3, 5)} · browser verification`)
+    expect(interrupted?.color).toBe('warning')
+
+    world.setState('feature-workflow', 'selectedSlug', 'finished-unit')
+    await pane.redraw()
+    const [finished] = await textColors(pane, new RegExp(`^${TEXT.workUnit}`))
+    expect(finished?.text).toBe(`${TEXT.workUnit}   5 / 5 · browser verification`)
+    expect(finished?.color).toBe(undefined)
+  })
+
   test('Refresh：重新整理按鈕重讀 snapshot，畫面反映外部變更', async ($, on) => {
     const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
 
