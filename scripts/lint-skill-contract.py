@@ -68,6 +68,7 @@ PLAN_VERIFY_CONFIG_RESOLVER = REPO / "plugins" / "feature-workflow" / "reference
 PROJECT_ADD = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
 PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
 PLAN_VERIFY_E2E_REPORTER = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.js"
+PLAN_VERIFY_E2E_REPORTER_TEST = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.test.js"
 PLAN_VERIFY_E2E_RESULTS_TOOL = REPO / "plugins" / "feature-workflow" / "scripts" / "crew-e2e-results.py"
 PLAN_VERIFY_FROM_E2E = PLAN_VERIFY.parent / "phases" / "from-e2e.md"
 
@@ -227,6 +228,7 @@ def check_plan_verify_contract() -> list[str]:
         PROJECT_ADD,
         PLAN_VERIFY_E2E_RESULT,
         PLAN_VERIFY_E2E_REPORTER,
+        PLAN_VERIFY_E2E_REPORTER_TEST,
         PLAN_VERIFY_E2E_RESULTS_TOOL,
         PLAN_VERIFY_FROM_E2E,
     )
@@ -361,6 +363,11 @@ def check_plan_verify_contract() -> list[str]:
     for marker in ("crew-ac", "crew-ac-status", "crew-blocked", "schema_version", "flaky", "failed to write", "return { status: 'failed' }"):
         if marker not in reporter:
             errors.append(f"{PLAN_VERIFY_E2E_REPORTER.relative_to(REPO)} 缺 Playwright reporter marker：{marker}")
+
+    reporter_test = PLAN_VERIFY_E2E_REPORTER_TEST.read_text(encoding="utf-8")
+    for marker in ("soft assertion failed", "runtime attachment fallback", "forbidden request observed", "partial", "brokenReporter"):
+        if marker not in reporter_test:
+            errors.append(f"{PLAN_VERIFY_E2E_REPORTER_TEST.relative_to(REPO)} 缺 reporter regression marker：{marker}")
 
     results_tool = PLAN_VERIFY_E2E_RESULTS_TOOL.read_text(encoding="utf-8")
     for marker in ("STATUS_PRIORITY", "ALLOWED_COVERAGE", "freshness", "partial_coverage", "expected_git_sha", "never writes state.json"):
