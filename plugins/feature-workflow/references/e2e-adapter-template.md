@@ -75,6 +75,16 @@ language: javascript
 - allowed mutations：{白名單}
 - hard assertion：{如何在 teardown/finally 驗}
 
+## Result reporter
+
+- CREW result schema：`crew-results.json`
+- independent test mapping：{title / annotation / tag 如何帶 `{slug}#AC-n`}
+- stateful step mapping：`test.step('{slug}#AC-n: ...')`
+- whole-test blocked：{如何輸出 blocked + reason}
+- targeted AC status：`crew-ac-status` JSON annotation / attachment
+- partial coverage：`crew-ac-status` JSON with `coverage=partial`
+- output path：{對應 project `e2e_results`}
+
 ## Known environment differences
 
 | 差異 | 哪些環境 | 驗證處理 |
