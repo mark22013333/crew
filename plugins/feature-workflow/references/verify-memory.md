@@ -6,7 +6,7 @@
 
 | Layer | Canonical storage | 共享 | 生命週期 |
 |---|---|---|---|
-| Layer 3 產品級 | plugin `products/{product_id}-memory.md` | 跟 plugin 發布 | 長期 |
+| Layer 3 產品級 | project-local `.crew/products/{product_id}-memory.md` → plugin `products/{product_id}-memory.md` | 專案／plugin | 長期 |
 | Layer 2 專案級 | repo `.crew/verify-memory.md` | Git commit / push | 中期 |
 | Layer 1 任務級 | `.spec/{slug}/.cache/verify-memory.md` | 不共享 | 暫存 |
 
@@ -52,6 +52,29 @@ Write / promotion contract：
 
 每個可失效條目應有 `last_verified: YYYY-MM-DD`。
 
+### CI eligibility metadata
+
+Runtime verification 能成功，不代表該知識適合產生長期 CI 測試。可重用 selector / recipe 建議額外記錄：
+
+```yaml
+selector:
+  value: "#queryBtn"
+  strategy: id
+  stability: stable
+  ci_eligible: true
+  last_verified: 2026-10-04
+```
+
+`ci_eligible=false` 的典型案例：
+
+- `nth-child` / 長 CSS chain / XPath 等脆弱 selector
+- 依賴某次 session / popup / 暫時 DOM 結構
+- hardcoded 一次性測試資料
+- 只能靠固定 sleep 才成功的 recipe
+- cleanup 不可靠的共享資料操作
+
+`plan-verify` runtime 可使用 `ci_eligible=false` 的 fallback 來完成驗證，但 E2E authoring / promotion 不得把它當成 CI-ready 資產。
+
 ## Freshness
 
 | 距今 | 語意 |
@@ -81,7 +104,9 @@ Layer 1 有新資訊時，由 Human 決定是否升級到 Layer 2。
 - session-specific state
 - secret
 
-Layer 2 → Layer 3 屬 plugin maintainer 的人工 curate，不由 `/plan-verify` 自動寫 plugin bundle。
+Layer 2 → Layer 3 屬人工 curate，不由 `/plan-verify` 自動寫 plugin bundle。
+
+若產品知識包含公司／客戶私有資訊，優先升級到 project-local `.crew/products/{product_id}-memory.md`，不要複製到公開 plugin bundle。
 
 ## 與 state 的邊界
 
