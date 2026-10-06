@@ -1,6 +1,6 @@
 ---
 name: plan-verify
-description: 透過 browser/API/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
+description: 透過 browser/API/backend-test/database/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
 argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e]"
 ---
 
