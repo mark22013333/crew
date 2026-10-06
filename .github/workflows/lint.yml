@@ -125,15 +125,22 @@ jobs:
         run: python3 scripts/lint-host-portability.py --strict
 
   playwright-e2e-authoring:
-    name: Playwright E2E authoring policy
+    name: Playwright E2E contract policy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: 驗證 Playwright candidate linter regression
         run: python3 plugins/feature-workflow/scripts/lint-playwright-e2e.py --self-test
+      - name: 驗證 E2E result summarizer regression
+        run: python3 plugins/feature-workflow/scripts/crew-e2e-results.py --self-test
+      - name: 驗證 CREW Playwright reporter regression
+        run: node plugins/feature-workflow/references/playwright/crew-reporter.js
 
   skill-contract:
     name: SKILL.md 內容契約

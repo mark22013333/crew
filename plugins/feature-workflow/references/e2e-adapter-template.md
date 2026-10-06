@@ -34,9 +34,12 @@ language: javascript
 ## AC mapping
 
 - canonical join key：`{slug}#AC-n`
-- independent test：{test title / tag 如何包含 {slug}#AC-n}
+- independent test：{annotation/tag 寫法}
 - stateful scenario：`test.step('{slug}#AC-n: ...')`
-- precondition handling：{framework 的 skip / fixture failure 慣例；不要把環境失敗寫成產品 assertion}
+- whole-scenario blocked：{framework 如何讓 reporter 輸出 blocked + reason}
+- targeted AC blocked：`crew-ac-status` JSON，至少含 `ac/status=blocked/reason`
+- partial coverage：`crew-ac-status` JSON，含 `ac/coverage=partial/reason`
+- runtime metadata compatibility：新 Playwright 可用 `testInfo.annotations`；要支援舊版時，同步 `testInfo.attach('crew-ac-status', { body: JSON... })`
 
 ## Component recipes
 
@@ -74,6 +77,11 @@ language: javascript
 - allowed mutations：{白名單}
 - hard assertion：{如何在 teardown/finally 驗}
 
+## Reporter
+
+- CREW reporter：{vendor path / custom reporter}
+- output：`crew-results.json`
+- trace/screenshot/video：{artifact policy}
 
 ## Known environment differences
 

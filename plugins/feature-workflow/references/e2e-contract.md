@@ -28,12 +28,14 @@ e2e_adapter: company-admin-e2e
 e2e_workspace: ../AdminE2ETest
 e2e_profile: uat
 e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ```
 
 ### Portable rule
 
 - `e2e_workspace` 以**受測 application repo root** 為基準解析，必須是相對路徑；不得要求某位工程師的絕對家目錄。
 - `e2e_command` 在解析後的 E2E workspace 內執行。
+- `e2e_results` 以 E2E workspace 為基準解析；未設定時預設 `test-results/crew-results.json`。
 - credential / token / password 不得出現在 project config。
 - `e2e_profile` 是邏輯識別，不是 secret container。
 - CI 可以把 application repo 與 E2E repo checkout 到相同相對布局，讓同一份設定同時支援本機與 CI。
@@ -76,7 +78,7 @@ E2E candidate 必須：
 - 不把 secret、一次性測試資料、session state 寫進測試
 - framework adapter 可調整 import / auth / config / helper 寫法，但不得改寫 AC 語意
 
-## 與 CI-ready 的邊界
+## 與更高成熟度的邊界
 
 產生出的測試預設 maturity：
 

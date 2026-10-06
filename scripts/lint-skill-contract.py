@@ -54,8 +54,12 @@ PLAN_VERIFY_ROUTE = PLAN_VERIFY.parent / "phases" / "route-verification.md"
 PLAN_VERIFY_PRECONDITIONS = PLAN_VERIFY.parent / "phases" / "preconditions.md"
 PLAN_VERIFY_E2E_RUNNER = PLAN_VERIFY.parent / "phases" / "e2e-runner.md"
 PLAN_VERIFY_E2E_AUTHORING = PLAN_VERIFY.parent / "phases" / "e2e-authoring.md"
+PLAN_VERIFY_FROM_E2E = PLAN_VERIFY.parent / "phases" / "from-e2e.md"
 PLAN_VERIFY_IR = REPO / "plugins" / "feature-workflow" / "references" / "verification-ir.md"
 PLAN_VERIFY_E2E_CONTRACT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-contract.md"
+PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
+PLAN_VERIFY_E2E_REPORTER = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.js"
+PLAN_VERIFY_E2E_RESULTS_TOOL = REPO / "plugins" / "feature-workflow" / "scripts" / "crew-e2e-results.py"
 PLAN_VERIFY_E2E_ADAPTER_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "e2e-adapter-template.md"
 PLAN_VERIFY_E2E_LINTER = REPO / "plugins" / "feature-workflow" / "scripts" / "lint-playwright-e2e.py"
 PLAN_VERIFY_GENERIC_ADAPTER = REPO / "plugins" / "feature-workflow" / "adapters" / "generic-playwright.md"
@@ -79,6 +83,9 @@ PLAN_VERIFY_REQUIRED = (
     "phases/e2e-authoring.md",
     "../../references/verification-ir.md",
     "../../references/e2e-contract.md",
+    "--from-e2e",
+    "phases/from-e2e.md",
+    "../../references/e2e-result-schema.md",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -204,8 +211,12 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_PRECONDITIONS,
         PLAN_VERIFY_E2E_RUNNER,
         PLAN_VERIFY_E2E_AUTHORING,
+        PLAN_VERIFY_FROM_E2E,
         PLAN_VERIFY_IR,
         PLAN_VERIFY_E2E_CONTRACT,
+        PLAN_VERIFY_E2E_RESULT,
+        PLAN_VERIFY_E2E_REPORTER,
+        PLAN_VERIFY_E2E_RESULTS_TOOL,
         PLAN_VERIFY_E2E_ADAPTER_TEMPLATE,
         PLAN_VERIFY_E2E_LINTER,
         PLAN_VERIFY_GENERIC_ADAPTER,
@@ -275,7 +286,7 @@ def check_plan_verify_contract() -> list[str]:
             errors.append(f"{PLAN_VERIFY_PRECONDITIONS.relative_to(REPO)} 缺 precondition marker：{marker}")
 
     e2e_runner = PLAN_VERIFY_E2E_RUNNER.read_text(encoding="utf-8")
-    for marker in ("{slug}#AC-n", "legacy `verify-map.json`", "BLOCKED", "framework-native"):
+    for marker in ("{slug}#AC-n", "legacy `verify-map.json`", "BLOCKED", "crew-results.json"):
         if marker not in e2e_runner:
             errors.append(f"{PLAN_VERIFY_E2E_RUNNER.relative_to(REPO)} 缺 E2E runner marker：{marker}")
 
@@ -283,6 +294,11 @@ def check_plan_verify_contract() -> list[str]:
     for marker in ("maturity = draft", "Verification IR", "test.step", "ci_eligible=false"):
         if marker not in e2e_authoring:
             errors.append(f"{PLAN_VERIFY_E2E_AUTHORING.relative_to(REPO)} 缺 E2E authoring marker：{marker}")
+
+    from_e2e = PLAN_VERIFY_FROM_E2E.read_text(encoding="utf-8")
+    for marker in ("--from-e2e", "crew-results.json", "blocked", "crew-state.py"):
+        if marker not in from_e2e:
+            errors.append(f"{PLAN_VERIFY_FROM_E2E.relative_to(REPO)} 缺 from-e2e marker：{marker}")
 
     ir = PLAN_VERIFY_IR.read_text(encoding="utf-8")
     for marker in ("schema_version", ".cache/verification-ir.json", "{slug}#AC-{n}", "forbid_request"):
@@ -300,6 +316,21 @@ def check_plan_verify_contract() -> list[str]:
         if marker not in adapter_template:
             errors.append(f"{PLAN_VERIFY_E2E_ADAPTER_TEMPLATE.relative_to(REPO)} 缺 adapter template marker：{marker}")
 
+    result_schema = PLAN_VERIFY_E2E_RESULT.read_text(encoding="utf-8")
+    for marker in ("crew-results.json", "flaky", "blocked", "coverage", "CI 不直接寫"):
+        if marker not in result_schema:
+            errors.append(f"{PLAN_VERIFY_E2E_RESULT.relative_to(REPO)} 缺 E2E result marker：{marker}")
+
+    reporter = PLAN_VERIFY_E2E_REPORTER.read_text(encoding="utf-8")
+    for marker in ("crew-ac", "crew-blocked", "crew-ac-status", "schema_version", "flaky", "module.exports = CrewReporter"):
+        if marker not in reporter:
+            errors.append(f"{PLAN_VERIFY_E2E_REPORTER.relative_to(REPO)} 缺 Playwright reporter marker：{marker}")
+
+    results_tool = PLAN_VERIFY_E2E_RESULTS_TOOL.read_text(encoding="utf-8")
+    for marker in ("STATUS_PRIORITY", "blocked 必須有 reason", "expected_git_sha", "never writes state.json"):
+        if marker not in results_tool:
+            errors.append(f"{PLAN_VERIFY_E2E_RESULTS_TOOL.relative_to(REPO)} 缺 E2E result tool marker：{marker}")
+
     e2e_linter = PLAN_VERIFY_E2E_LINTER.read_text(encoding="utf-8")
     for marker in ("TEST_ONLY", "UNRESOLVED_MARKER", "MISSING_AC", "MISSING_ASSERTION", "--strict-review"):
         if marker not in e2e_linter:
@@ -313,7 +344,7 @@ def check_plan_verify_contract() -> list[str]:
     config_template = PLAN_VERIFY_CONFIG_TEMPLATE.read_text(encoding="utf-8")
     config_resolver = PLAN_VERIFY_CONFIG_RESOLVER.read_text(encoding="utf-8")
     project_add = PROJECT_ADD.read_text(encoding="utf-8")
-    for marker in ("product_id", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command"):
+    for marker in ("product_id", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command", "e2e_results"):
         if marker not in config_template:
             errors.append(f"{PLAN_VERIFY_CONFIG_TEMPLATE.relative_to(REPO)} 缺 project E2E 欄位：{marker}")
         if marker not in config_resolver:

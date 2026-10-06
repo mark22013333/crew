@@ -325,6 +325,12 @@ flowchart TD
     Evidence --> Result["state.json results.verify"]
     Evidence --> IR["Verification IR"]
     IR --> Draft["E2E candidate<br/>maturity=draft"]
+
+    Existing["existing maintained E2E"] --> CI["CI / E2E runner"]
+    CI --> Artifact["crew-results.json"]
+    Artifact --> Import["/plan-verify --from-e2e"]
+    Import --> Result
+
     Result --> Status{"PASS / WARN / FAIL"}
     Status -- "FAIL" --> Build["/plan-build"]
     Status -- "WARN" --> Recheck["/plan-verify --recheck"]
@@ -343,10 +349,11 @@ flowchart TD
 - `--recheck`：重跑 FAIL + BLOCKED
 - `--e2e`：重用既有 E2E coverage
 - `--e2e-draft`：由 Verification IR 產出 draft candidate
+- `--from-e2e`：消費 `crew-results.json`，不重新開瀏覽器
 - Excel report
 - Word report
 
-> 本 batch 只定義 portable authoring contract；candidate 固定為 `draft`。CI result ingestion 與 promotion 分別由後續 PR 處理。
+> E2E candidate 仍固定為 `draft`。本 batch 補上 CI/E2E result ingestion；是否能升更高成熟度仍由後續 promotion PR 處理。
 
 外部 browser/DB 工具以 `tool_probe` 判斷目前 Host 是否真的可呼叫；不能用某一家 CLI listing 代替 capability probe。
 

@@ -323,6 +323,7 @@ mkdir -p "$(dirname "$PROJECT_CONFIG_WRITE_PATH")"
 
 **驗證／E2E 選填 metadata（不可在更新時誤刪）**：
 
+- 若既有 hierarchical project frontmatter 已有 `product_id`、`e2e_adapter`、`e2e_workspace`、`e2e_profile`、`e2e_command`、`e2e_results`，更新專案時預設原值保留。
 - 新專案不主動追問整套 E2E 設定；只有使用者明確提供、或目前 repo 已有 `.crew/products/` / `.crew/adapters/` 且需要關聯時才寫。
 - `e2e_workspace` 必須是相對於**受測 application repo root** 的相對路徑；不得寫 `/Users/.../`、`/home/.../` 或 Windows 使用者家目錄絕對路徑。
 - `e2e_profile` 只能放邏輯 profile ID；帳密、token、cookie 不得寫入 project frontmatter。
@@ -341,6 +342,7 @@ uat_branch: {UAT 分支名稱，可空}
 {若有 E2E workspace：e2e_workspace: {相對於 application repo root 的路徑}}
 {若有 E2E profile：e2e_profile: {邏輯 Profile ID}}
 {若有 E2E command：e2e_command: {runner command}}
+{若有 E2E results：e2e_results: {相對於 E2E workspace 的結果路徑}}
 ---
 {說明}
 ```

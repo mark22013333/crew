@@ -15,11 +15,12 @@ e2e_adapter: generic-playwright
 e2e_workspace: ../e2e
 e2e_profile: uat
 e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ```
 
 規則：
 - `e2e_workspace` 以受測 application repo root 為基準，必須是相對路徑。
-- `e2e_command` 在 E2E workspace 內執行。
+- `e2e_command` 在 E2E workspace 內執行；`e2e_results` 也以該 workspace 為基準。
 - 舊 `e2e_repo` 只作 read compatibility；`e2e_profile` 保留為 canonical 邏輯 profile 欄位。
 - Adapter resolution 見 `../../references/e2e-contract.md`。
 
@@ -36,9 +37,10 @@ e2e_command: npx playwright test
 ```
 
 允許來源：
-1. test title / tag 內的 `{slug}#AC-n`
-2. `test.step("{slug}#AC-n: ...")`
-3. legacy `verify-map.json`
+1. E2E result / reporter metadata
+2. test annotation / tag
+3. `test.step("AC-n: ...")`
+4. legacy `verify-map.json`
 
 Legacy condition text fuzzy matching 只能 fallback，不得當新資產的 canonical mapping。
 
@@ -67,9 +69,10 @@ PROFILE={profile} npx playwright test {matched files}
 
 ## 5. 輸出
 
-收集 framework-native 執行結果與可用 evidence（例如 trace / screenshot / Playwright test status），再依穩定 AC mapping 寫入本次 verify 明細。
+優先要求 runner 產出 `../../references/e2e-result-schema.md` 格式的 `crew-results.json`。Generic Playwright 可參考 `../../references/playwright/crew-reporter.js`；E2E repo 應 vendor/copy reporter，不要讓 CI 綁定 plugin 安裝路徑。
 
-- 只有能明確映射到單一 `{slug}#AC-n` 的結果才可更新該 AC。
-- suite-level failure 不得反推所有 AC 都是產品 FAIL。
-- 沒有可靠 per-AC mapping 時，回到 Verification Router 驗證該 AC。
-- state 寫入仍遵守 plan-verify 既有 `crew-state.py` 單一寫者規則。
+若 legacy runner 尚未支援：
+- 可讀 Playwright JSON reporter 結果轉成 schema v1
+- 但不得只 parse console 人話字串
+
+最後再把 result 轉成 `.cache/verify.md` 與 `state.json.results.verify`。
