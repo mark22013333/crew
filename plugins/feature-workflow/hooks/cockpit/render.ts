@@ -409,7 +409,7 @@ export function hudModel(data: HudData): HudSegment[][] | null {
   const uat = (visibleGates(task) ?? []).find(gate => gate.key === 'uat')
   const recorded = task.recordedNext?.command ?? null
   const second = [
-    uat !== undefined ? `uat ${hudText(uat.status ?? '—')}` : null,
+    uat !== undefined ? (uat.status === 'pending' ? TEXT.uatPendingShort : `UAT ${hudText(uat.status ?? '—')}`) : null,
     recorded !== null ? `${TEXT.recordedNextShort} ${hudText(recorded)}` : null,
     TEXT.loadedAt(formatClock(snapshot.loadedAt)),
     fillCommandFor(task),

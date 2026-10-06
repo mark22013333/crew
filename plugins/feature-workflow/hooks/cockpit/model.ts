@@ -78,6 +78,8 @@ export const TEXT = {
   irInvalidHint: 'Verification IR：檔案無法解析\n重新執行 /plan-verify 可重新產生。',
   blockedNote: (n: number) => `BLOCKED ×${n}：驗收前置條件尚未就緒，不代表產品 FAIL`,
   truthSeparator: 'Runtime PASS ≠ E2E ci-ready ≠ 人工 UAT',
+  /** §17.5／§9 HUD 範例：UAT gate 為 pending 時顯示「UAT 待核准」；其餘狀態值保留原文（識別字）。 */
+  uatPendingShort: 'UAT 待核准',
   v1NoGates: '舊版格式（schema v1），無核准閘資料',
   noTasks: '此 repo 沒有 CREW 任務。',
   noTasksHint: '用 /plan-start 或 /bug-start 開始一個。',

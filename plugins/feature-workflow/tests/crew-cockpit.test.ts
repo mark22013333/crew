@@ -1169,7 +1169,7 @@ describe('Batch 5 HUD＋composition（T-7、T-15）', () => {
     const wideTree = await wide.drawn()
     const wideText = textOf(wideTree)
     expect(wideText).toContain('CREW · push-tag-query · feature / verify · 中斷於 3/5 · 驗收 WARN（BLOCKED ×2） · 停滯 3 天 · ＋1 個進行中')
-    expect(wideText).toContain(`uat pending · ${TEXT.recordedNextShort} /plan-verify --recheck · ${TEXT.loadedAt(formatClock(NOW))} · /plan-next push-tag-query`)
+    expect(wideText).toContain(`${TEXT.uatPendingShort} · ${TEXT.recordedNextShort} /plan-verify --recheck · ${TEXT.loadedAt(formatClock(NOW))} · /plan-next push-tag-query`)
     expect(wideText).not.toMatch(/ci-ready/i)
     expect((await wide.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'row')).toHaveLength(2)
 
@@ -1403,4 +1403,41 @@ describe('T-10 Desktop＋Terminal', () => {
       expect(world.forbidden).toEqual([])
     })
   }
+})
+
+describe('D-3／AC-13 render 純度：ui.render 期間不做 I/O', () => {
+  test('快照載入後，Pane 三個 tab 與 AbovePrompt 的 mount／redraw 不新增任何 fs 呼叫，也沒有被拒的 I/O', async ($, on) => {
+    const world = worldOf(
+      on,
+      specFiles({
+        'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+        'push-tag-query/.cache/verification-ir.json': VERIFICATION_IR,
+        'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+      }),
+    )
+    nothingBeneathBand(on)
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    // 正對照：載入階段一定讀過檔，證明 world.asked 看得見 fs 呼叫（下方「不變」不是空轉）
+    expect(world.asked.some(entry => entry.startsWith('read ')), 'spy 必須看得到載入期的 fs.read').toBe(true)
+
+    const askedBefore = [...world.asked]
+    const forbiddenBefore = [...world.forbidden]
+
+    const pane = await mountPane($, 'terminal')
+    for (const tab of ['overview', 'tasks', 'verify']) {
+      world.setState('feature-workflow', 'tab', tab)
+      await pane.redraw()
+      expect(textOf(await pane.drawn()).length, `${tab} tab 要真的畫出內容`).toBeGreaterThan(0)
+    }
+    const band = await mountBand($, 'terminal')
+    await band.redraw()
+    expect(textOf(await band.drawn())).toContain('CREW · ')
+
+    // render 期間不得新增任何 fs 呼叫（read／list／stat／exists），也不得出現被拒的 I/O
+    expect(world.asked).toEqual(askedBefore)
+    expect(world.forbidden).toEqual(forbiddenBefore)
+    expect(world.forbidden).toEqual([])
+  })
 })
