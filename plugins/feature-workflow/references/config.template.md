@@ -143,6 +143,7 @@ e2e_adapter: {E2E adapter ID，選填}
 e2e_workspace: {相對於 application repo root 的 E2E repo path，選填}
 e2e_profile: {邏輯 Profile ID，選填；不得放 secret}
 e2e_command: {E2E runner command，選填}
+e2e_results: {相對於 E2E workspace 的結果 path，選填}
 ---
 {專案說明}
 ```
@@ -163,6 +164,7 @@ e2e_adapter: company-admin-e2e
 e2e_workspace: ../AdminE2ETest
 e2e_profile: uat
 e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ---
 範例銀行 LINE 推播微服務
 ```

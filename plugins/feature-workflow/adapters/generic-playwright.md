@@ -65,3 +65,16 @@ Runtime fallback 可更寬鬆，但 XPath、長 CSS chain、`nth-child` 等預�
 - 優先使用 setup project / storageState
 - auth state 不進 Git
 
+
+
+## CREW reporter
+
+Reference implementation：`references/playwright/crew-reporter.js`。
+
+E2E repo 應自行 vendor/copy 或實作相同 schema，CI 不應依賴 CREW plugin 安裝路徑才能執行測試。
+
+Reporter convention：
+- `crew-ac` annotation description：`{slug}#AC-n`
+- Stateful `test.step` title：直接包含 `{slug}#AC-n`
+- 整支 scenario blocked：`crew-blocked` annotation，description 放 reason
+- 指定 AC outcome / partial coverage：`crew-ac-status` JSON

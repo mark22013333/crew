@@ -1,7 +1,7 @@
 ---
 name: plan-verify
 description: 透過 browser/API/backend-test/database/E2E capability 逐條驗證 plan.md 的 AC-n 驗收條件，摘要一行進 plan.md、明細暫存 .cache/，可選 --deep 查 console/network。當使用者提到 /plan-verify、「.spec 驗收條件驗證」、「瀏覽器驗收 spec」時觸發此 Skill。
-argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft]"
+argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft|--from-e2e <file>]"
 ---
 
 # plan-verify — 驗收條件驗證
@@ -34,6 +34,7 @@ argument-hint: "[<URL>] [--deep|--manual|--api-only|--recheck|--e2e|--e2e-draft]
 /plan-verify --recheck          # 僅重新驗證上次失敗的項目
 /plan-verify --e2e              # E2E Runner 模式（讀 portable e2e_* contract）
 /plan-verify --e2e-draft        # 由 Verification IR 產 E2E candidate（draft）
+/plan-verify --from-e2e <file>  # 消費 crew-results.json，不重開瀏覽器
 ```
 
 **Word／Excel 報告已移出主流程**，改為驗證完成後的獨立可選指令（見『可選指令：Word／Excel 驗收報告』一節）：
@@ -486,6 +487,12 @@ YES → 依 `../../references/verification-ir.md` 產生／讀取 `.cache/verifi
 - 本模式只產生 `draft` candidate；更高成熟度判定不屬本模式
 
 ---
+
+### 從 CI / E2E 結果匯入（--from-e2e）
+
+> 📄 **執行前必讀全文**：[`phases/from-e2e.md`](./phases/from-e2e.md)
+
+讀取 `../../references/e2e-result-schema.md` 的 `crew-results.json`，先由 deterministic summarizer 驗證 schema / `slug#AC-n` / git freshness，再轉成 PASS / WARN / FAIL / BLOCKED / SKIP / MANUAL。最後仍只透過 `crew-state.py result` 寫 `state.json.results.verify`；CI 本身不得 patch task state。
 
 ## 可選指令：Word／Excel 驗收報告（不在主流程）
 
