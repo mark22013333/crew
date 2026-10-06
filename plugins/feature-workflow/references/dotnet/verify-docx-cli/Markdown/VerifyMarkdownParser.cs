@@ -43,11 +43,12 @@ public static class VerifyMarkdownParser
         var map = TableToKeyValue(FindFirstTable(blocks));
 
         int Read(string key) => int.TryParse(map.GetValueOrDefault(key, "").Trim(), out var n) ? n : 0;
-        int pass = Read("通過"), fail = Read("未通過"), skip = Read("略過"), manual = Read("待人工確認");
+        int pass = Read("通過"), fail = Read("未通過"), warn = Read("警告"),
+            blocked = Read("前置阻擋"), skip = Read("略過"), manual = Read("待人工確認");
 
         // 結論：表格後第一個含「結論」的段落
-        var conclusion = FindConclusion(blocks) ?? GenerateConclusion(pass, fail, skip, manual);
-        return new SummaryStats(pass, fail, skip, manual, conclusion);
+        var conclusion = FindConclusion(blocks) ?? GenerateConclusion(pass, fail, warn, blocked, skip, manual);
+        return new SummaryStats(pass, fail, warn, blocked, skip, manual, conclusion);
     }
 
     private static string? FindConclusion(List<Block> blocks)
@@ -63,12 +64,13 @@ public static class VerifyMarkdownParser
         return null;
     }
 
-    private static string GenerateConclusion(int pass, int fail, int skip, int manual)
+    private static string GenerateConclusion(int pass, int fail, int warn, int blocked, int skip, int manual)
     {
-        var total = pass + fail + skip + manual;
-        if (fail == 0 && manual == 0) return $"共 {total} 項驗收條件全數通過，建議進入正式上線流程。";
+        var total = pass + fail + warn + blocked + skip + manual;
         if (fail > 0) return $"共 {total} 項驗收條件，{fail} 項未通過，需修正後重新驗證。";
-        return $"共 {total} 項驗收條件，{pass} 項通過、{manual} 項待人工確認。";
+        if (blocked > 0) return $"共 {total} 項驗收條件，{blocked} 項因前置條件阻擋，排除阻擋後需重新驗證。";
+        if (warn > 0 || manual > 0) return $"共 {total} 項驗收條件，{pass} 項通過、{warn} 項警告、{manual} 項待人工確認。";
+        return $"共 {total} 項驗收條件全數通過。";
     }
 
     // ── 驗收明細 ────────────────────────────────────────────────
@@ -234,6 +236,8 @@ public static class VerifyMarkdownParser
     {
         if (text.Contains("✅") || text.Contains("通過") && !text.Contains("未通過")) return DetailStatus.Pass;
         if (text.Contains("❌") || text.Contains("未通過")) return DetailStatus.Fail;
+        if (text.Contains("⚠") || text.Contains("警告")) return DetailStatus.Warn;
+        if (text.Contains("🚧") || text.Contains("前置阻擋") || text.Contains("BLOCKED")) return DetailStatus.Blocked;
         if (text.Contains("⏭") || text.Contains("略過")) return DetailStatus.Skip;
         if (text.Contains("🔍") || text.Contains("👤") || text.Contains("待人工確認")) return DetailStatus.Manual;
         return DetailStatus.Manual;
