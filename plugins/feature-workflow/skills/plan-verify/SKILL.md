@@ -507,7 +507,7 @@ Word／Excel 報告是 `.cache/verify.md` 的**重排版衍生品**（零新增�
 
 ## --recheck 模式
 
-讀取既有 `.spec/{slug}/.cache/verify.md`，解析其中 `❌ FAIL` 的項目：
+讀取既有 `.spec/{slug}/.cache/verify.md`，解析其中 `❌ FAIL` 與 `🚧 BLOCKED` 的項目：
 
 1. 重新跑 FAIL + BLOCKED 項目
 2. 結果合併回**同一份** `.cache/verify.md`（覆蓋對應 `AC-n` 的狀態）
