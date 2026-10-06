@@ -71,7 +71,7 @@ Precondition 失敗應能被 reporter 辨識為 blocked，而不是讓後面每�
 若 runtime 只靠 `ci_eligible=false` fallback 成功：
 - candidate 加 TODO / FIXME
 - maturity 保持 draft
-- promotion gate 必須 BLOCK
+- candidate 必須維持 `draft`，不得宣稱 CI-ready
 
 ## 6. Wait strategy
 
@@ -97,6 +97,6 @@ hardcoded record ID 不必一律禁止，但必須能說明 fixture contract。
 2. syntax/framework load
 3. headed/headless 試跑（依 adapter）
 4. 人工 review
-5. 進入 `e2e-promotion.md`
+5. 保存為 `draft` candidate，等待後續獨立 promotion contract 判定是否可進 CI
 
 Candidate 不自動 commit 到外部 E2E repo；Git write 仍由使用者／Host 權限決定。
