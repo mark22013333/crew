@@ -172,17 +172,28 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
         if item["coverage"] == "partial":
             partial_coverage += 1
 
-    stale = False
     artifact_sha = payload.get("git_sha")
-    if expected_git_sha and artifact_sha:
-        stale = not (
+    if expected_git_sha and not artifact_sha:
+        freshness = "unknown"
+    elif expected_git_sha and artifact_sha:
+        same_commit = (
             str(expected_git_sha).startswith(str(artifact_sha))
             or str(artifact_sha).startswith(str(expected_git_sha))
         )
+        freshness = "fresh" if same_commit else "stale"
+    else:
+        freshness = "unknown"
+
+    stale = freshness == "stale"
 
     if counts["failed"] > 0:
         overall = "FAIL"
-    elif counts["blocked"] > 0 or counts["flaky"] > 0 or partial_coverage > 0 or stale:
+    elif (
+        counts["blocked"] > 0
+        or counts["flaky"] > 0
+        or partial_coverage > 0
+        or freshness != "fresh"
+    ):
         overall = "WARN"
     else:
         overall = "PASS"
@@ -194,6 +205,7 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
         "environment": payload["environment"],
         "git_sha": artifact_sha,
         "expected_git_sha": expected_git_sha,
+        "freshness": freshness,
         "stale": stale,
         "status": overall,
         "counts": {
@@ -270,8 +282,16 @@ def self_test() -> int:
     assert result["stale"] is False, result
 
     stale = summarize(payload, "feature-x", "zzz999")
+    assert stale["freshness"] == "stale", stale
     assert stale["stale"] is True, stale
     assert stale["status"] == "WARN", stale
+
+    no_sha = dict(payload)
+    no_sha["git_sha"] = None
+    unknown = summarize(no_sha, "feature-x", "abc123")
+    assert unknown["freshness"] == "unknown", unknown
+    assert unknown["stale"] is False, unknown
+    assert unknown["status"] == "WARN", unknown
 
     bad = dict(payload)
     bad["results"] = [{"ac": "feature-x#AC-1", "status": "blocked"}]
