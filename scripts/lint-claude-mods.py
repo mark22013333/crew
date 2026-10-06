@@ -163,12 +163,12 @@ def check_manifest(label: str, manifest: dict) -> list[str]:
 
 
 def split_top_level(s: str) -> list[str]:
-    """以逗號切分，但尊重 {} 內的逗號。"""
+    """以逗號切分，但尊重 {} 與 () 內的逗號（例：「(via a, b)」）。"""
     parts, depth, cur = [], 0, []
     for ch in s:
-        if ch == "{":
+        if ch in "{(":
             depth += 1
-        elif ch == "}":
+        elif ch in "})":
             depth = max(0, depth - 1)
         if ch == "," and depth == 0:
             parts.append("".join(cur).strip())
@@ -410,6 +410,11 @@ def self_test() -> int:
     _, errs2, _ = parse_validate(fake("session.start", "$.ui.open", errors=[{"path": "p", "message": "boom"}]))
     check(errs2 == ["p: boom"], f"validate errors 應被收集：{errs2}")
     check(split_top_level("a{x=1, y=2}, b") == ["a{x=1, y=2}", "b"], "split_top_level 錯誤")
+    check(split_top_level("$.a (via f, g), $.b") == ["$.a (via f, g)", "$.b"], "split_top_level 須尊重 () 內逗號")
+    via3, _, _ = parse_validate(fake("session.start", "$.session.repo (via hudStoreKey, portsOf), $.ui.open"))
+    check(via3 == {"./register.tsx call $.session.repo", "./register.tsx call $.ui.open",
+                   "./register.tsx hook session.start", "./register.tsx state-write tool-calls.calls"},
+          f"多個 via 應整段去除：{sorted(via3)}")
     via, _, _ = parse_validate(fake("session.start", "$.fs.read (via portsOf), $.ui.open"))
     check("./register.tsx call $.fs.read" in via and "./register.tsx call $.fs.read (via portsOf)" not in via,
           f"「(via helper)」後綴應被去除：{sorted(via)}")
