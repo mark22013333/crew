@@ -230,5 +230,6 @@ project-local knowledge 優先，用來承載公司／客戶／環境特有的�
 | e2e_workspace | 選填 | E2E repo 相對於受測 application repo root 的路徑 |
 | e2e_profile | 選填 | E2E 測試預設 Profile ID（不得存 secret） |
 | e2e_command | 選填 | 在 E2E workspace 內執行的 runner 指令 |
+| e2e_results | 選填 | 相對於 E2E workspace 的 canonical `crew-results.json` 路徑 |
 
 舊欄位 `e2e_repo` 僅作 read compatibility；新設定使用 flat `e2e_*` contract。完整規則見 `references/e2e-contract.md`。

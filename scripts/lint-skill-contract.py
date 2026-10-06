@@ -66,6 +66,11 @@ PLAN_COMMON = REPO / "plugins" / "feature-workflow" / "references" / "plan-commo
 PLAN_VERIFY_CONFIG_TEMPLATE = REPO / "plugins" / "feature-workflow" / "references" / "config.template.md"
 PLAN_VERIFY_CONFIG_RESOLVER = REPO / "plugins" / "feature-workflow" / "references" / "config-resolver.md"
 PROJECT_ADD = REPO / "plugins" / "bug-workflow" / "skills" / "project-add" / "SKILL.md"
+PLAN_VERIFY_E2E_RESULT = REPO / "plugins" / "feature-workflow" / "references" / "e2e-result-schema.md"
+PLAN_VERIFY_E2E_REPORTER = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.js"
+PLAN_VERIFY_E2E_REPORTER_TEST = REPO / "plugins" / "feature-workflow" / "references" / "playwright" / "crew-reporter.test.js"
+PLAN_VERIFY_E2E_RESULTS_TOOL = REPO / "plugins" / "feature-workflow" / "scripts" / "crew-e2e-results.py"
+PLAN_VERIFY_FROM_E2E = PLAN_VERIFY.parent / "phases" / "from-e2e.md"
 
 PLAN_VERIFY_REQUIRED = (
     "CREW_PLUGIN_ROOT",
@@ -82,6 +87,8 @@ PLAN_VERIFY_REQUIRED = (
     "phases/e2e-authoring.md",
     "../../references/verification-ir.md",
     "../../references/e2e-contract.md",
+    "--from-e2e",
+    "phases/from-e2e.md",
 )
 PLAN_VERIFY_FORBIDDEN = (
     'python3 "${CLAUDE_PLUGIN_ROOT}/',
@@ -219,6 +226,11 @@ def check_plan_verify_contract() -> list[str]:
         PLAN_VERIFY_CONFIG_TEMPLATE,
         PLAN_VERIFY_CONFIG_RESOLVER,
         PROJECT_ADD,
+        PLAN_VERIFY_E2E_RESULT,
+        PLAN_VERIFY_E2E_REPORTER,
+        PLAN_VERIFY_E2E_REPORTER_TEST,
+        PLAN_VERIFY_E2E_RESULTS_TOOL,
+        PLAN_VERIFY_FROM_E2E,
     )
     for path in required_files:
         if not path.is_file():
@@ -312,11 +324,9 @@ def check_plan_verify_contract() -> list[str]:
             errors.append(f"{PLAN_VERIFY_IR.relative_to(REPO)} 缺 Verification IR marker：{marker}")
 
     e2e = PLAN_VERIFY_E2E_CONTRACT.read_text(encoding="utf-8")
-    for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "e2e_workspace", "受測 application repo root", "不得要求某位工程師的絕對家目錄"):
+    for marker in (".crew/adapters/{e2e_adapter}.md", "generic-playwright", "e2e_workspace", "e2e_results", "受測 application repo root", "不得要求某位工程師的絕對家目錄"):
         if marker not in e2e:
             errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} 缺 portable E2E marker：{marker}")
-    if "e2e_results" in e2e:
-        errors.append(f"{PLAN_VERIFY_E2E_CONTRACT.relative_to(REPO)} Batch B 不應提前引入 result-bridge 欄位 e2e_results")
 
     adapter_template = PLAN_VERIFY_E2E_ADAPTER_TEMPLATE.read_text(encoding="utf-8")
     for marker in ("Import contract", "Runtime profile", "Authentication", "Fixture contract", "Safety invariants", "Known pitfalls"):
@@ -336,13 +346,38 @@ def check_plan_verify_contract() -> list[str]:
     config_template = PLAN_VERIFY_CONFIG_TEMPLATE.read_text(encoding="utf-8")
     config_resolver = PLAN_VERIFY_CONFIG_RESOLVER.read_text(encoding="utf-8")
     project_add = PROJECT_ADD.read_text(encoding="utf-8")
-    for marker in ("product_id", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command"):
+    for marker in ("product_id", "e2e_adapter", "e2e_workspace", "e2e_profile", "e2e_command", "e2e_results"):
         if marker not in config_template:
             errors.append(f"{PLAN_VERIFY_CONFIG_TEMPLATE.relative_to(REPO)} 缺 project E2E 欄位：{marker}")
         if marker not in config_resolver:
             errors.append(f"{PLAN_VERIFY_CONFIG_RESOLVER.relative_to(REPO)} 缺 project E2E 欄位說明：{marker}")
         if marker not in project_add:
             errors.append(f"{PROJECT_ADD.relative_to(REPO)} 寫入 project mapping 時未保留 E2E 欄位：{marker}")
+
+    result_schema = PLAN_VERIFY_E2E_RESULT.read_text(encoding="utf-8")
+    for marker in ("crew-results.json", "coverage", "partial", "flaky", "blocked", "Freshness", "CI 只產 result artifact"):
+        if marker not in result_schema:
+            errors.append(f"{PLAN_VERIFY_E2E_RESULT.relative_to(REPO)} 缺 E2E result marker：{marker}")
+
+    reporter = PLAN_VERIFY_E2E_REPORTER.read_text(encoding="utf-8")
+    for marker in ("crew-ac", "crew-ac-status", "crew-blocked", "schema_version", "flaky", "failed to write", "return { status: 'failed' }"):
+        if marker not in reporter:
+            errors.append(f"{PLAN_VERIFY_E2E_REPORTER.relative_to(REPO)} 缺 Playwright reporter marker：{marker}")
+
+    reporter_test = PLAN_VERIFY_E2E_REPORTER_TEST.read_text(encoding="utf-8")
+    for marker in ("soft assertion failed", "runtime attachment fallback", "forbidden request observed", "partial", "brokenReporter"):
+        if marker not in reporter_test:
+            errors.append(f"{PLAN_VERIFY_E2E_REPORTER_TEST.relative_to(REPO)} 缺 reporter regression marker：{marker}")
+
+    results_tool = PLAN_VERIFY_E2E_RESULTS_TOOL.read_text(encoding="utf-8")
+    for marker in ("STATUS_PRIORITY", "ALLOWED_COVERAGE", "freshness", "partial_coverage", "expected_git_sha", "never writes state.json"):
+        if marker not in results_tool:
+            errors.append(f"{PLAN_VERIFY_E2E_RESULTS_TOOL.relative_to(REPO)} 缺 E2E result tool marker：{marker}")
+
+    from_e2e = PLAN_VERIFY_FROM_E2E.read_text(encoding="utf-8")
+    for marker in ("--from-e2e", "crew-results.json", "crew-e2e-results.py", "coverage=partial", "crew-state.py", "不重新開瀏覽器"):
+        if marker not in from_e2e:
+            errors.append(f"{PLAN_VERIFY_FROM_E2E.relative_to(REPO)} 缺 from-e2e marker：{marker}")
 
     return errors
 

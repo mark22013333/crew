@@ -28,12 +28,14 @@ e2e_adapter: company-admin-e2e
 e2e_workspace: ../AdminE2ETest
 e2e_profile: uat
 e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ```
 
 ### Portable rule
 
 - `e2e_workspace` 以**受測 application repo root** 為基準解析，必須是相對路徑；不得要求某位工程師的絕對家目錄。
 - `e2e_command` 在解析後的 E2E workspace 內執行。
+- `e2e_results` 以 E2E workspace 為基準解析；CI 與本機 runner 都產同一 schema。
 - credential / token / password 不得出現在 project config。
 - `e2e_profile` 是邏輯識別，不是 secret container。
 - CI 可以把 application repo 與 E2E repo checkout 到相同相對布局，讓同一份設定同時支援本機與 CI。
@@ -75,6 +77,10 @@ E2E candidate 必須：
 - 不從 `verify.md` 重新猜操作；以 Verification IR 為主要輸入
 - 不把 secret、一次性測試資料、session state 寫進測試
 - framework adapter 可調整 import / auth / config / helper 寫法，但不得改寫 AC 語意
+
+## Result bridge
+
+當 E2E repo 要把 CI / runner 結果回傳 CREW 時，使用 `e2e_results` 指向 `references/e2e-result-schema.md` 的 artifact。E2E repo 可以 vendor CREW reference reporter 或自行實作相同 schema；CI **不得直接修改 application repo 的 `state.json`**。
 
 ## 與 CI-ready 的邊界
 

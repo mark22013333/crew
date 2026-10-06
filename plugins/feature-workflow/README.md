@@ -325,6 +325,10 @@ flowchart TD
     Evidence --> IR["Verification IR<br/>.cache/verification-ir.json"]
     Evidence --> Result["state.json results.verify"]
     IR --> Draft["/plan-verify --e2e-draft<br/>E2E candidate (draft)"]
+    Draft --> CIRun["external E2E / CI"]
+    CIRun --> Artifact["crew-results.json"]
+    Artifact --> Import["/plan-verify --from-e2e"]
+    Import --> Result
     Result --> Status{"PASS / WARN / FAIL"}
     Status -- "FAIL" --> Build["/plan-build"]
     Status -- "WARN" --> Recheck["/plan-verify --recheck"]
@@ -346,6 +350,7 @@ flowchart TD
 - Word report
 - E2E runner（portable `e2e_workspace / e2e_adapter / e2e_profile / e2e_command`）
 - `--e2e-draft`：由 Verification IR + framework adapter 產生 E2E candidate；預設維持 draft
+- `--from-e2e`：驗證 canonical `crew-results.json` 後匯回 verify state，不重新開瀏覽器
 
 外部 browser/DB 工具以 `tool_probe` 判斷目前 Host 是否真的可呼叫；不能用某一家 CLI listing 代替 capability probe。
 

@@ -64,3 +64,16 @@ Runtime fallback 可更寬鬆，但 XPath、長 CSS chain、`nth-child` 等預�
 - 由 CI secret / runtime profile 提供 credential
 - 優先使用 setup project / storageState
 - auth state 不進 Git
+
+
+## CREW result reporter
+
+Reference implementation：`references/playwright/crew-reporter.js`。
+
+E2E repo 應自行 vendor/copy 或實作相同 `crew-results.json` schema，CI 不應依賴 CREW plugin 安裝路徑才能執行測試。
+
+Convention：
+- independent test：title / `crew-ac` annotation 包含 `{slug}#AC-n`
+- stateful scenario：`test.step` title 直接包含 `{slug}#AC-n`
+- whole-test precondition blocked：`crew-blocked` annotation
+- selected AC outcome / partial coverage：`crew-ac-status` JSON annotation；舊 Playwright 可用同名 JSON attachment

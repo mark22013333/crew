@@ -167,6 +167,7 @@ e2e_adapter: company-admin-e2e
 e2e_workspace: ../AdminE2ETest
 e2e_profile: uat
 e2e_command: npx playwright test
+e2e_results: test-results/crew-results.json
 ---
 範例銀行 LINE 推播微服務
 ```
@@ -183,6 +184,7 @@ frontmatter 欄位：
 - `e2e_workspace`（選填）：相對於受測 application repo root 的 E2E repo path
 - `e2e_profile`（選填）：邏輯 profile ID，不得放 secret
 - `e2e_command`（選填）：在 E2E workspace 執行的 runner command
+- `e2e_results`（選填）：相對於 E2E workspace 的 canonical result artifact path
 
 body：專案說明（一句話）。
 
