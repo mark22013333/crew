@@ -101,7 +101,8 @@ export const TEXT = {
   services: '服務',
   inferred: '⚠ phase 為推導值（inferred）',
   inferredShort: '⚠ inferred',
-  parked: '已暫停',
+  // 對齊 crew-state.py 用語（park＝「擱置任務」、list 標記「已擱置」）
+  parked: '已擱置',
   closedTask: '已結案',
   verifyLabel: '驗收',
   otherBlocked: (n: number) => `另有 BLOCKED ×${n}`,
@@ -131,8 +132,10 @@ const ANSI_CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g
 const ANSI_OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g
 const ANSI_OTHER = /\x1b[@-Z\\-_]/g
 const C1_CSI = /\x9b[0-?]*[ -/]*[@-~]/g
-// 剩餘的 C0（含 ESC 殘渣）、DEL、C1 控制字元，以及會改變顯示方向的 bidi 控制字元。
-const CONTROL = /[\x00-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g
+// 剩餘的 C0（含 ESC 殘渣）、DEL、C1 控制字元，以及零寬與方向控制字元（§18.1）：
+// U+200B–U+200F（零寬空白／ZWNJ／ZWJ／LRM／RLM）、U+202A–U+202E（bidi 嵌入與覆寫）、
+// U+2060–U+2069（word joiner、不可見運算子、bidi isolate）、U+FEFF（BOM／ZWNBSP）、U+061C（阿拉伯字母標記）。
+const CONTROL = /[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\u061c]/g
 const LINE_BREAKS = /[\r\n\t\v\f\u0085\u2028\u2029]+/g
 
 /**

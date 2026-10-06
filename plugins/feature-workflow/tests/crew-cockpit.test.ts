@@ -522,6 +522,14 @@ describe('純函式', () => {
     expect(sanitizeText('\x1b[31mA\x1b[0m\nB\tC  D')).toBe('A B C D')
     expect(sanitizeText({ a: 1 })).toBe('{"a":1}')
     expect(sanitizeText(null)).toBe('')
+    // §18.1 零寬與方向控制字元：每一個區段的頭尾都要清掉
+    const invisible = ['\u200b', '\u200c', '\u200d', '\u200e', '\u200f', '\u202a', '\u202c', '\u202e', '\u2060', '\u2064', '\u2066', '\u2069', '\ufeff', '\u061c']
+    for (const char of invisible) {
+      expect(sanitizeText(`a${char}b`), `U+${char.codePointAt(0)?.toString(16).toUpperCase()}`).toBe('ab')
+    }
+    expect(sanitizeText('feature/\u202eevil\u202c-\u200bfix\ufeff')).toBe('feature/evil-fix')
+    // 反對照：一般中文、全形符號與 emoji 不受影響
+    expect(sanitizeText('中文　全形（）✓ 🚀')).toBe('中文　全形（）✓ 🚀')
     expect(asInt('2')).toBe(2)
     expect(asInt(' 3 ')).toBe(3)
     expect(asInt('2.5')).toBe(0)
@@ -768,6 +776,25 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     const [finished] = await textColors(pane, new RegExp(`^${TEXT.workUnit}`))
     expect(finished?.text).toBe(`${TEXT.workUnit}   5 / 5 · browser verification`)
     expect(finished?.color).toBe(undefined)
+  })
+
+  test('parked 任務標「已擱置」（對齊 crew-state.py park／list 用語），總覽附原因、任務列附標記', async ($, on) => {
+    const world = worldOf(
+      on,
+      specFiles({ 'search-synonyms/state.json': V2_FEATURE_PARKED, 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }),
+    )
+
+    await $.session.start(SESSION)
+    await $.command.run(COMMAND())
+    world.setState('feature-workflow', 'selectedSlug', 'search-synonyms')
+    const pane = await mountPane($, 'terminal')
+    const overview = textOf(await pane.drawn())
+    expect(TEXT.parked).toBe('已擱置')
+    expect(overview).toContain('已擱置：等待需求方回覆')
+    await pressAndRedraw(pane, 'tab-tasks')
+    const tasks = textOf(await pane.drawn())
+    expect(tasks).toContain(' · 已擱置 · ')
+    expect(`${overview}${tasks}`).not.toContain('暫停')
   })
 
   test('Refresh：重新整理按鈕重讀 snapshot，畫面反映外部變更', async ($, on) => {
