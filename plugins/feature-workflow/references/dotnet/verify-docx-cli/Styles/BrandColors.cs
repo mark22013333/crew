@@ -12,6 +12,7 @@ public static class BrandColors
     public const string StatusPass     = "228B22";
     public const string StatusFail     = "CC0000";
     public const string StatusWarn     = "FF8C00";
+    public const string StatusBlocked  = "7030A0";
     public const string StatusSkip     = "808080";
     public const string StatusManual   = "1F4E79";
 }
