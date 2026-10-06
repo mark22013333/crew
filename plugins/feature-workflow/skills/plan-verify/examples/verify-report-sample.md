@@ -1,6 +1,6 @@
 # 範例：`.spec/{slug}/.cache/verify.md` 驗證報告
 
-以下展示 `/plan-verify` 的理想產出格式，涵蓋四種狀態（PASS / FAIL / SKIP / MANUAL）。
+以下展示 `/plan-verify` 的理想產出格式，涵蓋 PASS / WARN / FAIL / BLOCKED / SKIP / MANUAL。
 報告本身是 `.cache/` 下的一次性暫存，結論（PASS/WARN/FAIL、Health Score）另由 `crew-state.py result --kind verify` 寫進 `state.json`。
 
 ---
@@ -22,6 +22,7 @@
 |------|------|
 | ✅ PASS | 3 |
 | ❌ FAIL | 1 |
+| 🚧 BLOCKED | 1 |
 | ⏭️ SKIP | 1 |
 | 👤 MANUAL | 1 |
 
@@ -131,6 +132,13 @@ response_lines: 3
   5. 允許 ±1% 的誤差（LINE 後台統計有延遲）
 - **截圖**：screenshots/verify-6-manual-guide.png
 
+### [7] 🚧 後台登入前置條件未成立
+
+- **類型**：UI 前置條件
+- **阻擋原因**：登入 helper 執行後仍無法存取受保護頁面；目前無法判定 AC 功能本身是否正確
+- **證據**：受保護頁面回到登入流程，未取得必要資料表
+- **處理**：修正 profile / credential / session 後重新執行本項，不得把此結果記成產品 FAIL
+
 ---
 
 # 範例：Word 驗收報告結構
@@ -173,10 +181,11 @@ response_lines: 3
 |------|------|
 | 通過 | 3 |
 | 未通過 | 1 |
+| 前置阻擋 | 1 |
 | 略過 | 1 |
 | 待人工確認 | 1 |
 
-**結論**：共 6 項驗收條件，3 項通過、1 項未通過、1 項待人工確認（1 項因範圍限制略過），需修正匯出功能後重新驗證。
+**結論**：共 7 項驗收條件，3 項通過、1 項未通過、1 項前置阻擋、1 項待人工確認（1 項因範圍限制略過）；FAIL 需修正，BLOCKED 則先排除環境／登入前置條件再重新驗證。
 
 ## 驗收明細
 
@@ -320,6 +329,7 @@ Headers:
 |---|---------|------|------------|
 | 4 | 匯出 Excel 功能 | 未通過 | 開發完成後重新驗證 |
 | 6 | 統計數據與 LINE 後台一致 | 待人工確認 | 請相關人員手動比對數據 |
+| 7 | 後台登入前置條件未成立 | 前置阻擋 | 修正 profile / credential / session 後重新驗證 |
 
 ## 附錄
 
