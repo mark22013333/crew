@@ -312,7 +312,17 @@ def check_plan_verify_contract() -> list[str]:
             errors.append(f"{PLAN_VERIFY_FROM_E2E.relative_to(REPO)} 缺 from-e2e marker：{marker}")
 
     promotion = PLAN_VERIFY_E2E_PROMOTION.read_text(encoding="utf-8")
-    for marker in ("--e2e-promote", "ci-ready", "retries=0", "repeat-each >= 3", "candidate_sha256", "environment_gate"):
+    for marker in (
+        "--e2e-promote",
+        "ci-ready",
+        "retries=0",
+        "repeat-each >= 3",
+        "candidate_sha256",
+        "environment_gate",
+        "environment_gate\": \"policy",
+        "persistent_owned_fixture",
+        "exclusive_execution",
+    ):
         if marker not in promotion:
             errors.append(f"{PLAN_VERIFY_E2E_PROMOTION.relative_to(REPO)} 缺 E2E promotion marker：{marker}")
 
@@ -348,17 +358,61 @@ def check_plan_verify_contract() -> list[str]:
             errors.append(f"{PLAN_VERIFY_E2E_RESULTS_TOOL.relative_to(REPO)} 缺 E2E result tool marker：{marker}")
 
     promotion_policy = PLAN_VERIFY_E2E_CI_POLICY.read_text(encoding="utf-8")
-    for marker in ("ci-ready", "review_waivers", "retries=0", "repeat_each < 3", "candidate_sha256", "environment_gate=deferred"):
+    for marker in (
+        "ci-ready",
+        "review_waivers",
+        "retries != 0",
+        "repeat_each < 3",
+        "candidate SHA-256",
+        "environment_gate=not-required",
+        "shared mutation",
+        "persistent-owned fixture",
+        "workers > 1",
+    ):
         if marker not in promotion_policy:
             errors.append(f"{PLAN_VERIFY_E2E_CI_POLICY.relative_to(REPO)} 缺 CI promotion marker：{marker}")
 
     promotion_schema = PLAN_VERIFY_E2E_PROMOTION_SCHEMA.read_text(encoding="utf-8")
-    for marker in ("environment_gate", "review_waivers", "candidate_sha256", "repeat_each", "deferred", "not-required"):
+    for marker in (
+        "environment_gate",
+        "review_waivers",
+        "candidate_sha256",
+        "repeat_each",
+        "deferred",
+        "not-required",
+        "policy",
+        "shared_mutation",
+        "environment_bound_fixture",
+        "disposable_environment",
+        "persistent_owned_fixture",
+        "idempotent_seed",
+        "exclusive_execution",
+        "parallel_safe",
+        "cleanup",
+        "safety_invariants",
+    ):
         if marker not in promotion_schema:
             errors.append(f"{PLAN_VERIFY_E2E_PROMOTION_SCHEMA.relative_to(REPO)} 缺 promotion metadata marker：{marker}")
 
     promotion_tool = PLAN_VERIFY_E2E_PROMOTION_TOOL.read_text(encoding="utf-8")
-    for marker in ("ENVIRONMENT_GATE_DEFERRED", "STALE_STABILITY_EVIDENCE", "PROMOTION_RETRIES_NOT_ZERO", "INSUFFICIENT_REPEATS", "sha256_file", "review_waivers"):
+    for marker in (
+        "ENVIRONMENT_GATE_DEFERRED",
+        "ENVIRONMENT_POLICY_REQUIRED",
+        "MISSING_SAFETY_INVARIANT",
+        "UNRELIABLE_CLEANUP",
+        "ENV_FIXTURE_NOT_RESTORABLE",
+        "PERSISTENT_FIXTURE_NOT_IDEMPOTENT",
+        "PERSISTENT_FIXTURE_NO_EXCLUSIVE_EXECUTION",
+        "PERSISTENT_FIXTURE_PARALLEL_UNSAFE",
+        "PARALLEL_FIXTURE_COLLISION",
+        "WORKERS_EXCEED_PARALLEL_CONTRACT",
+        "STALE_STABILITY_EVIDENCE",
+        "PROMOTION_RETRIES_NOT_ZERO",
+        "INSUFFICIENT_REPEATS",
+        "sha256_file",
+        "review_waivers",
+        "evaluate_environment",
+    ):
         if marker not in promotion_tool:
             errors.append(f"{PLAN_VERIFY_E2E_PROMOTION_TOOL.relative_to(REPO)} 缺 promotion evaluator marker：{marker}")
 

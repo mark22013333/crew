@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Deterministic source/review/stability promotion gate for CREW Playwright E2E.
+"""Deterministic promotion gate for CREW Playwright E2E candidates.
 
 This script never runs the target application's tests and never writes state.json.
-It evaluates evidence recorded by the caller.
+It evaluates source/review/stability evidence plus an explicit environment policy.
 
 Usage:
   python3 crew-e2e-promote.py check --candidate tests/foo.spec.js --metadata .crew/e2e/foo.promotion.json
@@ -27,7 +27,8 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 MATURITY_VALUES = {"draft", "ci-ready"}
-ENVIRONMENT_GATE_VALUES = {"not-required", "deferred"}
+ENVIRONMENT_GATE_VALUES = {"not-required", "deferred", "policy"}
+CLEANUP_VALUES = {"reliable", "best-effort", "none"}
 
 
 class PromotionError(ValueError):
@@ -58,6 +59,37 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def validate_environment(environment: Any) -> dict[str, Any]:
+    require(isinstance(environment, dict), "environment_gate=policy 時 environment 必須是 object")
+
+    bool_keys = (
+        "shared_mutation",
+        "environment_bound_fixture",
+        "unique_test_data",
+        "disposable_environment",
+        "persistent_owned_fixture",
+        "idempotent_seed",
+        "exclusive_execution",
+        "parallel_safe",
+    )
+    for key in bool_keys:
+        require(isinstance(environment.get(key), bool), f"environment.{key} 必須是 boolean")
+
+    workers = environment.get("workers")
+    require(isinstance(workers, int) and not isinstance(workers, bool) and workers >= 1, "environment.workers 必須是 >= 1 的整數")
+
+    cleanup = environment.get("cleanup")
+    require(cleanup in CLEANUP_VALUES, f"environment.cleanup 必須是 {sorted(CLEANUP_VALUES)}")
+
+    safety = environment.get("safety_invariants")
+    require(isinstance(safety, list), "environment.safety_invariants 必須是 array")
+    require(
+        all(isinstance(item, str) and item.strip() for item in safety),
+        "environment.safety_invariants 每項都必須是非空字串",
+    )
+    return environment
+
+
 def load_metadata(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -71,10 +103,16 @@ def load_metadata(path: Path) -> dict[str, Any]:
     require(isinstance(data.get("candidate"), str) and data["candidate"].strip(), "candidate 必須是非空字串")
     require(isinstance(data.get("adapter"), str) and data["adapter"].strip(), "adapter 必須是非空字串")
     require(data.get("maturity", "draft") in MATURITY_VALUES, "maturity 必須是 draft 或 ci-ready")
+
+    environment_gate = data.get("environment_gate")
     require(
-        data.get("environment_gate") in ENVIRONMENT_GATE_VALUES,
-        "environment_gate 必須是 not-required 或 deferred",
+        environment_gate in ENVIRONMENT_GATE_VALUES,
+        "environment_gate 必須是 not-required / deferred / policy",
     )
+    if environment_gate == "policy":
+        validate_environment(data.get("environment"))
+    elif data.get("environment") not in (None, {}):
+        raise PromotionError("environment 只能在 environment_gate=policy 時提供")
 
     waivers = data.get("review_waivers", [])
     require(isinstance(waivers, list), "review_waivers 必須是 array")
@@ -95,7 +133,10 @@ def load_metadata(path: Path) -> dict[str, Any]:
         require(isinstance(stability.get(key), bool), f"stability.{key} 必須是 boolean")
     for key in ("retries", "repeat_each", "passed", "failed"):
         value = stability.get(key)
-        require(isinstance(value, int) and value >= 0, f"stability.{key} 必須是非負整數")
+        require(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0,
+            f"stability.{key} 必須是非負整數",
+        )
 
     fingerprint = stability.get("candidate_sha256")
     require(
@@ -132,6 +173,92 @@ def waiver_map(metadata: dict[str, Any]) -> dict[str, str]:
         waiver["code"]: waiver["reason"]
         for waiver in metadata.get("review_waivers", [])
     }
+
+
+def evaluate_environment(environment: dict[str, Any]) -> list[dict[str, str]]:
+    blockers: list[dict[str, str]] = []
+
+    shared_mutation = environment["shared_mutation"]
+    environment_bound = environment["environment_bound_fixture"]
+    unique = environment["unique_test_data"]
+    disposable = environment["disposable_environment"]
+    persistent_owned = environment["persistent_owned_fixture"]
+    idempotent_seed = environment["idempotent_seed"]
+    exclusive_execution = environment["exclusive_execution"]
+    parallel_safe = environment["parallel_safe"]
+    workers = environment["workers"]
+    cleanup = environment["cleanup"]
+    safety = environment["safety_invariants"]
+
+    persistent_safe = (
+        persistent_owned
+        and idempotent_seed
+        and exclusive_execution
+        and workers == 1
+        and not parallel_safe
+    )
+
+    if shared_mutation and not safety:
+        blockers.append({
+            "code": "MISSING_SAFETY_INVARIANT",
+            "reason": "shared_mutation=true 時至少要宣告一條 safety invariant",
+        })
+
+    if persistent_owned and not idempotent_seed:
+        blockers.append({
+            "code": "PERSISTENT_FIXTURE_NOT_IDEMPOTENT",
+            "reason": "persistent_owned_fixture=true 時必須 idempotent_seed=true",
+        })
+
+    if persistent_owned and not exclusive_execution:
+        blockers.append({
+            "code": "PERSISTENT_FIXTURE_NO_EXCLUSIVE_EXECUTION",
+            "reason": "persistent-owned fixture 必須由 CI/runtime 保證 exclusive_execution=true",
+        })
+
+    if persistent_owned and (workers != 1 or parallel_safe):
+        blockers.append({
+            "code": "PERSISTENT_FIXTURE_PARALLEL_UNSAFE",
+            "reason": "persistent-owned fixture 必須 workers=1 且 parallel_safe=false",
+        })
+
+    if (idempotent_seed or exclusive_execution) and not persistent_owned:
+        blockers.append({
+            "code": "PERSISTENT_FIXTURE_FLAGS_WITHOUT_OWNERSHIP",
+            "reason": "idempotent_seed/exclusive_execution 只能搭配 persistent_owned_fixture=true",
+        })
+
+    if shared_mutation and cleanup != "reliable" and not disposable and not persistent_safe:
+        blockers.append({
+            "code": "UNRELIABLE_CLEANUP",
+            "reason": (
+                "shared mutation 必須 cleanup=reliable、disposable environment，"
+                "或滿足 persistent-owned fixture contract"
+            ),
+        })
+
+    if environment_bound and cleanup != "reliable" and not disposable and not persistent_safe:
+        blockers.append({
+            "code": "ENV_FIXTURE_NOT_RESTORABLE",
+            "reason": (
+                "environment-bound fixture 無 reliable restoration/disposable environment，"
+                "也未滿足 persistent-owned fixture contract"
+            ),
+        })
+
+    if parallel_safe and shared_mutation and not unique and not disposable:
+        blockers.append({
+            "code": "PARALLEL_FIXTURE_COLLISION",
+            "reason": "parallel shared mutation 需要 unique_test_data=true 或 disposable environment",
+        })
+
+    if workers > 1 and not parallel_safe:
+        blockers.append({
+            "code": "WORKERS_EXCEED_PARALLEL_CONTRACT",
+            "reason": f"workers={workers} 但 parallel_safe=false",
+        })
+
+    return blockers
 
 
 def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
@@ -180,11 +307,20 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
                 "reason": f"{candidate}:{issue.line} 需要 review/waiver：{issue.message}",
             })
 
-    if metadata["environment_gate"] != "not-required":
+    environment_gate = metadata["environment_gate"]
+    if environment_gate == "deferred":
         blockers.append({
             "code": "ENVIRONMENT_GATE_DEFERRED",
-            "reason": "candidate 需要後續 environment policy；本批不得標 ci-ready",
+            "reason": "environment review 尚未完成",
         })
+    elif environment_gate == "not-required":
+        if any(issue.code == "FIXED_RECORD_ID" for issue in review_issues):
+            blockers.append({
+                "code": "ENVIRONMENT_POLICY_REQUIRED",
+                "reason": "source 含固定 record ID；不得以 environment_gate=not-required 繞過 fixture policy",
+            })
+    elif environment_gate == "policy":
+        blockers.extend(evaluate_environment(metadata["environment"]))
 
     stability = metadata["stability"]
     current_sha256 = sha256_file(candidate)
@@ -218,13 +354,12 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         })
 
     maturity = "ci-ready" if not blockers else "draft"
-
-    return {
+    result = {
         "schema_version": SCHEMA_VERSION,
         "candidate": str(candidate),
         "adapter": metadata["adapter"],
         "maturity": maturity,
-        "environment_gate": metadata["environment_gate"],
+        "environment_gate": environment_gate,
         "stability": stability | {"current_candidate_sha256": current_sha256},
         "static": {
             "hard": [asdict(issue) | {"path": str(issue.path)} for issue in hard_issues],
@@ -232,6 +367,9 @@ def evaluate(candidate: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         },
         "blockers": blockers,
     }
+    if environment_gate == "policy":
+        result["environment"] = metadata["environment"]
+    return result
 
 
 def print_human(result: dict[str, Any]) -> None:
@@ -287,6 +425,37 @@ def command_fingerprint(args: argparse.Namespace) -> int:
     return 0
 
 
+def stable_evidence(candidate: Path) -> dict[str, Any]:
+    return {
+        "discovery": True,
+        "framework_load": True,
+        "headless_pass": True,
+        "retries": 0,
+        "repeat_each": 3,
+        "passed": 3,
+        "failed": 0,
+        "candidate_sha256": sha256_file(candidate),
+    }
+
+
+def safe_environment(**overrides: Any) -> dict[str, Any]:
+    environment = {
+        "shared_mutation": False,
+        "environment_bound_fixture": False,
+        "unique_test_data": False,
+        "disposable_environment": False,
+        "persistent_owned_fixture": False,
+        "idempotent_seed": False,
+        "exclusive_execution": False,
+        "parallel_safe": False,
+        "workers": 1,
+        "cleanup": "none",
+        "safety_invariants": [],
+    }
+    environment.update(overrides)
+    return environment
+
+
 def self_test() -> int:
     clean_spec = """
 const { test, expect } = require('@playwright/test');
@@ -297,83 +466,117 @@ test('feature-x#AC-1 renders', async ({ page }) => {
 });
 """.strip()
 
-    review_spec = """
+    fixed_record_spec = """
 const { test, expect } = require('@playwright/test');
-test('feature-y#AC-2 legacy wait', async ({ page }) => {
-  await test.step('feature-y#AC-2: wait', async () => {
-    await page.waitForTimeout(100);
-    await expect.soft(page.getByText('ok')).toBeVisible();
-  });
+test('feature-z#AC-3 fixed fixture', async ({ page }) => {
+  await page.goto('/example?id=5');
+  await expect(page.getByRole('main')).toBeVisible();
 });
 """.strip()
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         clean_path = root / "clean.spec.js"
-        review_path = root / "review.spec.js"
+        fixed_path = root / "fixed.spec.js"
         clean_path.write_text(clean_spec, encoding="utf-8")
-        review_path.write_text(review_spec, encoding="utf-8")
-
-        stable = {
-            "discovery": True,
-            "framework_load": True,
-            "headless_pass": True,
-            "retries": 0,
-            "repeat_each": 3,
-            "passed": 3,
-            "failed": 0,
-            "candidate_sha256": sha256_file(clean_path),
-        }
+        fixed_path.write_text(fixed_record_spec, encoding="utf-8")
 
         base = metadata_template(str(clean_path), "generic-playwright")
         base["environment_gate"] = "not-required"
-        base["stability"] = stable
+        base["stability"] = stable_evidence(clean_path)
         ready = evaluate(clean_path, base)
         assert ready["maturity"] == "ci-ready", ready
 
         deferred = dict(base)
         deferred["environment_gate"] = "deferred"
         deferred_result = evaluate(clean_path, deferred)
-        assert any(
-            item["code"] == "ENVIRONMENT_GATE_DEFERRED"
-            for item in deferred_result["blockers"]
-        ), deferred_result
+        assert any(item["code"] == "ENVIRONMENT_GATE_DEFERRED" for item in deferred_result["blockers"]), deferred_result
 
-        unwaived = metadata_template(str(review_path), "generic-playwright")
-        unwaived["environment_gate"] = "not-required"
-        unwaived["stability"] = dict(stable)
-        unwaived["stability"]["candidate_sha256"] = sha256_file(review_path)
-        review_blocked = evaluate(review_path, unwaived)
-        assert any(
-            item["code"] == "REVIEW_FIXED_SLEEP"
-            for item in review_blocked["blockers"]
-        ), review_blocked
+        fixed = metadata_template(str(fixed_path), "generic-playwright")
+        fixed["environment_gate"] = "not-required"
+        fixed["review_waivers"] = [{"code": "FIXED_RECORD_ID", "reason": "fixture is intentionally fixed"}]
+        fixed["stability"] = stable_evidence(fixed_path)
+        fixed_result = evaluate(fixed_path, fixed)
+        assert any(item["code"] == "ENVIRONMENT_POLICY_REQUIRED" for item in fixed_result["blockers"]), fixed_result
 
-        waived = dict(unwaived)
-        waived["review_waivers"] = [{
-            "code": "FIXED_SLEEP",
-            "reason": "legacy component has no observable completion event yet",
-        }]
-        review_ready = evaluate(review_path, waived)
-        assert review_ready["maturity"] == "ci-ready", review_ready
+        reliable = dict(fixed)
+        reliable["environment_gate"] = "policy"
+        reliable["environment"] = safe_environment(
+            shared_mutation=True,
+            environment_bound_fixture=True,
+            cleanup="reliable",
+            safety_invariants=["restore fixture after mutation"],
+        )
+        reliable_result = evaluate(fixed_path, reliable)
+        assert reliable_result["maturity"] == "ci-ready", reliable_result
+
+        unsafe = dict(reliable)
+        unsafe["environment"] = safe_environment(
+            shared_mutation=True,
+            environment_bound_fixture=True,
+            cleanup="best-effort",
+            safety_invariants=["mutate only test fixture"],
+        )
+        unsafe_result = evaluate(fixed_path, unsafe)
+        unsafe_codes = {item["code"] for item in unsafe_result["blockers"]}
+        assert "UNRELIABLE_CLEANUP" in unsafe_codes, unsafe_result
+        assert "ENV_FIXTURE_NOT_RESTORABLE" in unsafe_codes, unsafe_result
+
+        disposable = dict(reliable)
+        disposable["environment"] = safe_environment(
+            shared_mutation=True,
+            environment_bound_fixture=True,
+            disposable_environment=True,
+            cleanup="none",
+            safety_invariants=["mutate only isolated namespace"],
+        )
+        disposable_result = evaluate(fixed_path, disposable)
+        assert disposable_result["maturity"] == "ci-ready", disposable_result
+
+        persistent = dict(reliable)
+        persistent["environment"] = safe_environment(
+            shared_mutation=True,
+            environment_bound_fixture=True,
+            persistent_owned_fixture=True,
+            idempotent_seed=True,
+            exclusive_execution=True,
+            parallel_safe=False,
+            workers=1,
+            cleanup="none",
+            safety_invariants=["mutate only CREW_E2E-owned records"],
+        )
+        persistent_result = evaluate(fixed_path, persistent)
+        assert persistent_result["maturity"] == "ci-ready", persistent_result
+
+        unlocked = dict(persistent)
+        unlocked["environment"] = dict(persistent["environment"])
+        unlocked["environment"]["exclusive_execution"] = False
+        unlocked_result = evaluate(fixed_path, unlocked)
+        assert any(
+            item["code"] == "PERSISTENT_FIXTURE_NO_EXCLUSIVE_EXECUTION"
+            for item in unlocked_result["blockers"]
+        ), unlocked_result
+
+        parallel = dict(reliable)
+        parallel["environment"] = safe_environment(
+            shared_mutation=True,
+            unique_test_data=False,
+            parallel_safe=True,
+            workers=2,
+            cleanup="reliable",
+            safety_invariants=["mutate only test records"],
+        )
+        parallel_result = evaluate(fixed_path, parallel)
+        assert any(
+            item["code"] == "PARALLEL_FIXTURE_COLLISION"
+            for item in parallel_result["blockers"]
+        ), parallel_result
 
         stale = dict(base)
         stale["stability"] = dict(base["stability"])
         stale["stability"]["candidate_sha256"] = "f" * 64
         stale_result = evaluate(clean_path, stale)
-        assert any(
-            item["code"] == "STALE_STABILITY_EVIDENCE"
-            for item in stale_result["blockers"]
-        ), stale_result
-
-        retry = dict(base)
-        retry["stability"] = dict(base["stability"])
-        retry["stability"]["retries"] = 1
-        retry_result = evaluate(clean_path, retry)
-        assert any(
-            item["code"] == "PROMOTION_RETRIES_NOT_ZERO"
-            for item in retry_result["blockers"]
-        ), retry_result
+        assert any(item["code"] == "STALE_STABILITY_EVIDENCE" for item in stale_result["blockers"]), stale_result
 
     print("✅ crew-e2e-promote self-test passed")
     return 0

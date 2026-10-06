@@ -325,7 +325,7 @@ flowchart TD
     Evidence --> Result["state.json results.verify"]
     Evidence --> IR["Verification IR"]
     IR --> Draft["E2E candidate<br/>maturity=draft"]
-    Draft --> Promote{"source / review / stability gate"}
+    Draft --> Promote{"source / review / stability / environment gate"}
     Promote -- "ci-ready" --> CI["CI / E2E runner"]
 
     Existing["existing maintained E2E"] --> CI
@@ -351,7 +351,7 @@ flowchart TD
 - `--recheck`：重跑 FAIL + BLOCKED
 - `--e2e`：重用既有 E2E coverage
 - `--e2e-draft`：由 Verification IR 產出 draft candidate
-- `--e2e-promote`：通過 source/review/stability/fingerprint gate 後才可 ci-ready
+- `--e2e-promote`：通過 source/review/stability/fingerprint/environment gate 後才可 ci-ready
 - `--from-e2e`：消費 `crew-results.json`，不重新開瀏覽器
 - Excel report
 - Word report
