@@ -236,7 +236,7 @@ def check_readme_commands(errors: list[str]) -> None:
         f"/{path.parent.name}"
         for path in REPO.glob("plugins/*/skills/*/SKILL.md")
     }
-    allowed_host_commands = {"/init"}
+    allowed_host_commands = {"/init", "/crew-cockpit"}  # /crew-cockpit 是 Claude Code Mod 的 command，非 Skill
     known = skill_commands | allowed_host_commands
 
     inline_pattern = re.compile(r"`(/[a-z][a-z0-9-]*)(?:\s[^`]*)?`")

@@ -368,15 +368,22 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Verification Router + BLOCKED 語意 + Playwright draft/result/promotion；產出 UAT 前 machine evidence |
 | `/plan-review` | 邏輯/品質/效能 review |
-| `/plan-close` | Human UAT + 結案同步 |
+| `/plan-close` | Human UAT + 結案同步；簡單功能可經人類確認快速結案（略過 security／verify／review，UAT 與漂移檢查保留） |
 | `/plan-sync` | 中途同步 Notion |
 | `/plan-deploy-confirm` | 部署 SQL step 回報 |
 | `/plan-status` | 查看所有任務狀態；v1 可使用 migrate mode |
 | `/plan-next` | 由 state 計算下一步 |
 | `/plan-drift` | `plan.md` anchor / code drift 檢查 |
 | `/plan-demo` | 純本地評估模式 |
+| `/crew-cockpit` | 開啟 CREW Cockpit Pane：任務總覽／列表／驗收唯讀儀表板（僅 Claude Code ≥ 2.1.289） |
 
 詳見 [Feature Workflow README](plugins/feature-workflow/README.md)。
+
+---
+
+## CREW Cockpit（Claude Code Mod）
+
+feature-workflow 在 Claude Code 另附唯讀 Mod：輸入框上方的 AbovePrompt HUD 顯示目前任務進度，`/crew-cockpit` 開啟總覽／任務／驗收 Pane。Fill 按鈕只把指令填入輸入框、不會送出。需 Claude Code ≥ 2.1.289；Codex 核心流程仍完整支援但無 Mod UI。開發中的 Mod 只能用 terminal `claude --plugin-dir` 測試，Desktop 不吃 `CLAUDE_CODE_PLUGIN_DIRS`。詳見 [Feature Workflow README](plugins/feature-workflow/README.md)。
 
 ---
 
