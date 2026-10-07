@@ -10,7 +10,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import { type LoaderPorts, loadCockpitSnapshot } from './cockpit/loader'
-import { COMMAND_NAME, MIN_CLAUDE_CODE_VERSION, PANE_ID, TEXT, type CockpitTab, compareVersions } from './cockpit/model'
+import { COMMAND_NAME, MIN_CLAUDE_CODE_VERSION, PANE_ID, TEXT, type CockpitTab, type CockpitTaskLayout, compareVersions } from './cockpit/model'
 import { type PaneCallbacks, composeBand, hudModel, hudView, paneView } from './cockpit/render'
 import { fillCommandFor } from './cockpit/selectors'
 
@@ -99,18 +99,21 @@ const isSupported = async ($: EngineInterface): Promise<boolean> => (await read(
 // §9.4 HUD 開關：$.store 持久化（key 含 repo identity），$.state hudEnabled 鏡像給 render 讀。
 // ---------------------------------------------------------------------------
 
-/** $.store 的 HUD 開關 key：`hud:{repo.remote ?? repoRoot ?? session root}`。 */
-async function hudStoreKey($: EngineInterface): Promise<string> {
+/** $.store 的偏好 key：`{prefix}:{repo.remote ?? repoRoot ?? session root}`（每個 repo 一份）。 */
+async function prefStoreKey($: EngineInterface, prefix: 'hud' | 'layout'): Promise<string> {
   const repo = await $.session.repo().catch(() => null)
   if (repo?.remote) {
-    return `hud:${repo.remote}`
+    return `${prefix}:${repo.remote}`
   }
   const snapshot = await read($, snapshotAtom).catch(() => null)
   if (snapshot?.repoRoot) {
-    return `hud:${snapshot.repoRoot}`
+    return `${prefix}:${snapshot.repoRoot}`
   }
-  return `hud:${repo?.root ?? (await $.session.root())}`
+  return `${prefix}:${repo?.root ?? (await $.session.root())}`
 }
+
+/** $.store 的 HUD 開關 key：`hud:{repo.remote ?? repoRoot ?? session root}`。 */
+const hudStoreKey = ($: EngineInterface): Promise<string> => prefStoreKey($, 'hud')
 
 /** session.start：把持久化的 HUD 開關鏡像到 $.state（缺值＝預設開啟）。 */
 async function loadHudPreference($: EngineInterface): Promise<void> {
@@ -126,6 +129,36 @@ async function setHudPreference($: EngineInterface, isEnabled: boolean): Promise
   await update($, hudEnabledAtom, () => isEnabled)
   try {
     await $.store.set(await hudStoreKey($), isEnabled)
+  } catch {
+    // 持久化失敗只影響下個 session；本 session 已生效
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 任務 tab 版面偏好：$.store 持久化（key `layout:{repo identity}`，比照 HUD），
+// $.state runtime.taskLayout 鏡像給 render 讀（放 runtime 而非新 key，capability baseline 不變）。
+// ---------------------------------------------------------------------------
+
+const asLayout = (value: unknown): CockpitTaskLayout => (value === 'cards' ? 'cards' : 'list')
+
+async function writeLayoutMirror($: EngineInterface, layout: CockpitTaskLayout): Promise<void> {
+  await update($, runtimeAtom, current => (current === null ? current : { ...current, taskLayout: layout }))
+}
+
+/** session.start：把持久化的版面鏡像到 runtime（缺值＝列表）。 */
+async function loadLayoutPreference($: EngineInterface): Promise<void> {
+  try {
+    const stored = await $.store.get(await prefStoreKey($, 'layout'))
+    await writeLayoutMirror($, asLayout(stored))
+  } catch {
+    // §16：讀不到偏好就維持預設（列表）
+  }
+}
+
+async function setLayoutPreference($: EngineInterface, layout: CockpitTaskLayout): Promise<void> {
+  await writeLayoutMirror($, layout).catch(() => undefined)
+  try {
+    await $.store.set(await prefStoreKey($, 'layout'), layout)
   } catch {
     // 持久化失敗只影響下個 session；本 session 已生效
   }
@@ -178,6 +211,7 @@ function paneCallbacks($: EngineInterface): PaneCallbacks {
         () => undefined,
       )
     },
+    setLayout: (layout: CockpitTaskLayout) => setLayoutPreference($, layout),
   }
 }
 
@@ -205,6 +239,7 @@ export const register: Register = on => {
       if (await checkVersion($)) {
         await refreshSnapshot($)
         await loadHudPreference($)
+        await loadLayoutPreference($)
       }
     } catch {
       // §16：不阻擋 session
@@ -260,12 +295,14 @@ export const register: Register = on => {
         return next(e)
       }
       const { Box, Text, Button } = $.ui.resolve(e)
+      const runtime = await read($, runtimeAtom)
       const data = {
         snapshot: await read($, snapshotAtom),
         selectedSlug: await read($, selectedSlugAtom),
         tab: await read($, tabAtom),
         bodyColumns: e.props.bodyColumns,
-        isClosedExpanded: (await read($, runtimeAtom))?.isClosedExpanded === true,
+        isClosedExpanded: runtime?.isClosedExpanded === true,
+        taskLayout: asLayout(runtime?.taskLayout),
       }
       return paneView({ Box, Text, Button }, data, paneCallbacks($))
     } catch {

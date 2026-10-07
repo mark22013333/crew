@@ -6,7 +6,7 @@
 
 import type { Elements, RenderElement } from 'claude-code'
 
-import { type CockpitInvalidTask, type CockpitSnapshot, type CockpitTab, type CockpitTaskView, TEXT } from './model'
+import { type CockpitInvalidTask, type CockpitSnapshot, type CockpitTab, type CockpitTaskLayout, type CockpitTaskView, TEXT } from './model'
 import {
   TONE_COLOR,
   type Tone,
@@ -45,6 +45,8 @@ export type PaneCallbacks = {
   fill: (id: string) => void | Promise<void>
   /** 任務 tab「已結案」分組展開／收合（只改 UI state）。 */
   toggleClosed: () => void | Promise<void>
+  /** 任務 tab 版面切換（UI state＋$.store 偏好；不寫任何 project file）。 */
+  setLayout: (layout: CockpitTaskLayout) => void | Promise<void>
 }
 
 export type PaneData = {
@@ -56,6 +58,8 @@ export type PaneData = {
   bodyColumns: number
   /** 任務 tab「已結案」分組是否展開（runtime.isClosedExpanded）。 */
   isClosedExpanded: boolean
+  /** 任務 tab 版面（runtime.taskLayout；缺值為列表）。 */
+  taskLayout: CockpitTaskLayout
 }
 
 export type HudData = {
@@ -194,7 +198,7 @@ export function paneView(kit: CockpitKit, data: PaneData, cb: PaneCallbacks): Re
   const selection = resolveSelection(snapshot, data.selectedSlug)
   const body =
     data.tab === 'tasks'
-      ? tasksView(kit, snapshot, selection.task, data.bodyColumns, data.isClosedExpanded, cb)
+      ? tasksView(kit, snapshot, selection.task, data, cb)
       : data.tab === 'verify'
         ? verifyView(kit, selection.task)
         : overviewView(kit, snapshot, selection, data.bodyColumns, cb)
@@ -456,7 +460,8 @@ function groupBand(kit: CockpitKit, text: string, backgroundColor: string, ...ex
 
 /**
  * 一列任務。進行中：▶ slug、type、phase、進度方塊、驗收、停滯天數、時間；
- * 已擱置：同上但不顯示停滯天數、加「已擱置」標記；已結案：整列 dim（驗收結果仍上色）、不顯示停滯天數。
+ * 已擱置：同上但不顯示停滯天數、加「已擱置」標記；已結案：整列 dim（驗收結果仍上色）、不顯示停滯天數與進度，
+ * 也不重複「已結案」字樣（所在色帶已表達）。
  */
 function taskRow(
   kit: CockpitKit,
@@ -489,8 +494,7 @@ function taskRow(
     tint(task.phase ?? '—', phaseColor(task.phase)),
     group === 'parked' && sep(),
     group === 'parked' && colored(kit, TEXT.parked, 'merged'),
-    isClosed && sep(),
-    isClosed && el(kit.Text, { dimColor: true }, TEXT.closedTask),
+    // 已結案：色帶已表達狀態，列內不再重複「已結案」字樣
     !isClosed && sep(),
     ...(isClosed ? [] : progressBar(kit, task, true)),
     sep(),
@@ -505,60 +509,179 @@ function taskRow(
   return isCompact ? column(kit, props, button, info) : el(kit.Box, { flexDirection: 'row', flexWrap: 'wrap', ...props }, button, info)
 }
 
+/** 任務 tab 頁首：「版面：列表｜卡片」，目前選中者 primary；v 切到另一個版面。 */
+function layoutBar(kit: CockpitKit, current: CockpitTaskLayout, cb: PaneCallbacks): RenderElement {
+  const items: readonly { layout: CockpitTaskLayout; label: string }[] = [
+    { layout: 'list', label: TEXT.layoutList },
+    { layout: 'cards', label: TEXT.layoutCards },
+  ]
+  return el(
+    kit.Box,
+    { key: 'layout-bar', flexDirection: 'row', flexWrap: 'wrap', gap: 1, marginTop: 1 },
+    dim(kit, TEXT.layoutLabel),
+    ...items.map(item =>
+      el(kit.Button, {
+        key: `layout-${item.layout}`,
+        label: item.label,
+        ...(item.layout === current ? { variant: 'primary' } : { hotkey: 'v' }),
+        onPress: () => cb.setLayout(item.layout),
+      }),
+    ),
+  )
+}
+
 /**
- * §12 Tasks（方向 B 分組色帶）：● 進行中 → ◐ 已擱置 → ○ 已結案（loader 已排序），最多 50 筆；
- * 已結案預設只顯示最近 5 筆，按 e 展開；壞檔列 invalid row；底部列缺 state.json 的目錄數。
+ * §12 Tasks：頁首版面切換＋列表（方向 B 分組色帶）或卡片（方向 C）。
+ * 兩種版面共用選取狀態與 e 展開狀態；壞檔列與缺 state.json 的計數維持在底部。
  */
-function tasksView(
-  kit: CockpitKit,
-  snapshot: CockpitSnapshot,
-  selected: CockpitTaskView | null,
-  bodyColumns: number,
-  isClosedExpanded: boolean,
-  cb: PaneCallbacks,
-): RenderElement {
-  const isCompact = bodyColumns < PANE_COMPACT_COLUMNS
-  const shown = snapshot.tasks.slice(0, TASK_ROW_LIMIT).map((task, index) => ({ task, index }))
-  const groups = taskGroups(snapshot.tasks)
-  const isSelected = (task: CockpitTaskView) => selected !== null && selected.id === task.id
-  const rowsOf = (group: TaskGroup, items: readonly { task: CockpitTaskView; index: number }[]) =>
-    items.map(({ task, index }) => taskRow(kit, task, index, group, isSelected(task), isCompact, cb))
-
-  const activeRows = shown.filter(({ task }) => task.active)
-  const parkedRows = shown.filter(({ task }) => !task.closed && task.parked !== null)
-  const closedRows = shown.filter(({ task }) => task.closed)
-  const closedVisible = isClosedExpanded ? closedRows : closedRows.slice(0, CLOSED_PREVIEW)
-
-  // 結案摘要（借 C）：WARN／FAIL 不漏看，也不會誤以為要處理
-  const countBy = (status: string) => groups.closed.filter(task => task.results.verify.status === status).length
-  const closedNotes = [
-    countBy('WARN') > 0 ? TEXT.closedVerifyCount(countBy('WARN'), 'WARN') : null,
-    countBy('FAIL') > 0 ? TEXT.closedVerifyCount(countBy('FAIL'), 'FAIL') : null,
-    closedRows.length > CLOSED_PREVIEW && !isClosedExpanded ? TEXT.closedRecent(CLOSED_PREVIEW) : null,
-  ].filter((note): note is string => note !== null)
-  const closedToggle =
-    closedRows.length > CLOSED_PREVIEW &&
-    el(kit.Button, {
-      key: 'toggle-closed',
-      label: isClosedExpanded ? TEXT.collapseClosed : TEXT.expandClosed,
-      hotkey: 'e',
-      plain: true,
-      onPress: () => cb.toggleClosed(),
-    })
-
+function tasksView(kit: CockpitKit, snapshot: CockpitSnapshot, selected: CockpitTaskView | null, data: PaneData, cb: PaneCallbacks): RenderElement {
+  const body = data.taskLayout === 'cards' ? taskCards(kit, snapshot, selected, data, cb) : taskList(kit, snapshot, selected, data, cb)
   return column(
     kit,
     {},
+    layoutBar(kit, data.taskLayout, cb),
+    ...body,
+    snapshot.tasks.length > TASK_ROW_LIMIT && dim(kit, TEXT.tasksTruncated(TASK_ROW_LIMIT)),
+    ...snapshot.invalidTasks.map(invalid => invalidRow(kit, invalid)),
+    snapshot.untrackedDirCount > 0 && el(kit.Box, { marginTop: 1 }, dim(kit, TEXT.untracked(snapshot.untrackedDirCount))),
+  )
+}
+
+type IndexedTask = { task: CockpitTaskView; index: number }
+
+/** 兩種版面共用的分段（最多 50 筆，保持 loader 排序；index 是 snapshot 序號，當按鈕 key）。 */
+function taskSections(snapshot: CockpitSnapshot) {
+  const shown: IndexedTask[] = snapshot.tasks.slice(0, TASK_ROW_LIMIT).map((task, index) => ({ task, index }))
+  const groups = taskGroups(snapshot.tasks)
+  const countBy = (status: string) => groups.closed.filter(task => task.results.verify.status === status).length
+  // 結案摘要（借 C）：WARN／FAIL 不漏看，也不會誤以為要處理
+  const verifyNotes = [
+    countBy('WARN') > 0 ? TEXT.closedVerifyCount(countBy('WARN'), 'WARN') : null,
+    countBy('FAIL') > 0 ? TEXT.closedVerifyCount(countBy('FAIL'), 'FAIL') : null,
+  ].filter((note): note is string => note !== null)
+  return {
+    groups,
+    activeRows: shown.filter(({ task }) => task.active),
+    parkedRows: shown.filter(({ task }) => !task.closed && task.parked !== null),
+    closedRows: shown.filter(({ task }) => task.closed),
+    verifyNotes,
+  }
+}
+
+/** 已結案展開／收合鈕（e）。 */
+function closedToggle(kit: CockpitKit, isExpanded: boolean, cb: PaneCallbacks): RenderElement {
+  return el(kit.Button, {
+    key: 'toggle-closed',
+    label: isExpanded ? TEXT.collapseClosed : TEXT.expandClosed,
+    hotkey: 'e',
+    plain: true,
+    onPress: () => cb.toggleClosed(),
+  })
+}
+
+/** 列表版（方向 B 分組色帶）：● 進行中 → ◐ 已擱置 → ○ 已結案；已結案預設只顯示最近 5 筆，按 e 展開。 */
+function taskList(kit: CockpitKit, snapshot: CockpitSnapshot, selected: CockpitTaskView | null, data: PaneData, cb: PaneCallbacks): Child[] {
+  const isCompact = data.bodyColumns < PANE_COMPACT_COLUMNS
+  const { groups, activeRows, parkedRows, closedRows, verifyNotes } = taskSections(snapshot)
+  const isSelected = (task: CockpitTaskView) => selected !== null && selected.id === task.id
+  const rowsOf = (group: TaskGroup, items: readonly IndexedTask[]) =>
+    items.map(({ task, index }) => taskRow(kit, task, index, group, isSelected(task), isCompact, cb))
+  const closedVisible = data.isClosedExpanded ? closedRows : closedRows.slice(0, CLOSED_PREVIEW)
+  const closedNotes = [...verifyNotes, closedRows.length > CLOSED_PREVIEW && !data.isClosedExpanded ? TEXT.closedRecent(CLOSED_PREVIEW) : null].filter(
+    (note): note is string => note !== null,
+  )
+
+  return [
     groupBand(kit, TEXT.groupActive(groups.active.length), 'suggestion'),
     ...rowsOf('active', activeRows),
     // 已擱置為 0：只顯示色帶，不顯示空列
     groupBand(kit, TEXT.groupParked(groups.parked.length), 'merged'),
     ...rowsOf('parked', parkedRows),
-    groupBand(kit, [TEXT.groupClosed(groups.closed.length), ...closedNotes].join(' · '), 'inactive', closedToggle),
+    groupBand(kit, [TEXT.groupClosed(groups.closed.length), ...closedNotes].join(' · '), 'inactive', closedRows.length > CLOSED_PREVIEW && closedToggle(kit, data.isClosedExpanded, cb)),
     ...rowsOf('closed', closedVisible),
-    snapshot.tasks.length > TASK_ROW_LIMIT && dim(kit, TEXT.tasksTruncated(TASK_ROW_LIMIT)),
-    ...snapshot.invalidTasks.map(invalid => invalidRow(kit, invalid)),
-    snapshot.untrackedDirCount > 0 && el(kit.Box, { marginTop: 1 }, dim(kit, TEXT.untracked(snapshot.untrackedDirCount))),
+  ]
+}
+
+/**
+ * 卡片版（方向 C）：進行中與已擱置每個任務一張 round 卡（框色依健康度）；
+ * 已結案不出卡，只顯示一行摘要，按 e 展開時列出與列表版相同的結案列（全部）。
+ */
+function taskCards(kit: CockpitKit, snapshot: CockpitSnapshot, selected: CockpitTaskView | null, data: PaneData, cb: PaneCallbacks): Child[] {
+  const isCompact = data.bodyColumns < PANE_COMPACT_COLUMNS
+  const { groups, activeRows, parkedRows, closedRows, verifyNotes } = taskSections(snapshot)
+  const isSelected = (task: CockpitTaskView) => selected !== null && selected.id === task.id
+  const cardsOf = (items: readonly IndexedTask[]) => items.map(({ task, index }) => taskCard(kit, task, index, isSelected(task), cb))
+
+  return [
+    groupBand(kit, TEXT.groupActive(groups.active.length), 'suggestion'),
+    ...cardsOf(activeRows),
+    groupBand(kit, TEXT.groupParked(groups.parked.length), 'merged'),
+    ...cardsOf(parkedRows),
+    closedRows.length > 0 &&
+      el(
+        kit.Box,
+        { key: 'closed-summary', flexDirection: 'row', flexWrap: 'wrap', gap: 1, marginTop: 1 },
+        colored(kit, [TEXT.closedSummary(groups.closed.length), ...verifyNotes].join(' · '), 'inactive'),
+        closedToggle(kit, data.isClosedExpanded, cb),
+      ),
+    ...(data.isClosedExpanded ? closedRows.map(({ task, index }) => taskRow(kit, task, index, 'closed', isSelected(task), isCompact, cb)) : []),
+  ]
+}
+
+/**
+ * 一張任務卡（三行）：(a) ▶ slug（按下＝選取）＋右側 type 膠囊；(b) phase、進度方塊＋計數、驗收、停滯、時間；
+ * (c) 未決核准閘摘要或「上次建議」＋該卡的 Fill（只填 /plan-next {slug}；slug 不合白名單不給按鈕）。
+ */
+function taskCard(kit: CockpitKit, task: CockpitTaskView, index: number, isSelected: boolean, cb: PaneCallbacks): RenderElement {
+  const verify = verifyDisplay(task.results.verify)
+  const sep = (): RenderElement => el(kit.Text, { dimColor: true }, ' · ')
+  const pending = (visibleGates(task) ?? []).filter(gate => gate.status === 'pending').map(gate => gate.key)
+  const recorded = task.recordedNext?.command ?? null
+  const fill = fillCommandFor(task)
+  const note =
+    pending.length > 0
+      ? colored(kit, TEXT.pendingGates(pending.join(', ')), 'inactive')
+      : recorded !== null
+        ? dim(kit, `${TEXT.recordedNextShort} ${recorded}`)
+        : null
+
+  return card(
+    kit,
+    { key: `card-${index}`, marginTop: 1, borderColor: healthColor(task), ...(isSelected && { backgroundColor: 'subtle' }) },
+    el(
+      kit.Box,
+      { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 1 },
+      el(kit.Button, {
+        // key 用序號，不用目錄名（目錄名是不可信的 repo 字串）；與列表版同 key，選取行為一致
+        key: `task-${index}`,
+        label: `${isSelected ? `${TEXT.selected} ` : ''}${task.slug}`,
+        ...(isSelected && { variant: 'primary' }),
+        onPress: () => cb.selectTask(task.id),
+      }),
+      capsule(kit, task.type, typeColor(task.type) ?? 'inactive'),
+    ),
+    row(
+      kit,
+      colored(kit, task.phase ?? '—', phaseColor(task.phase)),
+      task.parked !== null && sep(),
+      task.parked !== null && colored(kit, TEXT.parked, 'merged'),
+      sep(),
+      ...progressBar(kit, task, true),
+      sep(),
+      el(kit.Text, {}, `${TEXT.verifyLabel} `),
+      colored(kit, verify.label, verifyColor(verify)),
+      showsStale(task) && sep(),
+      showsStale(task) && colored(kit, staleText(task), staleColor(task.staleDays), { bold: task.staleDays >= 14 }),
+      sep(),
+      el(kit.Text, { dimColor: true }, shortTime(task.updated)),
+    ),
+    (note !== null || fill !== null) &&
+      el(
+        kit.Box,
+        { flexDirection: 'row', flexWrap: 'wrap', gap: 1 },
+        note,
+        fill !== null && el(kit.Button, { key: `fill-${index}`, label: TEXT.fill(task.slug), onPress: () => cb.fill(task.id) }),
+      ),
   )
 }
 

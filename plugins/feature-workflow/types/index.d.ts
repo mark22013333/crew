@@ -258,7 +258,16 @@ export type CockpitRuntime = {
    * 放在 runtime 而非新 key：不增加 Mod 的 state 讀寫清單（capability baseline 不變）。
    */
   isClosedExpanded?: boolean
+  /**
+   * 任務 tab 的版面（UI state，按 v 或「版面」按鈕切換）。缺值視為列表。
+   * 持久化值在 $.store（key `layout:{repo identity}`，比照 HUD 開關）；這裡只是給 render 讀的鏡像。
+   * 同樣放在 runtime 而非新 key，capability baseline 不變。
+   */
+  taskLayout?: CockpitTaskLayout
 }
+
+/** 任務 tab 的版面：列表（分組色帶）或卡片（UI state）。 */
+export type CockpitTaskLayout = 'list' | 'cards'
 
 /** Cockpit pane 的 tab（UI state，§10）。 */
 export type CockpitTab = 'overview' | 'tasks' | 'verify'

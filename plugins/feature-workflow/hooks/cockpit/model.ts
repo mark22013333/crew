@@ -16,6 +16,7 @@ export type {
   CockpitSnapshot,
   CockpitStepView,
   CockpitTab,
+  CockpitTaskLayout,
   CockpitTaskView,
   CockpitVerifyView,
   CockpitWorkUnitView,
@@ -147,6 +148,12 @@ export const TEXT = {
   otherActiveList: (n: number) => `另有 ${n} 個進行中：`,
   otherActiveItem: (slug: string, days: number) => `${slug}（停滯 ${days} 天）`,
   moreItems: (n: number) => `＋${n}`,
+  // ---- 以下為任務卡片版面新增（只增不改）----
+  layoutLabel: '版面：',
+  layoutList: '列表',
+  layoutCards: '卡片',
+  pendingGates: (keys: string) => `核准閘待核准：${keys}`,
+  closedSummary: (n: number) => `○ 已結案 ${n} 項`,
 } as const
 
 // ---------------------------------------------------------------------------

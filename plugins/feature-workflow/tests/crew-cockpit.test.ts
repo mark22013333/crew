@@ -1869,3 +1869,164 @@ describe('總覽儀表板', () => {
     })
   }
 })
+
+// ===========================================================================
+// 任務 tab 版面切換：列表｜卡片（v 鍵／按鈕、$.store 偏好、卡片框色、卡片 Fill、已結案摘要）
+// ===========================================================================
+
+describe('任務版面：列表／卡片', () => {
+  const CARD_FILES = {
+    'fresh-task/state.json': variant(V2_FEATURE_VERIFY_PASS, { slug: 'fresh-task', updated: '2026-10-03T12:00:00+08:00' }),
+    'week-task/state.json': variant(V2_FEATURE_VERIFY_PASS, { slug: 'week-task', updated: '2026-09-29T12:00:00+08:00' }),
+    'stuck-task/state.json': variant(V2_FEATURE_VERIFY_PASS, { slug: 'stuck-task', updated: '2026-09-22T12:00:00+08:00' }),
+    // BLOCKED 且停滯 ≥14：框色仍是 claude（BLOCKED 優先，且不得是 error）
+    'blocked-old/state.json': variant(V2_FEATURE_VERIFY_WARN_BLOCKED, { slug: 'blocked-old', updated: '2026-09-20T12:00:00+08:00' }),
+    'fail-task/state.json': variant(withVerify(V2_FEATURE_VERIFY_PASS, { status: 'FAIL', blocked: 0 }), { slug: 'fail-task', updated: '2026-10-05T12:00:00+08:00' }),
+    'search-synonyms/state.json': V2_FEATURE_PARKED,
+    'profile-avatar-upload/state.json': variant(withVerify(V2_FEATURE_CLOSED, { status: 'WARN', blocked: 0 }), {}),
+  }
+
+  /** 卡片：key card-N 的框色，依卡片內 slug 對應。 */
+  async function cardColors(mounted: Awaited<ReturnType<typeof mountPane>>): Promise<Record<string, unknown>> {
+    const result: Record<string, unknown> = {}
+    for (const found of await mounted.findAll({ type: 'Box' })) {
+      if (found.key?.startsWith('card-') === true) {
+        const slug = textOf(found as never).match(/^(?:▶ )?([a-z0-9-]+)/)?.[1] ?? '?'
+        result[slug] = found.props.borderColor
+      }
+    }
+    return result
+  }
+
+  for (const surface of SURFACES) {
+    test(`${surface}：v 鍵與按鈕都能切換版面，偏好寫入 $.store 並在重新掛載／下個 session 保留；預設列表`, async ($, on) => {
+      const world = worldOf(on, specFiles(CARD_FILES))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface, 120)
+      await pressAndRedraw(pane, 'tab-tasks')
+
+      // 預設列表：列表鈕 primary，v 掛在卡片鈕（按 v 切到另一個版面）
+      expect((await pane.find({ key: 'layout-list' }))?.props).toMatchObject({ label: TEXT.layoutList, variant: 'primary' })
+      expect((await pane.find({ key: 'layout-cards' }))?.props).toMatchObject({ label: TEXT.layoutCards, hotkey: 'v' })
+      expect(textOf(await pane.drawn())).toContain(TEXT.layoutLabel)
+      expect(await cardColors(pane)).toEqual({})
+
+      // v 鍵：按下持有 hotkey v 的按鈕
+      const viaHotkey = (await pane.findAll({ type: 'Button' })).find(found => found.props.hotkey === 'v')
+      expect(viaHotkey?.key).toBe('layout-cards')
+      await pressAndRedraw(pane, viaHotkey?.key ?? '')
+      expect(Object.keys(await cardColors(pane)).length, '切到卡片後每個進行中／擱置任務一張卡').toBe(6)
+      expect((await pane.find({ key: 'layout-cards' }))?.props.variant).toBe('primary')
+      expect((await pane.find({ key: 'layout-list' }))?.props.hotkey).toBe('v')
+      expect(world.store.get(`layout:${ROOT}`)).toBe('cards')
+      expect(world.stateOf(PLUGIN, 'runtime')).toMatchObject({ isSupported: true, taskLayout: 'cards' })
+
+      // 重新掛載（pane 關掉再開）仍是卡片
+      await pane.unmount()
+      const again = await mountPane($, surface, 120)
+      expect(Object.keys(await cardColors(again)).length).toBe(6)
+
+      // 模擬下個 session：記憶體 state 清空，只留 $.store → session.start 讀回偏好
+      world.setState(PLUGIN, 'runtime', null)
+      await $.session.start(SESSION)
+      await again.redraw()
+      expect(world.stateOf(PLUGIN, 'runtime')).toMatchObject({ taskLayout: 'cards' })
+      expect(Object.keys(await cardColors(again)).length).toBe(6)
+
+      // 按鈕切回列表
+      await pressAndRedraw(again, 'layout-list')
+      expect(await cardColors(again)).toEqual({})
+      expect(world.store.get(`layout:${ROOT}`)).toBe('list')
+      expect(world.forbidden, '版面切換只改 UI state 與 $.store').toEqual([])
+    })
+
+    test(`${surface}：卡片框色依健康度（≥14 error、7–13 warning、FAIL error、BLOCKED claude 非 error、擱置 merged）`, async ($, on) => {
+      const world = worldOf(on, specFiles(CARD_FILES))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'tab', 'tasks')
+      world.setState(PLUGIN, 'runtime', { ...(world.stateOf(PLUGIN, 'runtime') as object), taskLayout: 'cards' })
+      const pane = await mountPane($, surface, 120)
+
+      expect(await cardColors(pane)).toEqual({
+        'fail-task': 'error',
+        'fresh-task': 'suggestion',
+        'week-task': 'warning',
+        'stuck-task': 'error',
+        'blocked-old': 'claude',
+        'search-synonyms': 'merged',
+      })
+      expect((await pane.findAll({ type: 'Box' })).filter(found => found.key?.startsWith('card-') === true).every(found => found.props.borderStyle === 'round')).toBe(true)
+      // 卡片三行：type 膠囊、phase／進度／驗收／停滯／時間、未決核准閘摘要
+      const stuck = (await pane.findAll({ type: 'Box' })).find(found => found.key?.startsWith('card-') === true && textOf(found as never).includes('stuck-task'))
+      const stuckText = textOf(stuck as never)
+      expect(stuckText).toContain(' feature ')
+      expect(stuckText).toContain('verify · ■■■■■■■□□ 7/9 · 驗收 PASS · 停滯 14 天 · 09-22 12:00')
+      expect(stuckText).toContain(TEXT.pendingGates('uat'))
+      expect(world.forbidden).toEqual([])
+    })
+
+    test(`${surface}：卡片 Fill 只填 /plan-next {slug}；按卡片 slug＝選取；slug 不合白名單不給 Fill`, async ($, on) => {
+      const world = worldOf(on, specFiles({ ...CARD_FILES, 'evil task/state.json': HOSTILE }))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'tab', 'tasks')
+      world.setState(PLUGIN, 'runtime', { ...(world.stateOf(PLUGIN, 'runtime') as object), taskLayout: 'cards' })
+      const pane = await mountPane($, surface, 120)
+
+      const fills = (await pane.findAll({ type: 'Button' })).filter(found => found.key?.startsWith('fill-') === true)
+      expect(fills.length, '6 張可填卡片各一顆 Fill（evil task 沒有）').toBe(6)
+      expect(fills.some(found => String(found.props.label).includes('evil'))).toBe(false)
+      expect(textOf(await pane.drawn()), '正對照：evil task 的卡片確實有畫').toContain('evil task')
+
+      const blocked = fills.find(found => found.props.label === TEXT.fill('blocked-old'))
+      await pressAndRedraw(pane, blocked?.key ?? '')
+      expect(world.filled).toEqual([{ text: '/plan-next blocked-old', mode: 'replace' }])
+      expect(world.filled[0]?.text).not.toBe('/plan-verify --recheck')
+
+      const select = (await pane.findAll({ type: 'Button', text: /^week-task$/ }))[0]
+      await pressAndRedraw(pane, select?.key ?? '')
+      expect(world.stateOf(PLUGIN, 'selectedSlug')).toBe('week-task')
+      expect(world.forbidden, 'Fill 不送出、選取只改 UI state').toEqual([])
+    })
+
+    test(`${surface}：已結案不出卡，只一行摘要；e 展開列出與列表版相同的結案列；列表版結案列不再重複「已結案」`, async ($, on) => {
+      const world = worldOf(on, specFiles(CARD_FILES))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface, 120)
+      await pressAndRedraw(pane, 'tab-tasks')
+
+      // 列表版：結案列保留 slug、type、驗收、時間，但沒有「已結案」字樣（色帶已表達）
+      const listRow = (await pane.findAll({ type: 'Box' })).find(
+        found => found.props.flexDirection === 'row' && /^profile-avatar-upload/.test(textOf(found as never)),
+      )
+      const listText = textOf(listRow as never)
+      expect(listText, '正對照：抓到的是結案列').toBe('profile-avatar-upload feature · close · 驗收 WARN · 10-05 20:00')
+      expect(listText).not.toContain(TEXT.closedTask)
+
+      await pressAndRedraw(pane, 'layout-cards')
+      const collapsed = textOf(await pane.drawn())
+      expect(await keyedText(pane, 'closed-summary')).toBe(`${TEXT.closedSummary(1)} · ${TEXT.closedVerifyCount(1, 'WARN')}${TEXT.expandClosed}`)
+      expect((await pane.find({ key: 'toggle-closed' }))?.props.hotkey).toBe('e')
+      expect(collapsed.replace(await keyedText(pane, 'closed-summary'), '')).not.toContain('profile-avatar-upload')
+
+      await pressAndRedraw(pane, 'toggle-closed')
+      const expandedRow = (await pane.findAll({ type: 'Box' })).find(
+        found => found.props.flexDirection === 'row' && /^profile-avatar-upload/.test(textOf(found as never)),
+      )
+      expect(textOf(expandedRow as never), '展開後的結案列與列表版相同').toBe(listText)
+      expect(world.stateOf(PLUGIN, 'runtime')).toMatchObject({ isClosedExpanded: true, taskLayout: 'cards' })
+
+      // 兩種版面共用展開狀態：切回列表仍是展開（收合鈕）
+      await pressAndRedraw(pane, 'layout-list')
+      expect(world.stateOf(PLUGIN, 'runtime')).toMatchObject({ isClosedExpanded: true, taskLayout: 'list' })
+      expect(world.forbidden).toEqual([])
+    })
+  }
+})
