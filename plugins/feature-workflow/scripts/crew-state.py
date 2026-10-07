@@ -510,6 +510,37 @@ def assert_quick_skip_allowed(state: dict, step: str, target_status: str, reason
             "results.review 有 🔴 嚴重發現，不可用快速結案跳過",
             "修法：先修嚴重發現（/plan-build）再重跑 /plan-review",
         )
+    # 前置條件：快速結案只能跳過「實作完成後」的檢查，不能拿來略過規劃與實作本身。
+    # gate_passed 讀的是 normalize 後的 gates（v1 舊任務依既有遷移語意：spec／arch 已完成視為已核准）。
+    missing = quick_close_prerequisite_failures(state)
+    if missing:
+        raise CrewError(
+            f"{step} 不可快速結案跳過：前置條件未滿足（{'、'.join(missing)}）",
+            "修法：快速結案只適用於 build 已完成、requirement／architecture 閘已通過的任務；"
+            f"先照 `crew-state.py next --slug {slug}` 完成前面階段，再到 /plan-close 由人類決定",
+        )
+
+
+def quick_close_prerequisite_failures(state: dict) -> list[str]:
+    """快速結案前置條件：build 為 done-like，且 requirement、architecture 兩閘已通過。回傳未滿足項目。"""
+    failures = []
+    if step_status(state, "build") not in DONE_LIKE:
+        failures.append(f"build={step_status(state, 'build')}")
+    for gate in ("requirement", "architecture"):
+        if not gate_passed(state, gate):
+            failures.append(f"{gate} gate={gate_status(state, gate)}")
+    return failures
+
+
+def display_actor(value) -> str:
+    """決策者（steps.{step}.by）顯示用清理：去控制字元、壓空白、截斷；只有 human 顯示為「人類」。"""
+    text = "".join(ch if ch.isprintable() else " " for ch in str(value or ""))
+    text = " ".join(text.split())
+    if len(text) > 40:
+        text = text[:39] + "…"
+    if not text:
+        return "（未記錄決策者）"
+    return "人類" if text == "human" else f"「{text}」"
 
 
 def result_of(state: dict, kind: str) -> dict:
@@ -642,12 +673,15 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
             "command": STEP_COMMAND["build"],
             "reason": "驗收有 FAIL 項目要優先處理；修完再跑 /plan-verify --recheck",
         }
-    if verify_status == "WARN":
+    # verify 已被（快速結案）標 skipped 時，殘留的 WARN 不再導向重驗
+    if verify_status == "WARN" and step_status(state, "verify") != "skipped":
         return {
             "command": "/plan-verify --recheck",
             "reason": "驗收有 WARN；可重驗，或確認可接受後改跑 /plan-review",
         }
     if verify_done and step_status(state, "review") not in DONE_LIKE:
+        if step_status(state, "verify") == "skipped":
+            return {"command": STEP_COMMAND["review"], "reason": "驗收已跳過（無驗收證據），程式碼審查尚未進行"}
         return {"command": STEP_COMMAND["review"], "reason": "驗收通過，程式碼審查尚未進行"}
 
     if step_status(state, "security") not in DONE_LIKE:
@@ -665,8 +699,14 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
     if step_status(state, "review") in DONE_LIKE:
         if not gate_passed(state, "uat"):
             skipped = [s for s in QUICK_CLOSE_STEPS if step_status(state, s) == "skipped"]
+            # 決策者照實寫（steps.{step}.by 經清理）；只有 by=human 才寫「人類」
+            actors = []
+            for s in skipped:
+                actor = display_actor((state.get("steps") or {}).get(s, {}).get("by"))
+                if actor not in actors:
+                    actors.append(actor)
             lead = (
-                f"快速結案已由人類跳過 {'/'.join(skipped)}（無對應檢查證據）"
+                f"快速結案已由{'、'.join(actors)}跳過 {'/'.join(skipped)}（無對應檢查證據）"
                 if skipped
                 else "機器驗證與程式碼審查已完成"
             )
