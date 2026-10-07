@@ -106,6 +106,49 @@ git diff $(git merge-base HEAD {prod_branch})..HEAD
 - 含「測試」、「QA」→ `測試中`
 - 無法判斷 → 詢問，預設 `測試中`
 
+### 4.2 快速結案（security／verify／review 未完成時，僅 Feature）
+
+本節只適用 v2 `state.json` 的 **feature** 任務；bug 任務沒有這三步，不適用。CREW Cockpit 總覽的「填入 /plan-close {slug}」按鈕只會把 `/plan-close {slug}` 填進輸入框，**不會改任何狀態**——跳過與否一律在本節由人類決定。
+
+讀 `crew-state.py list --slug {slug} --format json` 的 `steps.security`／`steps.verify`／`steps.review`：
+
+- 三步都已是 `done`／`skipped` → 本節不適用，直接進『Human UAT Gate』一節。
+- **前置條件**：`steps.build` 不是 `done`／`skipped`，或 `gates.requirement`、`gates.architecture` 任一未通過（不是 `approved`／`waived`）→ **不提出快速結案**。快速結案只跳過「實作完成後」的檢查，不能拿來略過規劃與實作本身；照 `crew-state.py next --slug {slug}` 引導使用者先完成前面階段，停止本次 plan-close。runtime 也會以同一條件拒絕 `set --status skipped`。
+- 有任一步為 `failed`、`results.verify.status=FAIL`，或 `results.review.critical > 0` → **不提供快速結案**（那是已知問題，不是「太簡單」）。照 `crew-state.py next` 的建議引導使用者處理，停止本次 plan-close。
+- 有任一步為 `pending`／`in_progress` → 列出這些步驟，**明確詢問人類**：
+
+```text
+⚠️ 這個 Feature 還有檢查沒跑：{security（pending）、verify（in_progress）…}
+
+要以「快速結案」跳過它們嗎？跳過的代價：
+  • security 跳過 → 沒有安全掃描證據（OWASP、注入、權限、敏感資料都沒人看過）
+  • verify 跳過   → 沒有 AC 驗收證據（驗收條件是否達成只能靠你的 UAT 判斷）
+  • review 跳過   → 沒有程式碼審查證據（邏輯／品質／效能沒有第二雙眼睛）
+跳過不會略過 Human UAT 與漂移硬關卡，它們照常執行。
+
+  • 「同意快速結案」（可附理由）→ 把上列步驟全部標成 skipped（記錄理由與決策者），繼續結案
+  • 只同意跳過其中幾步（例：「只跳過 security」）→ 只標那幾步，其餘照原流程
+  • 其他回覆 → 停止本次 plan-close，改跑 {/plan-security、/plan-verify、/plan-review 中未完成者}
+```
+
+只有使用者在**本輪**明確同意，才可以對**使用者同意的那幾步**逐步執行（只對未完成的步驟執行）：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+  --step {security|verify|review} --status skipped --by human \
+  --reason "quick close approved by user: {使用者原話}"
+```
+
+- **部分跳過**：使用者可以只同意其中部分步驟。逐步列出、逐步確認；回覆未明確涵蓋的步驟一律視為**不同意**，照原流程停止本次 plan-close 並引導該步驟的指令（例：同意跳過 security、未表態 verify → 只標 security，引導 `/plan-verify`）。
+- **`--reason` 只能記錄使用者實際說的話**：使用者有說理由 → 照抄原話；只回「同意」而沒說理由 → 寫 `quick close approved by user: 使用者同意快速結案（未另述理由）`。**禁止 Agent 自行編造或補寫理由**（例如替使用者寫「文案微調、風險低」）。
+
+使用者未明確同意、沉默、或只說「繼續」而沒有回應跳過的問題 → 視為不同意，停止本次 plan-close，引導該跑的指令。
+
+> 🔴 「這個功能夠簡單」的判定權在人，**不在 Agent**。Agent 不得主動建議快速結案、不得替使用者決定、不得在使用者沒回應時預設跳過。
+> 🔴 runtime 守門：feature 的 security／verify／review 標 `skipped` 必須帶 `--reason` 與 `--by`，且 `build` 須為 done-like、requirement／architecture 閘須已通過，否則 `crew-state.py` 直接拒絕。
+> ⚠️ 「不得覆蓋已 `done`／`failed` 的步驟或 verify FAIL／review 🔴 的結果」只是**防呆，非安全防線**：先把步驟改回 `pending`、或改寫 `results` 就能繞過；`--by` 也只檢查有值、不驗證是不是人。真正的把關是本節的人類明確同意，以及其後照常執行的 Human UAT 與漂移硬關卡。
+> 跳過紀錄寫在 `steps.{step}.reason`／`steps.{step}.by` 與 `history`；最終回報要列出「快速結案跳過：{步驟}（理由）」。
+
 ### 4.5 Human UAT Gate（Runtime hard block）
 
 本節只適用 v2 `state.json` 任務；v1 任務依 `../../references/legacy-v1.md` 相容模式執行，不呼叫 `crew-state.py`。
@@ -122,6 +165,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 
 ```text
 機器驗證與程式碼審查已完成，現在進入 Human UAT。
+（快速結案時改說：{步驟} 已依你的決定跳過、沒有對應檢查證據，現在進入 Human UAT。）
 
 你是否接受目前交付結果並允許此 Feature 結案？
   • 「接受／OK／確認／可以」→ 記錄 uat=approved，繼續結案
@@ -149,6 +193,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" gate --slug {slug} \
 若使用者明確要求 waive UAT，可寫 `status=waived`，但必須提供具體 reason；Agent 不得主動建議 waiver。
 
 > 🔴 `results.verify.status=PASS`、`steps.review=done`、`/plan-verify --manual` 都只是證據，不是 Human UAT。
+> 🔴 快速結案把 review 標成 `skipped` 後，uat gate 才能被設定（review 屬 done-like），但仍是 `pending`；**必須照本節取得人類 UAT 核准**，skipped 不會自動放行 close。
 > 🔴 `TRANSITION_GATES["close"] = ["uat"]` 已啟用；即使 Skill 流程被誤改，runtime 仍會在 UAT 未通過時拒絕 `close=done`。
 
 UAT 通過後先做 exit check：
@@ -438,6 +483,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} --exp
 ```
 結案完成！
 
+{⏭️ 快速結案跳過：{security/verify/review 中被跳過者}（理由：{reason}，決策者：human）—— 無對應檢查證據}
 🔍 漂移檢查：exit {0|2}（{錨點全部有效 / N 筆 WARN 經使用者放行 / drift_policy: off 未檢查}）
 🔖 蓋章：verified_at_commit {sha}（{日期}）{未蓋章時改為「未蓋章（原因）」}
 📁 已提交到 Git：plan.md{、deploy.sql}、state.json
@@ -472,6 +518,7 @@ close 組 + sync 組 —— feature/.spec 任務結案用本 skill；bug 型結�
 
 ## Gotchas
 
+- **快速結案只跳檢查，不跳關卡**：security／verify／review 可由人類決定標 `skipped`，但 Human UAT 與漂移硬關卡照常執行；`skipped` 是 done-like，會讓 `/plan-next` 指向 `/plan-close`，不代表 UAT 已核准。
 - **關卡順序不可調換**：漂移檢查 → 蓋章 → `git add -f` → Notion 同步。任何「先同步、之後再修文件」的變體都會把不可信內容推上知識庫，而那正是使用者最在意的症狀。
 - **exit code 才是判準，不是 JSON 看起來乾不乾淨**：D3（行號位移）是 INFO，不影響 exit code；只看 JSON 有沒有項目會誤判。反過來，exit 1 但無 FAIL 代表 WARN 被 `drift_policy: strict` 升級。
 - **exit 3 不是漂移**：環境問題代表「這次沒檢查成」。把它說成「有漂移」或「檢查通過」都是假資訊，一律原文照登 script 的「修法：」那行，並且**不蓋章**。

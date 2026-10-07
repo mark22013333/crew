@@ -1,0 +1,38 @@
+# CREW Cockpit Mod capability baseline（由 scripts/lint-claude-mods.py --write-baseline 產生）
+# 格式：<module> hook|call|state-write|state-read <項目>；一行一項、已排序。
+# 新增能力 → lint fail，須重新產生本檔並在 PR 說明為何 MVP 不可避免（規格 §18）。
+./crew-cockpit.ts call $.clock.now
+./crew-cockpit.ts call $.command.register
+./crew-cockpit.ts call $.fs.exists
+./crew-cockpit.ts call $.fs.list
+./crew-cockpit.ts call $.fs.read
+./crew-cockpit.ts call $.fs.stat
+./crew-cockpit.ts call $.prompt.fill
+./crew-cockpit.ts call $.prompt.read
+./crew-cockpit.ts call $.session.repo
+./crew-cockpit.ts call $.session.root
+./crew-cockpit.ts call $.session.version
+./crew-cockpit.ts call $.state.get
+./crew-cockpit.ts call $.state.set
+./crew-cockpit.ts call $.store.get
+./crew-cockpit.ts call $.store.set
+./crew-cockpit.ts call $.ui.close
+./crew-cockpit.ts call $.ui.open
+./crew-cockpit.ts call $.ui.panes
+./crew-cockpit.ts call $.ui.resolve
+./crew-cockpit.ts call $.ui.toast
+./crew-cockpit.ts hook command.run{command=crew-cockpit}
+./crew-cockpit.ts hook session.start
+./crew-cockpit.ts hook turn.complete
+./crew-cockpit.ts hook ui.render{component=AbovePrompt}
+./crew-cockpit.ts hook ui.render{component=Pane, requestId=crew-cockpit}
+./crew-cockpit.ts state-read feature-workflow.hudEnabled
+./crew-cockpit.ts state-read feature-workflow.runtime
+./crew-cockpit.ts state-read feature-workflow.selectedSlug
+./crew-cockpit.ts state-read feature-workflow.snapshot
+./crew-cockpit.ts state-read feature-workflow.tab
+./crew-cockpit.ts state-write feature-workflow.hudEnabled
+./crew-cockpit.ts state-write feature-workflow.runtime
+./crew-cockpit.ts state-write feature-workflow.selectedSlug
+./crew-cockpit.ts state-write feature-workflow.snapshot
+./crew-cockpit.ts state-write feature-workflow.tab

@@ -204,3 +204,16 @@ jobs:
           python-version: '3.11'
       - name: 檢查沒有「叫 LLM 手寫狀態欄位」的殘留指示（strict，違規阻擋）
         run: python3 scripts/lint-state-writers.py --strict
+
+  claude-mods:
+    name: Claude Mod guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 驗證 Mod guard 自身 regression（反向 fixture 必 fail、正對照必 pass）
+        run: python3 scripts/lint-claude-mods.py --self-test
+      - name: 輔層：Mod 唯讀／最小能力面字串檢查（主層需 claude CLI，release 前本機必跑）
+        run: python3 scripts/lint-claude-mods.py --no-validate

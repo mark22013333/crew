@@ -8,6 +8,55 @@
 
 ---
 
+## [feature-workflow@5.2.0] - 2026-10-07
+
+> **CREW Cockpit Claude Code Mod。** 在 Claude Code 內直接看見 `.spec/` 任務進度：輸入框上方有常駐 HUD，`/crew-cockpit` 可開啟總覽／任務／驗收頁；同時新增 `/plan-close` 快速結案路徑。
+
+### Added
+
+- **CREW Cockpit Mod**：feature-workflow 隨附 Claude Code Mod（`hooks/crew-cockpit.ts`），僅在 Claude Code 啟用；以唯讀方式讀取 `.spec/*/state.json` 與驗證結果，不修改任何產品檔案或 state。
+- **AbovePrompt HUD**：輸入框上方顯示目前任務 slug、phase、verify 狀態、停滯天數、其他進行中任務數與載入時間；`state.next` 標示為「上次建議」而非現況；沒有任務時保持安靜，也不會蓋掉其他 Mod 的 band。
+- **`/crew-cockpit` Pane**：開啟側邊 Pane，含總覽儀表板（分組色帶、進度方塊、結案摘要）、任務列表／卡片版面切換、驗收（Verify）頁；步驟膠囊以色塊呈現狀態；開 Pane 前會先確認是否已開啟。
+- **Fill 只填入、不送出**：Pane 上的下一步／結案按鈕只把指令填進輸入框，由使用者自己按 Enter；按下後 Pane 保持開啟，只有填入被拒時才關閉 Pane 並請使用者重填。
+- **Claude Code 最低版本 2.1.289**：低於此版本時 `/crew-cockpit` 只提示需要升級，不載入 UI。Codex 等其他 Host 的核心 CREW 流程維持完整支援，但不提供 Mod UI。
+- **`/plan-close` 快速結案**：簡單功能可由人類明確同意後，把未完成的 security／verify／review 標為 `skipped`；僅限 build 已完成且 requirement／architecture 閘已通過；Human UAT 與文件漂移硬關卡不會被略過。
+- **`crew-state.py set --by`**：把 security／verify／review 標 `skipped` 時必須同時帶 `--reason` 與 `--by`，並拒絕覆蓋已 done／failed 的步驟、verify FAIL 或 review 有嚴重發現的情況。
+- **`lint-claude-mods` 守門**：CI 新增 Mod 守門腳本與 capability baseline，確保 Mod 維持唯讀與最小能力面；附標準 `tsconfig.json`。
+
+### Changed
+
+- Cockpit loader 以目錄列表取代逐檔 stat 並並行讀取任務，大量 `.spec/` 時載入更快。
+- 「parked」任務顯示為「已擱置」，對齊 `crew-state.py` 用語；UAT pending 顯示為「UAT 待核准」。
+
+### Fixed
+
+- 並行 refresh 以世代號防止舊結果覆蓋新 snapshot。
+- 在 git worktree 子目錄啟動時，往上找 `.spec` 以 worktree 根為邊界。
+- 列不出 `.spec` 時顯示載入錯誤，而非誤報「沒有任務」。
+- 停滯天數對齊 `crew-state.py` normalize 語意；總覽不再顯示空的「0 / 0」工作單元。
+- 字串清理補上零寬與方向控制字元。
+
+### Known issues
+
+- 殘留的 `plugins/feature-workflow/.claude-plugin/marketplace.json`（版本停在 4.24.3）與 `category` 欄位會使 `claude plugin validate --strict` 失敗；main 本來就如此，本版不處理。
+- 開發中的 Mod 只能用 terminal 的 `claude --plugin-dir` 測試；Desktop 不吃 `CLAUDE_CODE_PLUGIN_DIRS`，需安裝後才看得到。
+
+### Compatibility
+
+- Mod 為純增量，原有 skills 與 SessionStart hook 行為不變；Human UAT 仍是結案前必經 gate。
+
+---
+
+## [bug-workflow@4.0.5] - 2026-10-07
+
+> **共用 `crew-state.py` 同步。** 隨 feature-workflow@5.2.0 同步共用 script；bug 流程行為不變。
+
+### Changed
+
+- 同步共用 `scripts/crew-state.py`：新增 `set --by` 與 feature 步驟 `skipped` 前置檢查。bug 任務沒有 security／verify／review 步驟，因此不受影響。
+
+---
+
 ## [feature-workflow@5.1.0] - 2026-10-06
 
 > **Deterministic plan verification + Playwright CI lifecycle。** `/plan-verify` 現在會先選最有證明力的 verifier，區分產品失敗與環境阻擋，並提供 portable Playwright draft、machine result 回程與 deterministic CI promotion。

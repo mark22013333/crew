@@ -162,6 +162,7 @@
 ### 🟡 ASK FIRST
 - 漂移檢查 exit 2（只有 WARN）→ 逐筆請使用者明示放行
 - plan.md 仍有未勾選的 `AC-n`，或 `state.json` 的 `results` 有 FAIL 時是否仍要結案
+- Feature 的 security／verify／review 尚未完成時，是否以「快速結案」跳過（僅限 build 已完成、requirement／architecture 閘已通過；列出代價，人類明確同意才 `set --status skipped --by human --reason`，理由只記使用者原話）
 - `deploy.sql` 尚未由 `/plan-deploy-confirm` 回報執行時的處理
 
 ### 🔴 NEVER
@@ -169,6 +170,7 @@
 - 用 `--fix` 硬改錨點讓檢查變綠來滿足結案條件
 - 把 `drift_policy: off` 當成通過漂移關卡的手段
 - 用 Write 整檔改寫 plan.md（結案摘要一樣是 Edit 對錨點插入條目）
+- 由 Agent 自行判定「功能夠簡單」而把 security／verify／review 標成 skipped，或把快速結案當成略過 Human UAT／漂移硬關卡的手段
 
 ---
 

@@ -1,4 +1,4 @@
-# Feature Workflow Plugin `v5.1.0`
+# Feature Workflow Plugin `v5.2.0`
 
 跨 Host 的 Feature lifecycle：本地 `.spec/` 規劃、Human approval gates、正式實作、安全/驗證/review、Human UAT 與結案同步。核心 contract 不依賴單一 Host 的 team、subagent 或 provider model 名稱。
 
@@ -121,6 +121,7 @@ start → spec → db → arch → build → security → verify → review → 
 - Architecture 未核准：不得進 build。
 - `verify=PASS` 或 review 完成：**不等於 Human UAT approved**。
 - `/plan-close` 是 Feature UAT + close 的合法入口；每次結案前都重新取得本輪 Human decision。
+- 快速結案：簡單功能可在 `/plan-close` 由人類明確同意後，把未完成的 security／verify／review 標 `skipped`（`--by human --reason` 必填，且需 build 已完成、requirement／architecture 閘已通過，runtime 會擋）；Human UAT 與漂移硬關卡不因此略過。
 
 ---
 
@@ -229,6 +230,7 @@ Portable root：
 | `/plan-next` | 從 state 計算下一步 |
 | `/plan-drift` | `plan.md` anchor / code drift 檢查 |
 | `/plan-demo` | 純本地評估模式 |
+| `/crew-cockpit` | 開啟 CREW Cockpit Pane（總覽／任務／驗收，唯讀；僅 Claude Code ≥ 2.1.289） |
 
 ---
 
@@ -363,6 +365,19 @@ flowchart TD
 Project verify memory canonical storage 是 `.crew/verify-memory.md`；舊 `.claude/verify-memory.md` 只在 canonical 不存在時相容讀取。驗證結果仍以 `state.json.results.verify` 為唯一 machine truth。
 
 流程邊界：`verify PASS` → `/plan-review` → `/plan-close`；**Human UAT 在 `/plan-close` 內取得**，不是 `/plan-verify` 的副作用。
+
+---
+
+## CREW Cockpit（Claude Code Mod）
+
+Claude Code 專屬的唯讀儀表板，隨 feature-workflow 一起安裝：
+
+- **AbovePrompt HUD**：輸入框上方顯示目前任務 slug、phase、verify 狀態、停滯天數與其他進行中任務數；沒有任務時不佔版面。
+- **`/crew-cockpit` Pane**：總覽儀表板、任務列表／卡片切換、驗收頁；資料全部來自 `.spec/*/state.json` 與驗證結果，只讀、不修改。
+- **Fill 只填入、不送出**：按鈕只會把下一步指令填進輸入框，由你自己按 Enter。
+- **最低版本** Claude Code 2.1.289；Codex 等其他 Host 的 CREW 核心流程照常運作，但沒有 Mod UI。
+- **測試開發中的 Mod**：只能用 terminal 的 `claude --plugin-dir <路徑>`；Claude Desktop 不吃 `CLAUDE_CODE_PLUGIN_DIRS`，需安裝後才看得到。
+- 已知問題：殘留的 `plugins/feature-workflow/.claude-plugin/marketplace.json`（4.24.3）與 `category` 欄位會讓 `claude plugin validate --strict` 失敗（main 既有，尚未處理）。
 
 ---
 

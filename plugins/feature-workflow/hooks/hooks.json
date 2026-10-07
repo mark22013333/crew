@@ -12,5 +12,8 @@
         ]
       }
     ]
-  }
+  },
+  "modules": [
+    "./crew-cockpit.ts"
+  ]
 }

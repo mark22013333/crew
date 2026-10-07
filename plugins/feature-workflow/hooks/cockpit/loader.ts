@@ -1,0 +1,788 @@
+// CREW Cockpit loader：repo-local、唯讀。
+//
+// 只透過 LoaderPorts 使用 $.session.root/repo、$.fs.list/stat/exists/read 與 $.clock.now；
+// 不寫檔、不跑 process、不呼叫 model、不連網（規格 §0、§3 D-2）。
+// 不在 TypeScript 重寫 normalize()/compute_next()（§6.3）：只把 state.json 原貌讀成顯示用 view model。
+
+import type { FsEntry, FsStat, SessionRepo } from 'claude-code'
+
+import {
+  type CockpitError,
+  type CockpitField,
+  type CockpitGateView,
+  type CockpitInvalidTask,
+  type CockpitIrAcView,
+  type CockpitIrRouteCount,
+  type CockpitIrSummary,
+  type CockpitResultView,
+  type CockpitResumeHintView,
+  type CockpitSelectionReason,
+  type CockpitSnapshot,
+  type CockpitStepView,
+  type CockpitTaskView,
+  type CockpitVerifyView,
+  type CockpitWorkUnitView,
+  DONE_LIKE,
+  MAX_FILE_BYTES,
+  MAX_KNOWN_SCHEMA,
+  MODEL_VERSION,
+  TEXT,
+  asInt,
+  crewStaleRef,
+  isFillableSlug,
+  isTruthy,
+  parseIsoMs,
+  sanitizeOrNull,
+  sanitizeText,
+  staleDaysOf,
+} from './model'
+
+/**
+ * loader 需要的唯讀 I/O 埠。由 crew-cockpit.ts 以 `$.fs.*`／`$.session.*`／`$.clock.now` 綁定
+ * （Mods 規定 $ 不能跨 import 傳遞，見 claude plugin validate）；測試可用記憶體實作替代。
+ * 這裡刻意沒有 write：loader 不寫任何檔案。
+ */
+export type LoaderPorts = {
+  list: (path: string) => Promise<readonly FsEntry[]>
+  stat: (path: string) => Promise<FsStat>
+  exists: (path: string) => Promise<boolean>
+  read: (path: string) => Promise<string>
+  sessionRoot: () => Promise<string>
+  repo: () => Promise<SessionRepo | null>
+  now: () => Promise<number>
+}
+
+/** loadCockpitSnapshot 的選項。 */
+export type LoadOptions = {
+  /** 上一份 snapshot；用來做 §15 增量重讀。null 表示全量載入。 */
+  previous: CockpitSnapshot | null
+  /** 使用者本 session 選的 task id（§8 優先序 1）。 */
+  userSelectedSlug: string | null
+}
+
+/** repo root 判定結果（§6.1）。 */
+export type RepoRootResult = {
+  root: string | null
+  source: CockpitSnapshot['rootSource']
+}
+
+type Json = Record<string, unknown>
+
+const isObject = (value: unknown): value is Json =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const errorText = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return typeof error === 'string' ? error : String(error)
+}
+
+const isTooLargeError = (error: unknown): boolean => /4\s*MiB|too large|over\s+4|EFBIG/i.test(errorText(error))
+
+// ---------------------------------------------------------------------------
+// 路徑工具（不依賴 Node path）
+// ---------------------------------------------------------------------------
+
+const sepOf = (path: string): string => (path.includes('/') || !path.includes('\\') ? '/' : '\\')
+
+/** 以 path 自身的分隔符號接上子路徑。 */
+export function joinPath(base: string, ...parts: string[]): string {
+  const sep = sepOf(base)
+  const trimmed = base.length > 1 ? base.replace(/[\\/]+$/, '') : base
+  return [trimmed === sep ? '' : trimmed, ...parts].join(sep)
+}
+
+const parentOf = (path: string): string | null => {
+  const sep = sepOf(path)
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const cut = trimmed.lastIndexOf(sep)
+  if (cut < 0) {
+    return null
+  }
+  if (cut === 0) {
+    return trimmed === sep ? null : sep
+  }
+  const parent = trimmed.slice(0, cut)
+  // Windows 磁碟根（C:）保留分隔符號
+  return /^[A-Za-z]:$/.test(parent) ? parent + sep : parent
+}
+
+const samePath = (a: string, b: string): boolean => a.replace(/[\\/]+$/, '') === b.replace(/[\\/]+$/, '')
+
+const isUnder = (child: string, ancestor: string): boolean => {
+  const a = ancestor.replace(/[\\/]+$/, '')
+  const c = child.replace(/[\\/]+$/, '')
+  return c === a || c.startsWith(a + sepOf(ancestor))
+}
+
+const hasSpecDir = async (io: LoaderPorts, dir: string): Promise<boolean> => {
+  try {
+    const path = joinPath(dir, '.spec')
+    // exists 不會 reject：先問，避免缺檔的 stat 進錯誤 log
+    if (!(await io.exists(path))) {
+      return false
+    }
+    const stat = await io.stat(path)
+    return stat.kind === 'dir'
+  } catch {
+    return false
+  }
+}
+
+/** 往上找工作樹根時最多走幾層（防呆，正常 repo 不會這麼深）。 */
+const MAX_ROOT_DEPTH = 64
+
+/** dir 底下是否有 `.git`（主工作樹是目錄、git worktree 是檔案）；只問存在與否，不讀內容、不解析 HEAD（§8）。 */
+const hasGitMarker = async (io: LoaderPorts, dir: string): Promise<boolean> => {
+  try {
+    return await io.exists(joinPath(dir, '.git'))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 包含 start 的工作樹根：從 start（含）往上第一個含 `.git` 的目錄。
+ * 在 git worktree 裡，$.session.repo().root 是「主工作樹」，不是目前所在的 worktree，
+ * 所以只能靠 `.git` 這個標記判定邊界：worktree 根的 `.git` 是檔案，主工作樹的是目錄，兩者都算。
+ * 找不到回 null。
+ */
+const findWorkTreeRoot = async (io: LoaderPorts, start: string): Promise<string | null> => {
+  let current: string | null = start
+  for (let depth = 0; current !== null && depth < MAX_ROOT_DEPTH; depth += 1) {
+    if (await hasGitMarker(io, current)) {
+      return current
+    }
+    current = parentOf(current)
+  }
+  return null
+}
+
+/**
+ * §6.1 repo root：依序檢查，第一個含 .spec/ 目錄者勝出。
+ * 1. $.session.root()（啟動目錄／worktree 位置，不是 git 根）
+ * 2. 從 session root 逐層往上，最多到「目前所在工作樹的根」：
+ *    一般 repo 就是 git 根；在 git worktree 裡則是 worktree 根（含 `.git` 檔案的那層），
+ *    不越過它去讀到主工作樹或更上層的 .spec。找不到工作樹根時，session root 在 git 根之下才以 git 根為界。
+ * 3. $.session.repo()?.root（worktree 時是主工作樹，只能當最後 fallback）
+ * 都沒有 → null（例如多 repo workspace 根目錄；不往下掃 sub-repo）。
+ */
+export async function resolveRepoRoot(io: LoaderPorts): Promise<RepoRootResult> {
+  let sessionRoot: string | null = null
+  try {
+    sessionRoot = await io.sessionRoot()
+  } catch {
+    sessionRoot = null
+  }
+  let gitRoot: string | null = null
+  try {
+    gitRoot = (await io.repo())?.root ?? null
+  } catch {
+    gitRoot = null
+  }
+
+  if (sessionRoot !== null && sessionRoot !== '') {
+    if (await hasSpecDir(io, sessionRoot)) {
+      return { root: sessionRoot, source: 'session-root' }
+    }
+    if (gitRoot !== null && gitRoot !== '') {
+      const isInsideGitRoot = !samePath(sessionRoot, gitRoot) && isUnder(sessionRoot, gitRoot)
+      // 邊界：最近的工作樹根；在 git 根之下卻找不到標記（例如 fs 不給看）時退回 git 根
+      const found = await findWorkTreeRoot(io, sessionRoot)
+      const boundary =
+        found !== null && (!isInsideGitRoot || isUnder(found, gitRoot)) ? found : isInsideGitRoot ? gitRoot : null
+      if (boundary !== null && !samePath(boundary, sessionRoot)) {
+        let current = parentOf(sessionRoot)
+        // 往上走到（含）邊界為止
+        while (current !== null && isUnder(current, boundary)) {
+          if (await hasSpecDir(io, current)) {
+            return { root: current, source: 'ancestor' }
+          }
+          if (samePath(current, boundary)) {
+            break
+          }
+          current = parentOf(current)
+        }
+        if (samePath(boundary, gitRoot)) {
+          // git 根已經檢查過了
+          return { root: null, source: null }
+        }
+      }
+    }
+  }
+  if (gitRoot !== null && gitRoot !== '' && (sessionRoot === null || !samePath(sessionRoot, gitRoot))) {
+    if (await hasSpecDir(io, gitRoot)) {
+      return { root: gitRoot, source: 'git-root' }
+    }
+  }
+  return { root: null, source: null }
+}
+
+// ---------------------------------------------------------------------------
+// tolerant parser：state.json 原貌 → CockpitTaskView
+// ---------------------------------------------------------------------------
+
+const fieldsOf = (value: unknown, skip: readonly string[] = []): CockpitField[] => {
+  if (!isObject(value)) {
+    return []
+  }
+  return Object.entries(value)
+    .filter(([key]) => !skip.includes(key))
+    .map(([key, raw]) => ({ key: sanitizeText(key), value: sanitizeText(raw) }))
+}
+
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.map(item => sanitizeText(item)).filter(item => item !== '') : []
+
+const stepsOf = (value: unknown): CockpitStepView[] => {
+  if (!isObject(value)) {
+    return []
+  }
+  return Object.entries(value).map(([key, raw]) => {
+    const entry = isObject(raw) ? raw : {}
+    return {
+      key: sanitizeText(key),
+      status: typeof entry.status === 'string' ? sanitizeOrNull(entry.status) : null,
+      at: sanitizeOrNull(entry.at),
+      reason: sanitizeOrNull(entry.reason),
+    }
+  })
+}
+
+const gatesOf = (value: unknown): CockpitGateView[] | null => {
+  if (!isObject(value)) {
+    return null
+  }
+  return Object.entries(value).map(([key, raw]) => {
+    const entry = isObject(raw) ? raw : {}
+    return {
+      key: sanitizeText(key),
+      status: typeof entry.status === 'string' ? sanitizeOrNull(entry.status) : null,
+      at: sanitizeOrNull(entry.at),
+      by: sanitizeOrNull(entry.by),
+      reason: sanitizeOrNull(entry.reason),
+    }
+  })
+}
+
+const workUnitOf = (value: unknown): CockpitWorkUnitView | null => {
+  if (!isObject(value)) {
+    return null
+  }
+  const done = asInt(value.done)
+  const total = asInt(value.total)
+  return {
+    skill: sanitizeOrNull(value.skill),
+    done,
+    total,
+    label: sanitizeText(value.label),
+    remaining: stringList(value.remaining),
+    isInterrupted: total > 0 && done < total,
+  }
+}
+
+const resumeHintOf = (value: unknown): CockpitResumeHintView | null => {
+  if (!isObject(value)) {
+    return null
+  }
+  const branch = sanitizeOrNull(value.branch)
+  const services = stringList(value.services)
+  const readFirst = stringList(value.read_first)
+  return { branch, services, readFirst, isEmpty: branch === null && services.length === 0 && readFirst.length === 0 }
+}
+
+const resultOf = (value: unknown): CockpitResultView => {
+  if (!isObject(value)) {
+    return { status: null, entries: [], isEmpty: true }
+  }
+  return {
+    status: sanitizeOrNull(value.status),
+    entries: fieldsOf(value, ['status']),
+    isEmpty: Object.keys(value).length === 0,
+  }
+}
+
+const verifyOf = (value: unknown): CockpitVerifyView => {
+  const base = resultOf(value)
+  const hasBlockedKey = isObject(value) && Object.prototype.hasOwnProperty.call(value, 'blocked')
+  return { ...base, blocked: hasBlockedKey ? asInt((value as Json).blocked) : 0, hasBlockedKey }
+}
+
+const nextOf = (value: unknown): CockpitTaskView['recordedNext'] => {
+  if (!isObject(value)) {
+    return null
+  }
+  return { command: sanitizeOrNull(value.command), reason: sanitizeText(value.reason) }
+}
+
+const parkedOf = (value: unknown): CockpitTaskView['parked'] => {
+  if (!isTruthy(value)) {
+    return null
+  }
+  if (isObject(value)) {
+    return { at: sanitizeOrNull(value.at), reason: sanitizeOrNull(value.reason) }
+  }
+  return { at: null, reason: sanitizeOrNull(value) }
+}
+
+const schemaOf = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+
+/**
+ * state.json（已確定是 JSON 物件）→ task view。純函式，不做 I/O。
+ * @param raw state.json 的物件
+ * @param id .spec 下的目錄名原值（crew-state.py 以目錄名為 slug）
+ * @param statePath state.json 的路徑
+ * @param ir 已讀好的 IR 摘要
+ * @param nowMs 用於停滯天數
+ */
+export function toTaskView(
+  raw: Json,
+  id: string,
+  statePath: string,
+  ir: CockpitIrSummary,
+  nowMs: number,
+): CockpitTaskView {
+  const slug = sanitizeText(id)
+  const schemaVersion = schemaOf(raw.schema_version)
+  const steps = isObject(raw.steps) ? raw.steps : {}
+  const close = isObject(steps.close) ? steps.close : {}
+  const closed = typeof close.status === 'string' && DONE_LIKE.includes(close.status)
+  const parked = parkedOf(raw.parked)
+  const updatedMs = parseIsoMs(raw.updated)
+  const updatedRefMs = updatedMs ?? parseIsoMs(raw.created)
+  // 停滯天數另依 crew-state.py 的 normalize 語意取參考時間（null／缺漏＝現在），不沿用排序用的 updatedRefMs
+  const stale = crewStaleRef(raw.updated, raw.created)
+  const git = fieldsOf(raw.git)
+  const name = sanitizeText(raw.name)
+  const type = typeof raw.type === 'string' && raw.type !== '' ? sanitizeText(raw.type) : 'feature'
+  const results = isObject(raw.results) ? raw.results : {}
+
+  return {
+    id,
+    slug,
+    isSlugFillable: isFillableSlug(id),
+    statePath: sanitizeText(statePath),
+    schemaVersion,
+    isSchemaNewer: schemaVersion !== null && schemaVersion > MAX_KNOWN_SCHEMA,
+    name: name === '' ? slug : name,
+    type: type === '' ? 'feature' : type,
+    phase: sanitizeOrNull(raw.phase),
+    inferred: isTruthy(raw.inferred),
+    parked,
+    closed,
+    active: !closed && parked === null,
+    staleDays: staleDaysOf(stale.refMs, nowMs),
+    staleUnknown: stale.isUnknown,
+    staleRefMs: stale.refMs,
+    updated: sanitizeOrNull(raw.updated),
+    created: sanitizeOrNull(raw.created),
+    updatedRefMs,
+    recordedNext: nextOf(raw.next),
+    resumeHint: resumeHintOf(raw.resume_hint),
+    steps: stepsOf(raw.steps),
+    gates: gatesOf(raw.gates),
+    workUnit: workUnitOf(raw.work_unit),
+    results: {
+      verify: verifyOf(results.verify),
+      review: resultOf(results.review),
+      security: resultOf(results.security),
+    },
+    git,
+    branch: isObject(raw.git) ? sanitizeOrNull(raw.git.branch) : null,
+    notion: fieldsOf(raw.notion),
+    deploy: fieldsOf(raw.deploy),
+    verificationIr: ir,
+  }
+}
+
+/**
+ * Verification IR（已確定是可解析的 JSON）→ 摘要。純函式。
+ * route 依 verification_type 的實際值動態分組（§6.4），不寫死類別。
+ */
+export function toIrSummary(raw: unknown): CockpitIrSummary {
+  if (!isObject(raw)) {
+    return { status: 'invalid', message: 'verification-ir.json 不是 JSON 物件' }
+  }
+  const acEntries: [string, unknown][] = isObject(raw.acs)
+    ? Object.entries(raw.acs)
+    : Array.isArray(raw.acs)
+      ? raw.acs.map((item, index) => [isObject(item) && typeof item.id === 'string' ? item.id : `#${index + 1}`, item])
+      : []
+  const acs: CockpitIrAcView[] = acEntries.map(([key, value]) => ({
+    id: sanitizeText(key),
+    verificationType:
+      isObject(value) && typeof value.verification_type === 'string'
+        ? sanitizeOrNull(value.verification_type)
+        : null,
+  }))
+  const counts = new Map<string | null, number>()
+  for (const ac of acs) {
+    counts.set(ac.verificationType, (counts.get(ac.verificationType) ?? 0) + 1)
+  }
+  const routes: CockpitIrRouteCount[] = [...counts.entries()]
+    .map(([verificationType, count]) => ({ verificationType, count }))
+    .sort((a, b) => {
+      if (a.verificationType === null || b.verificationType === null) {
+        return a.verificationType === null ? (b.verificationType === null ? 0 : 1) : -1
+      }
+      return b.count - a.count || (a.verificationType < b.verificationType ? -1 : a.verificationType > b.verificationType ? 1 : 0)
+    })
+  return {
+    status: 'ready',
+    schemaVersion: schemaOf(raw.schema_version),
+    acCount: acs.length,
+    routes,
+    acs,
+    preconditionCount: Array.isArray(raw.preconditions) ? raw.preconditions.length : 0,
+    safetyCount: Array.isArray(raw.safety) ? raw.safety.length : 0,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 選取（§8）與排序（§12）
+// ---------------------------------------------------------------------------
+
+const byUpdatedDesc = (a: CockpitTaskView, b: CockpitTaskView): number => {
+  const ma = a.updatedRefMs ?? Number.NEGATIVE_INFINITY
+  const mb = b.updatedRefMs ?? Number.NEGATIVE_INFINITY
+  if (ma !== mb) {
+    return mb > ma ? 1 : -1
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+const groupOf = (task: CockpitTaskView): number => (task.closed ? 2 : task.parked !== null ? 1 : 0)
+
+/** §12 排序：active → parked → closed，各組內 updated 新到舊，同時間依 id。 */
+export function sortTasks(tasks: readonly CockpitTaskView[]): CockpitTaskView[] {
+  return [...tasks].sort((a, b) => groupOf(a) - groupOf(b) || byUpdatedDesc(a, b))
+}
+
+/**
+ * §8 選取優先序：
+ * 1. 使用者本 session 已選、且 task 仍存在 → user
+ * 2. 只有一個 active → only-active
+ * 3. 多個 active → updated 最新者 → latest-active（autoSelected）
+ * 4. 沒有 active → none
+ */
+export function selectTask(
+  tasks: readonly CockpitTaskView[],
+  userSelectedSlug: string | null,
+): { slug: string | null; reason: CockpitSelectionReason } {
+  if (userSelectedSlug !== null && tasks.some(task => task.id === userSelectedSlug)) {
+    return { slug: userSelectedSlug, reason: 'user' }
+  }
+  const active = tasks.filter(task => task.active)
+  if (active.length === 1) {
+    return { slug: active[0]?.id ?? null, reason: 'only-active' }
+  }
+  if (active.length > 1) {
+    return { slug: [...active].sort(byUpdatedDesc)[0]?.id ?? null, reason: 'latest-active' }
+  }
+  return { slug: null, reason: 'none' }
+}
+
+// ---------------------------------------------------------------------------
+// I/O：讀檔與增量重讀（§6.2、§15）
+// ---------------------------------------------------------------------------
+
+type FileProbe = { kind: 'missing' } | { kind: 'other' } | { kind: 'file'; mtimeMs: number; size: number }
+
+/** 同時進行的任務 I/O 上限：每次檔案系統呼叫都是一次 worker 往返，依序 await 會讓 100 個任務的重讀線性變慢（AC-21）。 */
+const IO_CONCURRENCY = 16
+
+/**
+ * 以目錄列表（一次 list）取代逐檔 exists＋stat：FsEntry 對一般檔案已帶 size 與 mtimeMs
+ * （與 stat 同一個值）。只有符號連結才補一次 stat 看它指向什麼。
+ * 判定與舊版逐檔 probe 相同：一般檔（或指向一般檔的連結）→ file；目錄等其他種類 → other；
+ * 不存在、斷掉的連結、列不出來（權限）→ missing（與 Path.is_file() 回 False 一致）。
+ */
+const probeEntry = async (
+  io: LoaderPorts,
+  dir: string,
+  entries: readonly FsEntry[] | null,
+  name: string,
+): Promise<FileProbe> => {
+  const entry = entries?.find(item => item.name === name)
+  if (entry === undefined) {
+    return { kind: 'missing' }
+  }
+  if (entry.kind === 'file') {
+    return { kind: 'file', mtimeMs: entry.mtimeMs, size: entry.size }
+  }
+  if (entry.kind === 'other' && entry.isLink) {
+    try {
+      const stat = await io.stat(joinPath(dir, name))
+      return stat.kind === 'file' ? { kind: 'file', mtimeMs: stat.mtimeMs, size: stat.size } : { kind: 'other' }
+    } catch {
+      return { kind: 'missing' }
+    }
+  }
+  return { kind: 'other' }
+}
+
+/** 列目錄；不存在或權限錯誤回 null（呼叫端視為裡面什麼都沒有）。 */
+const listOrNull = async (io: LoaderPorts, dir: string): Promise<readonly FsEntry[] | null> => {
+  try {
+    return await io.list(dir)
+  } catch {
+    return null
+  }
+}
+
+/** 子目錄（或指向目錄的連結）是否存在於列表中；連結交給 list 自己跟隨，失敗時 listOrNull 回 null。 */
+const hasDirEntry = (entries: readonly FsEntry[] | null, name: string): boolean =>
+  entries?.some(item => item.name === name && (item.kind === 'dir' || (item.kind === 'other' && item.isLink))) ?? false
+
+/** 以固定並行數跑完 items；結果依輸入順序回傳。 */
+const mapPool = async <T, R>(items: readonly T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> => {
+  const results: R[] = new Array<R>(items.length)
+  let cursor = 0
+  const lane = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await worker(items[index] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => lane()))
+  return results
+}
+
+type ReadJson = { ok: true; value: unknown } | { ok: false; kind: CockpitInvalidTask['kind']; message: string }
+
+const readJson = async (io: LoaderPorts, path: string, size: number): Promise<ReadJson> => {
+  if (size > MAX_FILE_BYTES) {
+    return { ok: false, kind: 'too-large', message: TEXT.fileTooLarge }
+  }
+  let text: string
+  try {
+    text = await io.read(path)
+  } catch (error) {
+    return isTooLargeError(error)
+      ? { ok: false, kind: 'too-large', message: TEXT.fileTooLarge }
+      : { ok: false, kind: 'read', message: sanitizeText(`讀取失敗：${errorText(error)}`) }
+  }
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown }
+  } catch (error) {
+    return { ok: false, kind: 'parse', message: sanitizeText(`${TEXT.invalidState}：${errorText(error)}`) }
+  }
+}
+
+const loadIr = async (
+  io: LoaderPorts,
+  found: FileProbe,
+  path: string,
+  previous: CockpitSnapshot | null,
+  previousIr: CockpitIrSummary | undefined,
+  mtimes: Record<string, number>,
+  sizes: Record<string, number>,
+): Promise<{ ir: CockpitIrSummary; reread: boolean }> => {
+  if (found.kind !== 'file') {
+    return { ir: { status: 'missing' }, reread: false }
+  }
+  mtimes[path] = found.mtimeMs
+  sizes[path] = found.size
+  if (
+    previous !== null &&
+    previousIr !== undefined &&
+    previousIr.status !== 'missing' &&
+    previous.mtimes[path] === found.mtimeMs &&
+    previous.sizes[path] === found.size
+  ) {
+    return { ir: previousIr, reread: false }
+  }
+  const read = await readJson(io, path, found.size)
+  if (!read.ok) {
+    return { ir: { status: 'invalid', message: read.message }, reread: true }
+  }
+  return { ir: toIrSummary(read.value), reread: true }
+}
+
+/** 列出 .spec 第一層的「目錄」名稱（一般檔案如 _index.md 略過；指向目錄的連結算目錄）。 */
+const listSpecDirs = async (io: LoaderPorts, specDir: string): Promise<string[]> => {
+  const entries = await io.list(specDir)
+  const picked = await mapPool(entries, IO_CONCURRENCY, async (entry): Promise<string | null> => {
+    if (entry.kind === 'dir') {
+      return entry.name
+    }
+    if (entry.kind === 'other' && entry.isLink) {
+      try {
+        const stat = await io.stat(joinPath(specDir, entry.name))
+        return stat.kind === 'dir' ? entry.name : null
+      } catch {
+        // 斷掉的連結：略過（與 Path.is_dir() 一致）
+        return null
+      }
+    }
+    return null
+  })
+  return picked.filter((name): name is string => name !== null).sort()
+}
+
+/**
+ * 載入 Cockpit snapshot（§6、§7、§8、§15）。唯讀；任何單檔錯誤都不 throw。
+ * - 只掃 .spec 第一層目錄；缺 state.json 的目錄只計數。
+ * - state.json 壞掉／過大／不是物件 → invalidTasks（/plan-status 不會列出，Cockpit 刻意列出）。
+ * - 增量：state.json 與 IR 的 mtime+size 與上一份相同就沿用舊 view（停滯天數仍以 now 重算）。
+ */
+export async function loadCockpitSnapshot(io: LoaderPorts, options: LoadOptions): Promise<CockpitSnapshot> {
+  const nowMs = await io.now()
+  const errors: CockpitError[] = []
+  const { root, source } = await resolveRepoRoot(io)
+
+  const empty = (extra: Partial<CockpitSnapshot> = {}): CockpitSnapshot => ({
+    modelVersion: MODEL_VERSION,
+    repoRoot: root,
+    rootSource: source,
+    loadedAt: nowMs,
+    tasks: [],
+    invalidTasks: [],
+    untrackedDirCount: 0,
+    activeCount: 0,
+    selectedSlug: null,
+    autoSelected: false,
+    selectionReason: 'none',
+    errors,
+    mtimes: {},
+    sizes: {},
+    stats: { dirs: 0, reread: 0, reused: 0 },
+    ...extra,
+  })
+
+  if (root === null) {
+    return empty()
+  }
+
+  const previous =
+    options.previous !== null &&
+    options.previous.modelVersion === MODEL_VERSION &&
+    options.previous.repoRoot === root
+      ? options.previous
+      : null
+  const previousTasks = new Map((previous?.tasks ?? []).map(task => [task.id, task]))
+
+  const specDir = joinPath(root, '.spec')
+  let dirs: string[]
+  try {
+    dirs = await listSpecDirs(io, specDir)
+  } catch (error) {
+    errors.push({ scope: 'spec-dir', path: sanitizeText(specDir), message: sanitizeText(errorText(error)) })
+    return empty()
+  }
+
+  // 每個任務的結果先各自收好，再依 dirs 順序合併：並行完成的先後不影響 snapshot 內容與順序。
+  type TaskOutcome = {
+    task: CockpitTaskView | null
+    invalid: CockpitInvalidTask | null
+    untracked: boolean
+    reread: number
+    reused: number
+    mtimes: Record<string, number>
+    sizes: Record<string, number>
+  }
+
+  const loadOne = async (id: string): Promise<TaskOutcome> => {
+    const taskDir = joinPath(specDir, id)
+    const statePath = joinPath(taskDir, 'state.json')
+    const cacheDir = joinPath(taskDir, '.cache')
+    const irPath = joinPath(cacheDir, 'verification-ir.json')
+    const out: TaskOutcome = { task: null, invalid: null, untracked: false, reread: 0, reused: 0, mtimes: {}, sizes: {} }
+    try {
+      // 一次 list 同時取得 state.json 的 mtime／size 與 .cache 是否存在
+      const entries = await listOrNull(io, taskDir)
+      const found = await probeEntry(io, taskDir, entries, 'state.json')
+      if (found.kind !== 'file') {
+        out.untracked = true
+        return out
+      }
+      out.mtimes[statePath] = found.mtimeMs
+      out.sizes[statePath] = found.size
+      const before = previousTasks.get(id)
+      // 沒有 .cache 目錄就不必再問 IR（與舊版逐檔 probe 結果相同：missing）
+      const irFound: FileProbe = hasDirEntry(entries, '.cache')
+        ? await probeEntry(io, cacheDir, await listOrNull(io, cacheDir), 'verification-ir.json')
+        : { kind: 'missing' }
+      const { ir, reread: irReread } = await loadIr(io, irFound, irPath, previous, before?.verificationIr, out.mtimes, out.sizes)
+      if (irReread) {
+        out.reread += 1
+      }
+      const isSame =
+        before !== undefined &&
+        previous !== null &&
+        previous.mtimes[statePath] === found.mtimeMs &&
+        previous.sizes[statePath] === found.size
+      if (isSame && before !== undefined) {
+        out.reused += 1
+        out.task = { ...before, staleDays: staleDaysOf(before.staleRefMs, nowMs), verificationIr: ir }
+        return out
+      }
+      out.reread += 1
+      const read = await readJson(io, statePath, found.size)
+      if (!read.ok) {
+        out.invalid = { id, slug: sanitizeText(id), statePath: sanitizeText(statePath), kind: read.kind, message: read.message }
+        return out
+      }
+      if (!isObject(read.value)) {
+        out.invalid = { id, slug: sanitizeText(id), statePath: sanitizeText(statePath), kind: 'not-object', message: TEXT.notObject }
+        return out
+      }
+      out.task = toTaskView(read.value, id, statePath, ir, nowMs)
+      return out
+    } catch (error) {
+      // 任何未預期錯誤只影響這一筆
+      out.task = null
+      out.invalid = {
+        id,
+        slug: sanitizeText(id),
+        statePath: sanitizeText(statePath),
+        kind: 'read',
+        message: sanitizeText(errorText(error)),
+      }
+      return out
+    }
+  }
+
+  const outcomes = await mapPool(dirs, IO_CONCURRENCY, loadOne)
+
+  const mtimes: Record<string, number> = {}
+  const sizes: Record<string, number> = {}
+  const tasks: CockpitTaskView[] = []
+  const invalidTasks: CockpitInvalidTask[] = []
+  let untracked = 0
+  let reread = 0
+  let reused = 0
+  for (const outcome of outcomes) {
+    Object.assign(mtimes, outcome.mtimes)
+    Object.assign(sizes, outcome.sizes)
+    if (outcome.untracked) {
+      untracked += 1
+    }
+    reread += outcome.reread
+    reused += outcome.reused
+    if (outcome.task !== null) {
+      tasks.push(outcome.task)
+    }
+    if (outcome.invalid !== null) {
+      invalidTasks.push(outcome.invalid)
+    }
+  }
+
+  const sorted = sortTasks(tasks)
+  const selection = selectTask(sorted, options.userSelectedSlug)
+  return empty({
+    tasks: sorted,
+    invalidTasks,
+    untrackedDirCount: untracked,
+    activeCount: sorted.filter(task => task.active).length,
+    selectedSlug: selection.slug,
+    autoSelected: selection.reason === 'latest-active',
+    selectionReason: selection.reason,
+    mtimes,
+    sizes,
+    stats: { dirs: dirs.length, reread, reused },
+  })
+}
