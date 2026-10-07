@@ -79,14 +79,45 @@ export function fillCommandFor(task: CockpitTaskView | null): string | null {
 /** Fill 的固定模板種類：next＝`/plan-next {slug}`、close＝`/plan-close {slug}`。 */
 export type FillKind = 'next' | 'close'
 
+/** 核准閘「已通過」的值（對齊 crew-state.py GATE_PASSED）。 */
+const GATE_PASSED_VALUES: readonly string[] = ['approved', 'waived']
+
+/**
+ * 結案按鈕的「顯示條件」：build 為 done-like，且 requirement、architecture 兩閘已通過。
+ * 這只是顯示條件（presentation），不是 workflow 判定——真正的把關在 crew-state.py
+ * （快速結案 set --status skipped 的前置檢查、TRANSITION_GATES）；這裡只讀 snapshot 已有的 steps／gates 欄位。
+ * v1（gates === null）比照 crew-state.py normalize 的遷移語意：spec／arch 為 done-like 即視為對應閘已通過。
+ */
+export function isReadyToClose(task: CockpitTaskView): boolean {
+  const stepDoneLike = (key: string): boolean => {
+    const status = task.steps.find(step => step.key === key)?.status ?? null
+    return status !== null && DONE_LIKE.includes(status)
+  }
+  if (!stepDoneLike('build')) {
+    return false
+  }
+  const gatePassed = (key: string, legacySourceStep: string): boolean => {
+    if (task.gates === null) {
+      return stepDoneLike(legacySourceStep)
+    }
+    const status = task.gates.find(gate => gate.key === key)?.status ?? null
+    return status !== null && GATE_PASSED_VALUES.includes(status)
+  }
+  return gatePassed('requirement', 'spec') && gatePassed('architecture', 'arch')
+}
+
 /**
  * 結案 Fill 的固定內容：只有 `/plan-close {slug}`（slug 須通過白名單）。
- * 只在任務未結案（steps.close 非 done/skipped）且非擱置時提供；不得改用 state.next.command 或任何 repo 字串。
+ * 只在任務未結案（steps.close 非 done/skipped）、非擱置，且 isReadyToClose（build 完成、兩閘通過）時提供；
+ * 不得改用 state.next.command 或任何 repo 字串。
  * bug 任務不提供：/bug-close 不吃 slug 參數，而是以 Notion 頁面／目前分支綁定任務，
  * 從某張任務卡按下時無法保證結的是這一筆，所以不給按鈕（使用者自行輸入 /bug-close）。
  */
 export function closeCommandFor(task: CockpitTaskView | null): string | null {
   if (task === null || !task.isSlugFillable || task.closed || task.parked !== null || task.type === 'bug') {
+    return null
+  }
+  if (!isReadyToClose(task)) {
     return null
   }
   return `/plan-close ${task.id}`

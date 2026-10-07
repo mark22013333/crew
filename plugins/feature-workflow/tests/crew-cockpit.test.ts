@@ -20,6 +20,7 @@ import {
   shortTime,
   staleColor,
   hudText,
+  isReadyToClose,
   otherActiveCount,
   progressOf,
   resolveSelection,
@@ -2164,7 +2165,23 @@ describe('總覽：步驟膠囊色塊與結案按鈕', () => {
   }
 
   test('closeCommandFor／fillTemplateFor 純函式：只用白名單 slug 組固定模板', () => {
-    const base = { id: 'abc', isSlugFillable: true, closed: false, parked: null, type: 'feature' } as unknown as CockpitTaskView
+    const base = {
+      id: 'abc',
+      isSlugFillable: true,
+      closed: false,
+      parked: null,
+      type: 'feature',
+      steps: [
+        { key: 'spec', status: 'done', at: null, reason: null },
+        { key: 'arch', status: 'done', at: null, reason: null },
+        { key: 'build', status: 'done', at: null, reason: null },
+      ],
+      gates: [
+        { key: 'requirement', status: 'approved', at: null, by: null, reason: null },
+        { key: 'architecture', status: 'approved', at: null, by: null, reason: null },
+        { key: 'uat', status: 'pending', at: null, by: null, reason: null },
+      ],
+    } as unknown as CockpitTaskView
     expect(closeCommandFor(base)).toBe('/plan-close abc')
     expect(fillTemplateFor(base, 'close')).toBe('/plan-close abc')
     expect(fillTemplateFor(base, 'next')).toBe('/plan-next abc')
@@ -2174,4 +2191,96 @@ describe('總覽：步驟膠囊色塊與結案按鈕', () => {
     expect(closeCommandFor({ ...base, type: 'bug' })).toBe(null)
     expect(closeCommandFor(null)).toBe(null)
   })
+
+  test('isReadyToClose 純函式（顯示條件）：build done-like＋requirement／architecture 通過；v1 依 normalize 遷移語意', () => {
+    const stepRow = (key: string, status: string | null) => ({ key, status, at: null, reason: null })
+    const gateRow = (key: string, status: string | null) => ({ key, status, at: null, by: null, reason: null })
+    const task = (build: string | null, req: string | null, arch: string | null, extra: Record<string, unknown> = {}) =>
+      ({
+        id: 'abc',
+        isSlugFillable: true,
+        closed: false,
+        parked: null,
+        type: 'feature',
+        steps: [stepRow('spec', 'done'), stepRow('arch', 'done'), stepRow('build', build)],
+        gates: [gateRow('requirement', req), gateRow('architecture', arch), gateRow('uat', 'pending')],
+        ...extra,
+      }) as unknown as CockpitTaskView
+    expect(isReadyToClose(task('done', 'approved', 'approved'))).toBe(true)
+    expect(isReadyToClose(task('skipped', 'waived', 'approved')), 'skipped／waived 也算').toBe(true)
+    for (const build of ['pending', 'in_progress', 'failed', null]) {
+      expect(isReadyToClose(task(build, 'approved', 'approved')), `build=${build}`).toBe(false)
+    }
+    for (const gate of ['pending', 'rejected', null]) {
+      expect(isReadyToClose(task('done', gate, 'approved')), `requirement=${gate}`).toBe(false)
+      expect(isReadyToClose(task('done', 'approved', gate)), `architecture=${gate}`).toBe(false)
+    }
+    // gates 是物件但缺 architecture 列（normalize 會補 pending）→ 不通過
+    expect(isReadyToClose(task('done', 'approved', 'approved', { gates: [gateRow('requirement', 'approved')] }))).toBe(false)
+    // v1（gates === null）：spec／arch done-like 即視為通過；arch 未完成則不通過
+    expect(isReadyToClose(task('done', null, null, { gates: null }))).toBe(true)
+    expect(
+      isReadyToClose(task('done', null, null, { gates: null, steps: [stepRow('spec', 'done'), stepRow('arch', 'pending'), stepRow('build', 'done')] })),
+    ).toBe(false)
+    expect(closeCommandFor(task('in_progress', 'approved', 'approved'))).toBe(null)
+  })
+})
+
+// ===========================================================================
+// 結案按鈕顯示條件：build 未完成或 requirement／architecture 閘未過 → 不顯示
+// （只是顯示條件；真正把關在 crew-state.py）
+// ===========================================================================
+
+describe('總覽：結案按鈕的前置條件（build 完成＋兩閘通過）', () => {
+  const stepOf = (status: string) => ({ status, at: null, commit: null, reason: null })
+  const base = JSON.parse(V2_FEATURE_VERIFY_PASS) as { steps: Record<string, unknown>; gates: Record<string, unknown> }
+  const gateOf = (status: string) => ({ status, at: null, by: 'human', reason: null })
+  const withPatch = (slug: string, steps: Record<string, unknown>, gates: Record<string, unknown> = {}) =>
+    variant(V2_FEATURE_VERIFY_PASS, { slug, steps: { ...base.steps, ...steps }, gates: { ...base.gates, ...gates } })
+  const v1Base = JSON.parse(V1_FEATURE_LEGACY) as { steps: Record<string, unknown> }
+  const v1With = (slug: string, steps: Record<string, unknown>) => variant(V1_FEATURE_LEGACY, { slug, steps: { ...v1Base.steps, ...steps } })
+
+  const HIDDEN: Record<string, string> = {
+    'build-pending': withPatch('build-pending', { build: stepOf('pending'), security: stepOf('pending'), verify: stepOf('pending') }),
+    'build-running': withPatch('build-running', { build: stepOf('in_progress') }),
+    'build-failed': withPatch('build-failed', { build: stepOf('failed') }),
+    'arch-gate-pending': withPatch('arch-gate-pending', {}, { architecture: gateOf('pending') }),
+    'req-gate-rejected': withPatch('req-gate-rejected', {}, { requirement: gateOf('rejected') }),
+    'legacy-report-filter': V1_FEATURE_LEGACY,
+    'v1-arch-pending': v1With('v1-arch-pending', { arch: stepOf('pending'), build: stepOf('done') }),
+  }
+  const SHOWN: Record<string, string> = {
+    'order-export-csv': V2_FEATURE_VERIFY_PASS,
+    'req-gate-waived': withPatch('req-gate-waived', {}, { requirement: gateOf('waived') }),
+    'v1-build-done': v1With('v1-build-done', { build: stepOf('done') }),
+  }
+
+  for (const surface of SURFACES) {
+    test(`${surface}：build 未完成或閘未過 → 無結案按鈕（仍有 /plan-next Fill）；條件滿足（含 waived、v1 遷移）→ 顯示`, async ($, on) => {
+      const files: Record<string, string> = {}
+      for (const [slug, body] of Object.entries({ ...HIDDEN, ...SHOWN })) {
+        files[`${slug}/state.json`] = body
+      }
+      const world = worldOf(on, specFiles(files))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'selectedSlug', 'order-export-csv')
+      const pane = await mountPane($, surface)
+
+      for (const slug of Object.keys(HIDDEN)) {
+        world.setState(PLUGIN, 'selectedSlug', slug)
+        await pane.redraw()
+        expect(await pane.find({ key: 'title-card' }), `正對照：${slug} 的總覽確實有畫`).toBeDefined()
+        expect(await pane.find({ key: 'fill' }), `正對照：${slug} 仍有 /plan-next Fill`).toBeDefined()
+        expect(await pane.find({ key: 'fill-close' }), `${slug} 不得有結案按鈕`).toBe(undefined)
+      }
+      for (const slug of Object.keys(SHOWN)) {
+        world.setState(PLUGIN, 'selectedSlug', slug)
+        await pane.redraw()
+        expect((await pane.find({ key: 'fill-close' }))?.props.label, `${slug} 應有結案按鈕`).toBe(TEXT.fillClose(slug))
+      }
+      expect(world.forbidden).toEqual([])
+    })
+  }
 })
