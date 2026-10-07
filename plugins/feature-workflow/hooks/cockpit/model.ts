@@ -154,6 +154,8 @@ export const TEXT = {
   layoutCards: '卡片',
   pendingGates: (keys: string) => `核准閘待核准：${keys}`,
   closedSummary: (n: number) => `○ 已結案 ${n} 項`,
+  // ---- 以下為總覽結案按鈕新增（只增不改）----
+  fillClose: (slug: string) => `填入 /plan-close ${slug}`,
 } as const
 
 // ---------------------------------------------------------------------------

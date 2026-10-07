@@ -3,7 +3,7 @@
 // Core owns truth. Cockpit owns presentation.
 // - 不寫 .spec/{slug}/state.json、不跑 crew-state.py、不送出 prompt、不攔截 tool.call（規格 §0、§3 D-2）。
 // - snapshot 只在 session.start／主 turn 結束／/crew-cockpit／重新整理時重讀，存進 $.state；render 只讀 $.state（§3 D-3、§15）。
-// - 唯一的「動作」是 Fill：把固定模板 `/plan-next {slug}` 填進空的輸入框，絕不送出（§14）。
+// - 唯一的「動作」是 Fill：把固定模板 `/plan-next {slug}` 或 `/plan-close {slug}` 填進空的輸入框，絕不送出（§14）。
 // - 任何 Cockpit 錯誤都只吞掉並放行，不阻擋 Claude Code 正常工作（§16）。
 
 import { atom, read, update } from 'claude-code'
@@ -12,7 +12,7 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 import { type LoaderPorts, loadCockpitSnapshot } from './cockpit/loader'
 import { COMMAND_NAME, MIN_CLAUDE_CODE_VERSION, PANE_ID, TEXT, type CockpitTab, type CockpitTaskLayout, compareVersions } from './cockpit/model'
 import { type PaneCallbacks, composeBand, hudModel, hudView, paneView } from './cockpit/render'
-import { fillCommandFor } from './cockpit/selectors'
+import { type FillKind, fillTemplateFor } from './cockpit/selectors'
 
 // ---------------------------------------------------------------------------
 // $.state 參照（契約在 types/index.d.ts）。
@@ -165,14 +165,15 @@ async function setLayoutPreference($: EngineInterface, layout: CockpitTaskLayout
 }
 
 // ---------------------------------------------------------------------------
-// §14 Fill：只填固定模板 `/plan-next {slug}`；先讀草稿（不覆蓋）→ 關 pane → fill → 被拒就 toast。
+// §14 Fill：只填固定模板 `/plan-next {slug}`／`/plan-close {slug}`；先讀草稿（不覆蓋）→ 關 pane → fill → 被拒就 toast。
+// 兩種模板共用同一條流程，差別只在 fillTemplateFor 選哪個固定模板。
 // ---------------------------------------------------------------------------
 
-async function fillPlanNext($: EngineInterface, taskId: string): Promise<void> {
+async function fillTemplate($: EngineInterface, taskId: string, kind: FillKind): Promise<void> {
   const snapshot = await read($, snapshotAtom).catch(() => null)
   const task = snapshot?.tasks.find(item => item.id === taskId) ?? null
   // 內容只由固定模板＋白名單 slug 組成；不用 state.next.command 或任何 render 傳來的字串
-  const command = fillCommandFor(task)
+  const command = fillTemplateFor(task, kind)
   if (command === null) {
     return
   }
@@ -204,7 +205,7 @@ function paneCallbacks($: EngineInterface): PaneCallbacks {
       await update($, tabAtom, () => 'overview' as const).catch(() => undefined)
     },
     refresh: () => refreshSnapshot($),
-    fill: (id: string) => fillPlanNext($, id).catch(() => undefined),
+    fill: (id: string, kind: FillKind = 'next') => fillTemplate($, id, kind).catch(() => undefined),
     toggleClosed: async () => {
       // 展開狀態只存 UI state（runtime.isClosedExpanded），不寫任何 project file
       await update($, runtimeAtom, current => (current === null ? current : { ...current, isClosedExpanded: current.isClosedExpanded !== true })).catch(

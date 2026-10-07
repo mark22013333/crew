@@ -11,7 +11,9 @@ import { resolveRepoRoot, toIrSummary, toTaskView } from '../hooks/cockpit/loade
 import { HUD_FIELD_MAX, TEXT, asInt, isFillableSlug, parseIsoMs, sanitizeText } from '../hooks/cockpit/model'
 import type { CockpitSnapshot, CockpitTaskView } from '../hooks/cockpit/model'
 import {
+  closeCommandFor,
   fillCommandFor,
+  fillTemplateFor,
   formatClock,
   phaseColor,
   progressGlyphs,
@@ -796,7 +798,7 @@ async function capsules(mounted: { findAll: (query: { type?: string }) => Promis
 async function stepCapsules(mounted: { find: (query: { key: string }) => Promise<{ children?: unknown } | undefined>; findAll: (query: { type?: string }) => Promise<{ text: string; props: Record<string, unknown> }[]> }) {
   const texts = await mounted.findAll({ type: 'Text' })
   return texts
-    .filter(found => /^ [✓–●○✗?] \S+ $/.test(found.text))
+    .filter(found => /^ [✓↷●○✕?] \S+ $/.test(found.text))
     .map(found => ({ text: found.text, backgroundColor: found.props.backgroundColor }))
 }
 
@@ -979,7 +981,7 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
       { text: ' ✓ start ', backgroundColor: 'success' },
       { text: ' ✓ investigate ', backgroundColor: 'success' },
       { text: ' ✓ fix ', backgroundColor: 'success' },
-      { text: ' ○ close ', backgroundColor: undefined },
+      { text: ' ○ close ', backgroundColor: 'subtle' },
     ])
     expect(v2Bug).toContain(`● uat ${TEXT.gatePendingShort}`)
     expect(v2Bug).not.toContain('requirement')
@@ -1814,7 +1816,7 @@ describe('總覽儀表板', () => {
       })
     })
 
-    test(`${surface}：步驟膠囊 done／skipped success、目前 phase suggestion、pending 無底色；工作單元只在中斷時出現`, async ($, on) => {
+    test(`${surface}：步驟膠囊 done success、skipped inactive、目前 phase suggestion、pending subtle 色塊；工作單元只在中斷時出現`, async ($, on) => {
       const world = worldOf(on, specFiles(DASH_FILES))
 
       await $.session.start(SESSION)
@@ -1824,15 +1826,17 @@ describe('總覽儀表板', () => {
       expect(await stepCapsules(pane)).toEqual([
         { text: ' ✓ start ', backgroundColor: 'success' },
         { text: ' ✓ spec ', backgroundColor: 'success' },
-        { text: ' – db ', backgroundColor: 'success' },
+        { text: ' ↷ db ', backgroundColor: 'inactive' },
         { text: ' ✓ arch ', backgroundColor: 'success' },
         { text: ' ✓ build ', backgroundColor: 'success' },
         { text: ' ✓ security ', backgroundColor: 'success' },
         { text: ' ● verify ', backgroundColor: 'suggestion' },
-        { text: ' ○ review ', backgroundColor: undefined },
-        { text: ' ○ close ', backgroundColor: undefined },
+        { text: ' ○ review ', backgroundColor: 'subtle' },
+        { text: ' ○ close ', backgroundColor: 'subtle' },
       ])
-      expect((await pane.findAll({ type: 'Text', text: /^ ○ review $/ }))[0]?.props.dimColor).toBe(true)
+      // pending 是有底色的塊、文字一般亮度（不 dim）
+      expect((await pane.findAll({ type: 'Text', text: /^ ○ review $/ }))[0]?.props).toMatchObject({ backgroundColor: 'subtle', color: 'text' })
+      expect((await pane.findAll({ type: 'Text', text: /^ ○ review $/ }))[0]?.props.dimColor).not.toBe(true)
       // push-tag-query 的 work_unit 3/5 中斷 → 出現警示框
       expect(await keyedText(pane, 'work-unit')).toContain(TEXT.workUnitInterrupted(3, 5))
 
@@ -2029,4 +2033,145 @@ describe('任務版面：列表／卡片', () => {
       expect(world.forbidden).toEqual([])
     })
   }
+})
+
+// ===========================================================================
+// 總覽：步驟膠囊五種狀態皆為色塊＋結案按鈕（只填 /plan-close {slug}）
+// ===========================================================================
+
+describe('總覽：步驟膠囊色塊與結案按鈕', () => {
+  const stepOf = (status: string) => ({ status, at: null, commit: null, reason: null })
+  /** 五種狀態各一：done、skipped、failed、in_progress（＝目前 phase）、pending。 */
+  const FIVE_STATES = variant(V2_FEATURE_VERIFY_PASS, {
+    slug: 'five-states',
+    phase: 'security',
+    steps: {
+      start: stepOf('done'),
+      db: stepOf('skipped'),
+      build: stepOf('failed'),
+      security: stepOf('in_progress'),
+      verify: stepOf('pending'),
+    },
+  })
+
+  for (const surface of SURFACES) {
+    test(`${surface}：五種步驟狀態的底色與符號（pending 有底色、skipped 不用 success、failed ✕）`, async ($, on) => {
+      const world = worldOf(on, specFiles({ 'five-states/state.json': FIVE_STATES }))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface)
+
+      expect(await stepCapsules(pane)).toEqual([
+        { text: ' ✓ start ', backgroundColor: 'success' },
+        { text: ' ↷ db ', backgroundColor: 'inactive' },
+        { text: ' ✕ build ', backgroundColor: 'error' },
+        { text: ' ● security ', backgroundColor: 'suggestion' },
+        { text: ' ○ verify ', backgroundColor: 'subtle' },
+      ])
+      const propsOf = async (text: RegExp) => (await pane.findAll({ type: 'Text', text }))[0]?.props ?? {}
+      expect(await propsOf(/^ ✓ start $/)).toMatchObject({ backgroundColor: 'success', color: 'inverseText', bold: true })
+      const skipped = await propsOf(/^ ↷ db $/)
+      expect(skipped).toMatchObject({ backgroundColor: 'inactive', color: 'inverseText' })
+      expect(skipped.backgroundColor, 'skipped 必須與完成明顯區分').not.toBe('success')
+      expect(await propsOf(/^ ✕ build $/)).toMatchObject({ backgroundColor: 'error', color: 'inverseText', bold: true })
+      expect(await propsOf(/^ ● security $/)).toMatchObject({ backgroundColor: 'suggestion', color: 'inverseText', bold: true })
+      const pending = await propsOf(/^ ○ verify $/)
+      expect(pending).toMatchObject({ backgroundColor: 'subtle', color: 'text' })
+      expect(pending.dimColor, 'pending 文字一般亮度').not.toBe(true)
+      // 每顆膠囊都有底色（不再有無底淡字）
+      expect((await stepCapsules(pane)).every(chip => typeof chip.backgroundColor === 'string')).toBe(true)
+      // 膠囊之間留空白、可換行
+      expect((await pane.find({ key: 'steps' }))?.props).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap', gap: 1 })
+      expect(world.forbidden).toEqual([])
+    })
+
+    test(`${surface}：結案按鈕只在未結案且非擱置的 feature 出現；非 primary；bug／擱置／已結案／close skipped／slug 不合白名單都不出現`, async ($, on) => {
+      const world = worldOf(
+        on,
+        specFiles({
+          'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+          'profile-avatar-upload/state.json': V2_FEATURE_CLOSED,
+          'search-synonyms/state.json': V2_FEATURE_PARKED,
+          'login-timeout-fix/state.json': V2_BUG_MINIMAL,
+          'quick-closed/state.json': variant(V2_FEATURE_VERIFY_PASS, {
+            slug: 'quick-closed',
+            steps: { ...(JSON.parse(V2_FEATURE_VERIFY_PASS) as { steps: Record<string, unknown> }).steps, close: stepOf('skipped') },
+          }),
+          'evil task/state.json': HOSTILE,
+        }),
+      )
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'selectedSlug', 'order-export-csv')
+      const pane = await mountPane($, surface)
+
+      const closeButton = await pane.find({ key: 'fill-close' })
+      expect(closeButton?.props.label).toBe(TEXT.fillClose('order-export-csv'))
+      expect(closeButton?.props.label).toBe('填入 /plan-close order-export-csv')
+      expect(closeButton?.props.variant, '結案不得搶下一步的主視覺').not.toBe('primary')
+      expect((await pane.find({ key: 'fill' }))?.props.variant).toBe('primary')
+
+      for (const slug of ['profile-avatar-upload', 'quick-closed', 'search-synonyms', 'login-timeout-fix', 'evil task']) {
+        world.setState(PLUGIN, 'selectedSlug', slug)
+        await pane.redraw()
+        expect(await pane.find({ key: 'title-card' }), `正對照：${slug} 的總覽確實有畫`).toBeDefined()
+        expect(await pane.find({ key: 'fill-close' }), `${slug} 不得有結案按鈕`).toBe(undefined)
+      }
+      // 正對照：已結案仍有 /plan-next 的 Fill，證明不是整個 footer 沒畫
+      world.setState(PLUGIN, 'selectedSlug', 'profile-avatar-upload')
+      await pane.redraw()
+      expect(await pane.find({ key: 'fill' })).toBeDefined()
+      expect(world.forbidden).toEqual([])
+    })
+
+    test(`${surface}：按結案只填固定 /plan-close {slug}（不是 state.next.command），流程比照 Fill：讀草稿 → 關 pane → fill，不送出`, async ($, on) => {
+      const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface)
+      await pressAndRedraw(pane, 'fill-close')
+
+      expect(world.promptLog.slice(0, 3)).toEqual(['prompt.read', 'ui.close crew-cockpit', 'prompt.fill'])
+      expect(world.filled).toEqual([{ text: '/plan-close order-export-csv', mode: 'replace' }])
+      expect(world.filled[0]?.text).not.toBe('/plan-review')
+      expect(world.toasts).toEqual([])
+      expect(world.forbidden, '全程不得 prompt.submit／寫檔').toEqual([])
+    })
+
+    test(`${surface}：結案按鈕遇到草稿不覆蓋（toast 指令）；fill 被拒時 toast 完整指令`, async ($, on) => {
+      const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+      world.draft = '我打到一半的訊息'
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface)
+      await pressAndRedraw(pane, 'fill-close')
+
+      expect(world.promptLog).toEqual(['prompt.read'])
+      expect(world.filled).toEqual([])
+      expect(world.toasts).toEqual([TEXT.draftExists('/plan-close order-export-csv')])
+
+      world.draft = ''
+      world.fillAnswer = { isFilled: false, refusal: 'dialog' }
+      await pressAndRedraw(pane, 'fill-close')
+      expect(world.filled).toEqual([{ text: '/plan-close order-export-csv', mode: 'replace' }])
+      expect(world.toasts).toEqual([TEXT.draftExists('/plan-close order-export-csv'), TEXT.fillRefused('/plan-close order-export-csv')])
+      expect(world.forbidden).toEqual([])
+    })
+  }
+
+  test('closeCommandFor／fillTemplateFor 純函式：只用白名單 slug 組固定模板', () => {
+    const base = { id: 'abc', isSlugFillable: true, closed: false, parked: null, type: 'feature' } as unknown as CockpitTaskView
+    expect(closeCommandFor(base)).toBe('/plan-close abc')
+    expect(fillTemplateFor(base, 'close')).toBe('/plan-close abc')
+    expect(fillTemplateFor(base, 'next')).toBe('/plan-next abc')
+    expect(closeCommandFor({ ...base, isSlugFillable: false })).toBe(null)
+    expect(closeCommandFor({ ...base, closed: true })).toBe(null)
+    expect(closeCommandFor({ ...base, parked: { at: null, reason: null } } as unknown as CockpitTaskView)).toBe(null)
+    expect(closeCommandFor({ ...base, type: 'bug' })).toBe(null)
+    expect(closeCommandFor(null)).toBe(null)
+  })
 })

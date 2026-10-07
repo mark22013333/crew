@@ -9,7 +9,9 @@ import type { Elements, RenderElement } from 'claude-code'
 import { type CockpitInvalidTask, type CockpitSnapshot, type CockpitTab, type CockpitTaskLayout, type CockpitTaskView, TEXT } from './model'
 import {
   TONE_COLOR,
+  type FillKind,
   type Tone,
+  closeCommandFor,
   fillCommandFor,
   formatClock,
   gateColor,
@@ -41,8 +43,11 @@ export type PaneCallbacks = {
   selectTab: (tab: CockpitTab) => void | Promise<void>
   selectTask: (id: string) => void | Promise<void>
   refresh: () => void | Promise<void>
-  /** 以 task id 觸發 Fill；入口檔自行以 fillCommandFor 重算內容，不吃 render 給的字串。 */
-  fill: (id: string) => void | Promise<void>
+  /**
+   * 以 task id 與模板種類觸發 Fill；入口檔自行以 fillTemplateFor 重算內容，不吃 render 給的字串。
+   * kind 缺省為 next（`/plan-next {slug}`）；close 為 `/plan-close {slug}`。
+   */
+  fill: (id: string, kind?: FillKind) => void | Promise<void>
   /** 任務 tab「已結案」分組展開／收合（只改 UI state）。 */
   toggleClosed: () => void | Promise<void>
   /** 任務 tab 版面切換（UI state＋$.store 偏好；不寫任何 project file）。 */
@@ -92,10 +97,10 @@ export const CLOSED_PREVIEW = 5
 
 const STEP_GLYPH: Record<string, string> = {
   done: '✓',
-  skipped: '–',
+  skipped: '↷',
   in_progress: '●',
   pending: '○',
-  failed: '✗',
+  failed: '✕',
 }
 
 type Child = RenderElement | string | null | undefined | false
@@ -231,11 +236,23 @@ function card(kit: CockpitKit, props: Record<string, unknown>, ...children: Chil
 /** 指標方塊內的大字（terminal 沒有字級，以粗體表示）。 */
 const big = (kit: CockpitKit, text: string, color: string | undefined): RenderElement => colored(kit, text, color, { bold: true })
 
-/** step 膠囊：done／skipped success、目前 phase 或 in_progress suggestion、failed error、其他（pending）低調無底色。 */
+/**
+ * step 膠囊（每種狀態都有底色，文字符號本身也說明狀態，不單靠顏色）：
+ * - done：success 底「✓ build」
+ * - skipped：inactive 底＋inverseText、不加粗「↷ db」（與完成明顯區分）
+ * - failed：error 底「✕ verify」
+ * - 目前 phase 或 in_progress：suggestion 底、粗體「● security」
+ * - 其他（pending／未知值）：subtle 深灰底＋text 一般亮度、不 dim「○ verify」
+ * 底色選擇：subtle 在深色主題是深灰、淺色主題是淺灰，配 text（深色主題白字／淺色主題黑字）兩邊都可讀；
+ * inactive 配 text 在兩種主題都是中灰對亮／暗字，對比不足，故 pending 不用 inactive。
+ */
 function stepCapsule(kit: CockpitKit, task: CockpitTaskView, step: CockpitTaskView['steps'][number]): RenderElement {
   const status = step.status ?? ''
-  if (status === 'done' || status === 'skipped') {
-    return capsule(kit, `${STEP_GLYPH[status]} ${step.key}`, 'success')
+  if (status === 'done') {
+    return capsule(kit, `${STEP_GLYPH.done} ${step.key}`, 'success')
+  }
+  if (status === 'skipped') {
+    return el(kit.Text, { backgroundColor: 'inactive', color: 'inverseText' }, ` ${STEP_GLYPH.skipped} ${step.key} `)
   }
   if (status === 'failed') {
     return capsule(kit, `${STEP_GLYPH.failed} ${step.key}`, 'error')
@@ -243,7 +260,7 @@ function stepCapsule(kit: CockpitKit, task: CockpitTaskView, step: CockpitTaskVi
   if (step.key === task.phase || status === 'in_progress') {
     return capsule(kit, `${STEP_GLYPH.in_progress} ${step.key}`, 'suggestion')
   }
-  return el(kit.Text, { dimColor: true }, ` ${STEP_GLYPH[status] ?? '?'} ${step.key} `)
+  return el(kit.Text, { backgroundColor: 'subtle', color: 'text' }, ` ${STEP_GLYPH[status] ?? '?'} ${step.key} `)
 }
 
 /** 指標方塊：進度。 */
@@ -403,8 +420,9 @@ function overviewView(
       hintParts.length > 0 && el(kit.Text, {}, `${TEXT.resumeHint}   ${hintParts.join(' · ')}`),
     )
 
-  // 5. 上次建議（快照）＋Fill（行為不變：只填 /plan-next {slug}）
+  // 5. 上次建議（快照）＋Fill（只填 /plan-next {slug}）＋結案 Fill（只填 /plan-close {slug}；非 primary，不搶下一步的主視覺）
   const fill = fillCommandFor(task)
+  const close = closeCommandFor(task)
   const recorded = task.recordedNext
   const footer = column(
     kit,
@@ -418,6 +436,7 @@ function overviewView(
       fill !== null
         ? el(kit.Button, { key: 'fill', label: TEXT.fill(task.slug), variant: 'primary', hotkey: 'f', onPress: () => cb.fill(task.id) })
         : line(kit, TEXT.slugNotFillable, 'warning'),
+      close !== null && el(kit.Button, { key: 'fill-close', label: TEXT.fillClose(task.slug), onPress: () => cb.fill(task.id, 'close') }),
     ),
   )
 

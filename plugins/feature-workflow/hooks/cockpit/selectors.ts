@@ -76,6 +76,27 @@ export function fillCommandFor(task: CockpitTaskView | null): string | null {
   return `/plan-next ${task.id}`
 }
 
+/** Fill 的固定模板種類：next＝`/plan-next {slug}`、close＝`/plan-close {slug}`。 */
+export type FillKind = 'next' | 'close'
+
+/**
+ * 結案 Fill 的固定內容：只有 `/plan-close {slug}`（slug 須通過白名單）。
+ * 只在任務未結案（steps.close 非 done/skipped）且非擱置時提供；不得改用 state.next.command 或任何 repo 字串。
+ * bug 任務不提供：/bug-close 不吃 slug 參數，而是以 Notion 頁面／目前分支綁定任務，
+ * 從某張任務卡按下時無法保證結的是這一筆，所以不給按鈕（使用者自行輸入 /bug-close）。
+ */
+export function closeCommandFor(task: CockpitTaskView | null): string | null {
+  if (task === null || !task.isSlugFillable || task.closed || task.parked !== null || task.type === 'bug') {
+    return null
+  }
+  return `/plan-close ${task.id}`
+}
+
+/** 依模板種類取 Fill 內容（入口檔的共用 Fill 流程用）。 */
+export function fillTemplateFor(task: CockpitTaskView | null, kind: FillKind): string | null {
+  return kind === 'close' ? closeCommandFor(task) : fillCommandFor(task)
+}
+
 // ---------------------------------------------------------------------------
 // Batch 3–6 新增：顯示用的色調與驗收狀態映射（presentation，不是 workflow 判定）
 // ---------------------------------------------------------------------------
