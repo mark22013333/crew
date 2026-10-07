@@ -69,6 +69,8 @@ plan-close
 
 Feature 的 `crew-state.py gate --name uat ...` 只有在 `steps.review.status` 已是 done/skipped 時才接受非 pending 狀態，避免 review 尚未完成就先蓋 UAT 章。
 
+**快速結案**（`/plan-close` 的人類決策，見該 skill『快速結案』一節）可把未完成的 security／verify／review 標成 `skipped`（runtime 要求 `--by` 與 `--reason`）。review 變成 `skipped` 只代表 UAT 可以開始決策，`gates.uat` 仍為 `pending`，`close=done` 照樣被 `TRANSITION_GATES["close"]` 硬擋，直到人類本輪核准；跳過檢查不是 UAT，也不是 waiver。
+
 ### Bug
 
 Bug workflow 沒有 Feature 的 `review` lifecycle，因此 **不得硬套 `review=done` prerequisite**：

@@ -121,6 +121,7 @@ start → spec → db → arch → build → security → verify → review → 
 - Architecture 未核准：不得進 build。
 - `verify=PASS` 或 review 完成：**不等於 Human UAT approved**。
 - `/plan-close` 是 Feature UAT + close 的合法入口；每次結案前都重新取得本輪 Human decision。
+- 快速結案：簡單功能可在 `/plan-close` 由人類明確同意後，把未完成的 security／verify／review 標 `skipped`（`--by human --reason` 必填，runtime 會擋缺漏）；Human UAT 與漂移硬關卡不因此略過。
 
 ---
 
