@@ -21,6 +21,8 @@
        轉型（`$ as`、`<T>$`）、computed 存取（`$[`、`($)[`）、Reflect／Object 反射（別名繞過的前置動作）
     R4 既有 SessionStart hook 仍在 hooks.json
     R5 manifest 沒有重複宣告標準 hooks/hooks.json
+    R6 同一檔內，接收 `$`（或 EngineInterface）的函式，其名稱不可被宣告第二次（不論作用域）——
+       Claude Code 2.1.289 會以「declared more than once in this file」拒載整個 Mod（2.1.291 容許，故本機難測到）
 
   輔層是字串比對，抓不到「$ 先傳進別的函式、在裡面用別名」的寫法——那是主層的工作。
   注意：R2/R3 不剝註解，註解裡寫出禁止字串也會被擋（刻意保守；註解請改用中文描述）。
@@ -125,6 +127,7 @@ DESTRUCT_DOLLAR = re.compile(r"\{([^{}]*)\}\s*=\s*\$(?![\w$]|\s*\??\.)")
 RULE_FORBIDDEN = "forbidden-call"
 RULE_ALIAS = "alias"
 RULE_NOUN = "forbidden-noun"
+RULE_DUP = "dup-decl"
 
 
 def line_of(text: str, pos: int) -> int:
@@ -189,8 +192,220 @@ def strip_comments(text: str) -> str:
     return "".join(out)
 
 
+# --- R6：$-taking 函式名稱重複宣告 ------------------------------------------------
+
+_IDENT = r"[A-Za-z_$][\w$]*"
+_DECL_KW_RE = re.compile(r"(?<![\w$.])(?:const|let|var|function\s*\*?|class)\s+(" + _IDENT + r")")
+_DECL_PATTERN_RE = re.compile(r"(?<![\w$.])(?:const|let|var)\s*([{\[])")
+_FUNC_DECL_RE = re.compile(r"(?<![\w$.])function\s*\*?\s*(" + _IDENT + r")\s*(?:<[^()]*>)?\s*\(")
+_FUNC_EXPR_RE = re.compile(
+    r"(?<![\w$.])(?:const|let|var)\s+(" + _IDENT + r")\s*(?::[^=;]*?)?=\s*(?:async\s+)?"
+    r"(?:function\b[^(]*\(|\(|(" + _IDENT + r")\s*=>)"
+)
+_TRAILING_WORD_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*$")
+_PARAM_OK_WORDS = {"return", "await", "yield", "async", "else", "do", "typeof", "void", "case", "in", "of", "new"}
+
+
+def strip_strings(code: str) -> str:
+    """把字串字面值的內容換成空白（保留引號與換行）；template 的 `${ }` 內視為程式碼。輸入須已去註解。"""
+    out: list[str] = []
+    i, n = 0, len(code)
+    stack: list[str] = []
+    depth: list[int] = []
+    while i < n:
+        c = code[i]
+        top = stack[-1] if stack else None
+        if top in ("'", '"', "`"):
+            if c == "\\" and i + 1 < n:
+                out.append("  ")
+                i += 2
+                continue
+            if c == top:
+                stack.pop()
+                out.append(c)
+            elif top == "`" and c == "$" and i + 1 < n and code[i + 1] == "{":
+                out.append("${")
+                stack.append("{")
+                depth.append(0)
+                i += 2
+                continue
+            else:
+                out.append("\n" if c == "\n" else " ")
+            i += 1
+            continue
+        if c in ("'", '"', "`"):
+            stack.append(c)
+        elif top == "{":
+            if c == "{":
+                depth[-1] += 1
+            elif c == "}":
+                if depth[-1] == 0:
+                    stack.pop()
+                    depth.pop()
+                else:
+                    depth[-1] -= 1
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _match_close(code: str, i: int) -> int:
+    """code[i] 是 ( { [ 之一，回傳對應收尾符號的位置；找不到回 -1。"""
+    pairs = {"(": ")", "{": "}", "[": "]"}
+    o = code[i]
+    c = pairs[o]
+    d = 0
+    for j in range(i, len(code)):
+        if code[j] == o:
+            d += 1
+        elif code[j] == c:
+            d -= 1
+            if d == 0:
+                return j
+    return -1
+
+
+def _split_items(s: str) -> list[tuple[int, str]]:
+    """依頂層逗號切分，回傳 [(起點偏移, 片段)]；型別標註內的 <…, …> 逗號不切。"""
+    items: list[tuple[int, str]] = []
+    depth = angle = 0
+    in_type = False
+    start = 0
+    for k, ch in enumerate(s):
+        if ch in "({[":
+            depth += 1
+        elif ch in ")}]":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            if ch == ":" :
+                in_type = True
+            elif in_type and ch == "<":
+                angle += 1
+            elif in_type and ch == ">" and (k == 0 or s[k - 1] != "="):
+                angle = max(0, angle - 1)
+            elif ch == "," and angle == 0:
+                items.append((start, s[start:k]))
+                start = k + 1
+                in_type = False
+    items.append((start, s[start:]))
+    return items
+
+
+def _pattern_names(s: str, base: int, is_object: bool | None = None) -> list[tuple[str, int]]:
+    """解構樣式（不含外層括號）內宣告的名稱，回傳 [(name, 在原文的偏移)]。"""
+    names: list[tuple[str, int]] = []
+    for off, item in _split_items(s):
+        m = re.match(r"\s*(?:\.\.\.)?\s*", item)
+        lead = m.end() if m else 0
+        body = item[lead:]
+        pos = base + off + lead
+        if not body:
+            continue
+        if is_object and ":" in body.split("=")[0] and body[0] not in "{[":
+            # { key: target } → 宣告的是 target
+            colon = body.index(":")
+            body, pos = body[colon + 1:], pos + colon + 1
+            lead2 = len(body) - len(body.lstrip())
+            body, pos = body.lstrip(), pos + lead2
+        if body and body[0] in "{[":
+            end = _match_close(body, 0)
+            if end > 0:
+                names += _pattern_names(body[1:end], pos + 1, body[0] == "{")
+            continue
+        m = re.match(_IDENT, body)
+        if m:
+            names.append((m.group(0), pos))
+    return names
+
+
+def _param_names(params: str, base: int) -> list[tuple[str, int]]:
+    names: list[tuple[str, int]] = []
+    for off, item in _split_items(params):
+        lead = len(item) - len(item.lstrip())
+        body = item[lead:]
+        pos = base + off + lead
+        body = re.sub(r"^(?:\.\.\.|(?:public|private|protected|readonly)\s+)+", "", body)
+        pos += len(item[lead:]) - len(body)
+        if not body:
+            continue
+        if body[0] in "{[":
+            end = _match_close(body, 0)
+            if end > 0:
+                names += _pattern_names(body[1:end], pos + 1, body[0] == "{")
+            continue
+        m = re.match(_IDENT, body)
+        if m and re.match(r"\s*\??\s*(?::|=|$)", body[m.end():]):
+            names.append((m.group(0), pos))
+    return names
+
+
+def _takes_dollar(params: str) -> bool:
+    return bool(re.search(r"(?<![\w$.])\$[\w$]*\s*\??\s*(?::|,|=|$)", params.strip() + " ") or "EngineInterface" in params)
+
+
+def find_dup_dollar_functions(code: str) -> list[tuple[str, list[int]]]:
+    """回傳 [(識別字, [宣告處的偏移…])]：識別字是接收 $ 的函式，且同檔宣告 ≥ 2 次。code 須已去註解、去字串內容。"""
+    decls: dict[str, list[int]] = {}
+
+    def add(name: str, pos: int) -> None:
+        decls.setdefault(name, []).append(pos)
+
+    for m in _DECL_KW_RE.finditer(code):
+        add(m.group(1), m.start(1))
+    for m in _DECL_PATTERN_RE.finditer(code):
+        o = m.start(1)
+        e = _match_close(code, o)
+        if e > 0:
+            for name, pos in _pattern_names(code[o + 1:e], o + 1, code[o] == "{"):
+                add(name, pos)
+    dollar_fns: set[str] = set()
+    for m in _FUNC_DECL_RE.finditer(code):
+        o = m.end() - 1
+        e = _match_close(code, o)
+        if e > 0 and _takes_dollar(code[o + 1:e]):
+            dollar_fns.add(m.group(1))
+    for m in _FUNC_EXPR_RE.finditer(code):
+        if m.group(2):  # `const f = $ =>` 單參數箭頭
+            if m.group(2).startswith("$"):
+                dollar_fns.add(m.group(1))
+            continue
+        o = m.end() - 1
+        if code[o] != "(":
+            continue
+        e = _match_close(code, o)
+        if e > 0 and _takes_dollar(code[o + 1:e]):
+            dollar_fns.add(m.group(1))
+    # 函式／箭頭函式的參數也是宣告
+    for m in re.finditer(r"\(", code):
+        o = m.start()
+        before = code[:o]
+        if re.search(r"[\w$.\])]\s*$", before):  # 前面接著識別字／屬性／呼叫：多半是呼叫式，不是參數列
+            w = _TRAILING_WORD_RE.search(before)
+            fn_like = re.search(r"(?<![\w$.])(?:function\s*\*?|async)\s*(?:" + _IDENT + r")?\s*$", before)
+            if not fn_like and not (w and w.group(1) in _PARAM_OK_WORDS and not before.rstrip().endswith(".")):
+                continue
+        e = _match_close(code, o)
+        if e < 0 or not re.match(r"\s*(?::[^;{}=()]*?)?\s*(?:=>|\{)", code[e + 1:]):
+            continue
+        for name, pos in _param_names(code[o + 1:e], o + 1):
+            add(name, pos)
+    for m in re.finditer(r"(?<![\w$.])(" + _IDENT + r")\s*=>", code):
+        add(m.group(1), m.start(1))
+    return sorted((n, sorted(set(p))) for n, p in decls.items() if n in dollar_fns and len(set(p)) >= 2)
+
+
+def scan_dup_decl(name: str, text: str) -> list[tuple[str, str]]:
+    code = strip_strings(strip_comments(text))
+    out = []
+    for ident, poss in find_dup_dollar_functions(code):
+        lines = "、".join(str(line_of(code, p)) for p in poss)
+        out.append((RULE_DUP, f"{name}:{line_of(code, poss[1])} 識別字 `{ident}` 是接收 $ 的函式，卻在同檔被宣告 {len(poss)} 次（行 {lines}）；"
+                              f"Claude Code 2.1.289 會以 declared more than once in this file 拒載整個 Mod，請把區域變數／參數改名"))
+    return out
+
+
 def scan_source(name: str, text: str) -> list[tuple[str, str]]:
-    """回傳 [(rule, 訊息)]。rule ∈ forbidden-call / alias。"""
+    """回傳 [(rule, 訊息)]。rule ∈ forbidden-call / alias / forbidden-noun / dup-decl。"""
     out: list[tuple[str, str]] = []
     for label, rx in FORBIDDEN_RE.items():
         for m in rx.finditer(text):
@@ -212,6 +427,7 @@ def scan_source(name: str, text: str) -> list[tuple[str, str]]:
             key = part.strip().lstrip(".").split(":")[0].split("=")[0].strip()
             if key and key not in ALLOWED_NOUNS:
                 out.append((RULE_NOUN, f"{name}:{line_of(code, m.start())} 解構取出 `{key}` 不在 allowlist"))
+    out += scan_dup_decl(name, text)  # R6
     return out
 
 
@@ -383,7 +599,7 @@ def aux_layer(root: Path, plugin_rel: Path) -> list[str]:
     for src in mod_sources(plugin_dir):
         rel = str(src.relative_to(root))
         for rule, msg in scan_source(rel, src.read_text(encoding="utf-8")):
-            errs.append(("R3 " if rule == RULE_ALIAS else "R2 ") + msg)
+            errs.append(("R6 " if rule == RULE_DUP else "R3 " if rule == RULE_ALIAS else "R2 ") + msg)
     return errs
 
 
@@ -434,7 +650,7 @@ def self_test() -> int:
     covered_labels: set[str] = set()
     for f in bad_files:
         text = f.read_text(encoding="utf-8")
-        m = re.search(r"expect:\s*(forbidden-call|alias|forbidden-noun)(?:[ \t]+(\S+))?", text)
+        m = re.search(r"expect:\s*(forbidden-call|alias|forbidden-noun|dup-decl)(?:[ \t]+(\S+))?", text)
         check(m is not None, f"{f.name} 缺 `expect:` 標頭")
         if not m:
             continue
@@ -442,6 +658,9 @@ def self_test() -> int:
         rules = {r for r, _ in hits}
         check(m.group(1) in rules, f"{f.name} 應命中規則 {m.group(1)}，實際 {sorted(rules) or '無'}")
         want = (m.group(2) or "").strip()
+        if want and m.group(1) == "dup-decl":  # 標頭寫識別字，訊息須指名該識別字與 2.1.289
+            check(any(f"`{want}`" in msg and "2.1.289" in msg for _, msg in hits), f"{f.name} 應指名重複識別字 `{want}`：{[x for _, x in hits]}")
+            want = ""
         if want:  # 標頭寫 fs/write（避免標頭註解自己命中規則），還原成 $.fs.write(
             want = "$." + want.replace("/", ".") + "("
         if want:
@@ -579,7 +798,7 @@ def main() -> int:
             print(f"  - {e}")
         rc = 1
     else:
-        print("✅ 輔層（R1–R5）通過")
+        print("✅ 輔層（R1–R6）通過")
     return rc
 
 
