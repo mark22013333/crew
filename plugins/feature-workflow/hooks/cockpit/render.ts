@@ -13,6 +13,9 @@ import {
   fillCommandFor,
   formatClock,
   gateColor,
+  gateDisplay,
+  healthColor,
+  metricLayout,
   hudText,
   otherActiveCount,
   phaseColor,
@@ -76,6 +79,9 @@ const HINT_ITEMS = 3
 
 /** IR 的 AC 清單最多列幾筆，避免 pane 過長（§13）。 */
 const IR_AC_LIMIT = 20
+
+/** 總覽「另有 N 個進行中」最多列幾個 slug。 */
+const OTHER_ACTIVE_LIMIT = 5
 
 /** 已結案分組收合時顯示幾筆（依 loader 既有排序，最近更新在前）。 */
 export const CLOSED_PREVIEW = 5
@@ -191,7 +197,7 @@ export function paneView(kit: CockpitKit, data: PaneData, cb: PaneCallbacks): Re
       ? tasksView(kit, snapshot, selection.task, data.bodyColumns, data.isClosedExpanded, cb)
       : data.tab === 'verify'
         ? verifyView(kit, selection.task)
-        : overviewView(kit, snapshot, selection, cb)
+        : overviewView(kit, snapshot, selection, data.bodyColumns, cb)
 
   return column(
     kit,
@@ -208,11 +214,136 @@ function errorRows(kit: CockpitKit, errors: CockpitSnapshot['errors']): RenderEl
   return column(kit, {}, ...errors.map(error => line(kit, `${error.path ?? error.scope} · ${error.message}`, 'warning')))
 }
 
-/** §11 Overview：目前任務的 phase／進度／核准閘／結果／工作單元／上次建議／Fill。 */
+/** 膠囊：底色＋對比文字（ThemeKey），文字本身說明內容。 */
+function capsule(kit: CockpitKit, text: string, backgroundColor: string): RenderElement {
+  return el(kit.Text, { backgroundColor, color: 'inverseText', bold: true }, ` ${text} `)
+}
+
+/** 圓角框：框色依語意（ThemeKey）。 */
+function card(kit: CockpitKit, props: Record<string, unknown>, ...children: Child[]): RenderElement {
+  return el(kit.Box, { flexDirection: 'column', borderStyle: 'round', paddingX: 1, ...props }, ...children)
+}
+
+/** 指標方塊內的大字（terminal 沒有字級，以粗體表示）。 */
+const big = (kit: CockpitKit, text: string, color: string | undefined): RenderElement => colored(kit, text, color, { bold: true })
+
+/** step 膠囊：done／skipped success、目前 phase 或 in_progress suggestion、failed error、其他（pending）低調無底色。 */
+function stepCapsule(kit: CockpitKit, task: CockpitTaskView, step: CockpitTaskView['steps'][number]): RenderElement {
+  const status = step.status ?? ''
+  if (status === 'done' || status === 'skipped') {
+    return capsule(kit, `${STEP_GLYPH[status]} ${step.key}`, 'success')
+  }
+  if (status === 'failed') {
+    return capsule(kit, `${STEP_GLYPH.failed} ${step.key}`, 'error')
+  }
+  if (step.key === task.phase || status === 'in_progress') {
+    return capsule(kit, `${STEP_GLYPH.in_progress} ${step.key}`, 'suggestion')
+  }
+  return el(kit.Text, { dimColor: true }, ` ${STEP_GLYPH[status] ?? '?'} ${step.key} `)
+}
+
+/** 指標方塊：進度。 */
+function progressMetric(kit: CockpitKit, task: CockpitTaskView): Child[] {
+  const progress = progressOf(task)
+  const state = task.closed ? TEXT.closedTask : task.parked !== null ? `${task.phase ?? '—'} · ${TEXT.parked}` : TEXT.phaseInProgress(task.phase ?? '—')
+  return [
+    big(kit, `${progress.done} / ${progress.total}`, undefined),
+    row(kit, ...progressBar(kit, task, false)),
+    colored(kit, state, phaseColor(task.phase)),
+  ]
+}
+
+/** 指標方塊：驗收（verify／review／security，BLOCKED 衍生規則沿用 verifyDisplay）。 */
+function verifyMetric(kit: CockpitKit, task: CockpitTaskView): Child[] {
+  const verify = verifyDisplay(task.results.verify)
+  return [
+    row(kit, colored(kit, `verify    ${verify.label}`, verifyColor(verify)), verify.note !== null && line(kit, ` · ${verify.note}`, 'blocked')),
+    colored(kit, `review    ${task.results.review.status ?? '—'}`, statusColor(task.results.review.status)),
+    colored(kit, `security  ${task.results.security.status ?? '—'}`, statusColor(task.results.security.status)),
+  ]
+}
+
+/** 指標方塊：核准閘（依 type 篩選；v1 無 gates 只顯示「—」，不顯示 pending，規格 A2）。 */
+function gateMetric(kit: CockpitKit, task: CockpitTaskView): Child[] {
+  const gates = visibleGates(task)
+  if (gates === null) {
+    return [big(kit, TEXT.gatesNone, 'inactive'), dim(kit, TEXT.v1NoGates)]
+  }
+  if (gates.length === 0) {
+    return [big(kit, TEXT.gatesNone, 'inactive')]
+  }
+  return gates.map(gate => {
+    const shown = gateDisplay(gate)
+    return colored(kit, shown.text, shown.color)
+  })
+}
+
+/** 指標方塊：停滯（只對進行中）；已結案／已擱置改顯示狀態文字。 */
+function staleMetric(kit: CockpitKit, task: CockpitTaskView): Child[] {
+  const updated = dim(kit, TEXT.lastUpdated(shortTime(task.updated)))
+  if (task.closed) {
+    return [colored(kit, `○ ${TEXT.closedTask}`, 'inactive', { bold: true }), updated]
+  }
+  if (task.parked !== null) {
+    return [colored(kit, `◐ ${TEXT.parked}`, 'merged', { bold: true }), updated]
+  }
+  return [
+    big(kit, TEXT.staleDaysBig(task.staleDays), staleColor(task.staleDays)),
+    task.staleUnknown && dim(kit, TEXT.staleUnknown),
+    updated,
+  ]
+}
+
+/** 方塊框色：進度依 phase、驗收依驗收結果、核准閘依最差的 gate、停滯依天數／狀態。 */
+function gateBoxColor(task: CockpitTaskView): string {
+  const gates = visibleGates(task) ?? []
+  if (gates.some(gate => gate.status === 'rejected')) {
+    return 'error'
+  }
+  if (gates.length > 0 && gates.every(gate => gate.status === 'approved')) {
+    return 'success'
+  }
+  return 'inactive'
+}
+
+/** 四個等寬指標方塊；寬度不足時折成 2×2，再窄單欄堆疊（依 bodyColumns）。 */
+function metricRows(kit: CockpitKit, task: CockpitTaskView, bodyColumns: number): RenderElement[] {
+  const layout = metricLayout(bodyColumns)
+  const verify = verifyDisplay(task.results.verify)
+  const metrics: { key: string; title: string; color: string | undefined; body: Child[] }[] = [
+    { key: 'progress', title: TEXT.progress, color: phaseColor(task.phase), body: progressMetric(kit, task) },
+    { key: 'verify', title: TEXT.verifyBox, color: verifyColor(verify) ?? 'inactive', body: verifyMetric(kit, task) },
+    { key: 'gates', title: TEXT.approval, color: gateBoxColor(task), body: gateMetric(kit, task) },
+    {
+      key: 'stale',
+      title: task.active ? TEXT.staleBox : TEXT.statusBox,
+      color: task.closed ? 'inactive' : task.parked !== null ? 'merged' : staleColor(task.staleDays),
+      body: staleMetric(kit, task),
+    },
+  ]
+  const rows: RenderElement[] = []
+  for (let start = 0; start < metrics.length; start += layout.perRow) {
+    rows.push(
+      el(
+        kit.Box,
+        { key: `metric-row-${start / layout.perRow}`, flexDirection: 'row', gap: 1, marginTop: 1 },
+        ...metrics
+          .slice(start, start + layout.perRow)
+          .map(metric =>
+            card(kit, { key: `metric-${metric.key}`, width: layout.width, ...(metric.color !== undefined && { borderColor: metric.color }) }, dim(kit, metric.title), ...metric.body),
+          ),
+      ),
+    )
+  }
+  return rows
+}
+
+/** §11 Overview（儀表板）：標題卡 → 指標方塊 → 步驟流程 → 工作單元警示 → 上次建議＋Fill → 其他進行中。 */
 function overviewView(
   kit: CockpitKit,
   snapshot: CockpitSnapshot,
   selection: ReturnType<typeof resolveSelection>,
+  bodyColumns: number,
   cb: PaneCallbacks,
 ): RenderElement {
   const task = selection.task
@@ -220,29 +351,34 @@ function overviewView(
     return column(kit, { marginTop: 1 }, el(kit.Text, {}, TEXT.noSelection))
   }
 
-  const others = otherActiveCount(snapshot, task)
-  const headNotes = [selection.autoSelected ? TEXT.autoSelected : null, others > 0 ? `另有 ${others} 個進行中` : null].filter(
-    (note): note is string => note !== null,
+  // 1. 標題卡：slug＋右側膠囊（type、phase、停滯）；名稱；schema 與 branch（取自 state.git）
+  const typeBg = typeColor(task.type) ?? 'inactive'
+  const titleCard = card(
+    kit,
+    { key: 'title-card', marginTop: 1, borderColor: healthColor(task) },
+    el(
+      kit.Box,
+      { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 1 },
+      row(kit, el(kit.Text, { bold: true }, task.slug), selection.autoSelected && dim(kit, `  （${TEXT.autoSelected}）`)),
+      el(
+        kit.Box,
+        { flexDirection: 'row', flexWrap: 'wrap', gap: 1 },
+        capsule(kit, task.type, typeBg),
+        capsule(kit, task.phase ?? '—', phaseColor(task.phase)),
+        showsStale(task) && capsule(kit, staleText(task), staleColor(task.staleDays)),
+      ),
+    ),
+    task.name !== task.slug && dim(kit, task.name),
+    task.parked !== null && colored(kit, `◐ ${TEXT.parked}${task.parked.reason !== null ? `：${task.parked.reason}` : ''}`, 'merged'),
+    task.inferred && line(kit, TEXT.inferred, 'warning'),
+    task.isSchemaNewer && task.schemaVersion !== null && line(kit, TEXT.schemaNewer(task.schemaVersion), 'warning'),
+    dim(kit, [schemaText(task), task.branch !== null ? `branch: ${task.branch} ${TEXT.branchNote}` : null].filter(part => part !== null).join(' · ')),
   )
 
-  const progress = progressOf(task)
-  const stepsText = task.steps.map(step => `${step.key} ${STEP_GLYPH[step.status ?? ''] ?? '?'}`).join('  ')
+  // 3. 步驟流程：每個實際存在的 step 一顆膠囊（不寫死步數）
+  const steps = el(kit.Box, { key: 'steps', flexDirection: 'row', flexWrap: 'wrap', gap: 1, marginTop: 1 }, ...task.steps.map(step => stepCapsule(kit, task, step)))
 
-  const gates = visibleGates(task)
-  const gateRows =
-    gates === null
-      ? [dim(kit, TEXT.v1NoGates)]
-      : gates.map(gate =>
-          colored(kit, `${gate.key.padEnd(13)} ${gate.status ?? '—'}${gate.status === 'pending' ? TEXT.gatePending : ''}`, gateColor(gate.status)),
-        )
-
-  const verify = verifyDisplay(task.results.verify)
-  const resultRows = [
-    colored(kit, `security  ${task.results.security.status ?? '—'}`, statusColor(task.results.security.status)),
-    row(kit, colored(kit, `verify    ${verify.label}`, verifyColor(verify)), verify.note !== null && line(kit, ` · ${verify.note}`, 'blocked')),
-    colored(kit, `review    ${task.results.review.status ?? '—'}`, statusColor(task.results.review.status)),
-  ]
-
+  // 4. 工作單元警示：只在中斷（total > 0 且 done < total）時出現；完成或空的不顯示（§11、A8）
   const unit = task.workUnit
   const hint = task.resumeHint
   const hintParts =
@@ -253,60 +389,56 @@ function overviewView(
           hint.services.length > 0 ? `${TEXT.services}: ${limited(hint.services, HINT_ITEMS)}` : null,
           hint.readFirst.length > 0 ? `${TEXT.readFirst}: ${limited(hint.readFirst, HINT_ITEMS)}` : null,
         ].filter((part): part is string => part !== null)
-  const unitSuffix = unit !== null && unit.label !== '' ? ` · ${unit.label}` : ''
+  const unitAlert =
+    unit !== null &&
+    unit.isInterrupted &&
+    card(
+      kit,
+      { key: 'work-unit', marginTop: 1, borderColor: 'warning' },
+      line(kit, `${TEXT.workUnitInterrupted(unit.done, unit.total)}${unit.label !== '' ? ` · ${unit.label}` : ''}`, 'warning'),
+      hintParts.length > 0 && el(kit.Text, {}, `${TEXT.resumeHint}   ${hintParts.join(' · ')}`),
+    )
 
+  // 5. 上次建議（快照）＋Fill（行為不變：只填 /plan-next {slug}）
   const fill = fillCommandFor(task)
-
-  return column(
+  const recorded = task.recordedNext
+  const footer = column(
     kit,
     { marginTop: 1 },
-    row(kit, heading(kit, `CREW / ${TEXT.currentTask}`), headNotes.length > 0 && dim(kit, `  （${headNotes.join(' · ')}）`)),
-    el(kit.Box, { marginTop: 1 }, el(kit.Text, { bold: true }, task.slug)),
-    task.name !== task.slug && dim(kit, task.name),
-    row(
-      kit,
-      colored(kit, task.type, typeColor(task.type)),
-      el(kit.Text, {}, ' · '),
-      colored(kit, task.phase ?? '—', phaseColor(task.phase)),
-      el(kit.Text, {}, ` · ${schemaText(task)}`),
-      showsStale(task) && el(kit.Text, {}, ' · '),
-      showsStale(task) && colored(kit, staleText(task), staleColor(task.staleDays)),
-    ),
-    task.parked !== null &&
-      colored(kit, `◐ ${TEXT.parked}${task.parked.reason !== null ? `：${task.parked.reason}` : ''}`, 'merged'),
-    task.closed && colored(kit, `○ ${TEXT.closedTask}`, 'inactive'),
-    task.inferred && line(kit, TEXT.inferred, 'warning'),
-    task.isSchemaNewer && task.schemaVersion !== null && line(kit, TEXT.schemaNewer(task.schemaVersion), 'warning'),
-    task.branch !== null && dim(kit, `branch: ${task.branch} ${TEXT.branchNote}`),
-    section(kit, `${TEXT.progress}（${progress.done} / ${progress.total}）`, row(kit, ...progressBar(kit, task, false)), el(kit.Text, {}, stepsText)),
-    section(kit, TEXT.approval, ...gateRows),
-    section(kit, TEXT.results, ...resultRows),
-    // 空的 work_unit（total 為 0，例如 new_state 的預設值）不顯示；未完成的才醒目（§11、A8）
-    unit !== null &&
-      unit.total > 0 &&
-      el(
-        kit.Box,
-        { marginTop: 1 },
-        unit.isInterrupted
-          ? line(kit, `${TEXT.workUnit}   ⚠ ${TEXT.interrupted(unit.done, unit.total)}${unitSuffix}`, 'warning')
-          : el(kit.Text, {}, `${TEXT.workUnit}   ${unit.done} / ${unit.total}${unitSuffix}`),
-      ),
-    hintParts.length > 0 && el(kit.Text, {}, `${TEXT.resumeHint}   ${hintParts.join(' · ')}`),
-    task.recordedNext !== null &&
-      section(
-        kit,
-        TEXT.recordedNext,
-        task.recordedNext.command !== null && dim(kit, task.recordedNext.command),
-        task.recordedNext.reason !== '' && dim(kit, task.recordedNext.reason),
-      ),
+    recorded !== null &&
+      row(kit, dim(kit, `${TEXT.recordedNextSnapshot} `), recorded.command !== null && el(kit.Text, {}, recorded.command)),
+    recorded !== null && recorded.reason !== '' && dim(kit, recorded.reason),
     el(
       kit.Box,
-      { marginTop: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 1 },
+      { marginTop: recorded !== null ? 1 : 0, flexDirection: 'row', flexWrap: 'wrap', gap: 1 },
       fill !== null
         ? el(kit.Button, { key: 'fill', label: TEXT.fill(task.slug), variant: 'primary', hotkey: 'f', onPress: () => cb.fill(task.id) })
         : line(kit, TEXT.slugNotFillable, 'warning'),
     ),
   )
+
+  // 6. 其他進行中任務：一行摘要，按 slug 只切換 selected（UI state）
+  const others = snapshot.tasks.map((item, index) => ({ item, index })).filter(({ item }) => item.active && item.id !== task.id)
+  const shownOthers = others.slice(0, OTHER_ACTIVE_LIMIT)
+  const othersLine =
+    others.length > 0 &&
+    el(
+      kit.Box,
+      { key: 'others', flexDirection: 'row', flexWrap: 'wrap', gap: 1, marginTop: 1 },
+      dim(kit, TEXT.otherActiveList(others.length)),
+      ...shownOthers.map(({ item, index }) =>
+        el(kit.Button, {
+          // key 用序號，不用目錄名（目錄名是不可信的 repo 字串）
+          key: `other-${index}`,
+          label: TEXT.otherActiveItem(item.slug, item.staleDays),
+          plain: true,
+          onPress: () => cb.selectTask(item.id),
+        }),
+      ),
+      others.length > OTHER_ACTIVE_LIMIT && dim(kit, TEXT.moreItems(others.length - OTHER_ACTIVE_LIMIT)),
+    )
+
+  return column(kit, {}, titleCard, ...metricRows(kit, task, bodyColumns), steps, unitAlert, footer, othersLine)
 }
 
 /** 任務列屬於哪一段：決定欄位與樣式。 */

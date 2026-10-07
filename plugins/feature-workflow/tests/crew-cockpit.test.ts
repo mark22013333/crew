@@ -787,6 +787,19 @@ const withVerify = (fixture: string, verify: Record<string, unknown>): string =>
   return JSON.stringify({ ...raw, results: { ...results, verify } }, null, 2)
 }
 
+/** 標題卡與步驟流程的膠囊文字（Text 帶 backgroundColor＋inverseText）。 */
+async function capsules(mounted: { findAll: (query: { type?: string }) => Promise<{ text: string; props: Record<string, unknown> }[]> }): Promise<string[]> {
+  return (await mounted.findAll({ type: 'Text' })).filter(found => found.props.color === 'inverseText' && found.props.backgroundColor !== undefined).map(found => found.text)
+}
+
+/** 步驟流程膠囊（key=steps 的 Box 底下的 Text）與底色。 */
+async function stepCapsules(mounted: { find: (query: { key: string }) => Promise<{ children?: unknown } | undefined>; findAll: (query: { type?: string }) => Promise<{ text: string; props: Record<string, unknown> }[]> }) {
+  const texts = await mounted.findAll({ type: 'Text' })
+  return texts
+    .filter(found => /^ [✓–●○✗?] \S+ $/.test(found.text))
+    .map(found => ({ text: found.text, backgroundColor: found.props.backgroundColor }))
+}
+
 /** 畫面上所有文字元素（type=Text）與其顏色。 */
 async function textColors(mounted: { findAll: (query: { type?: string; text?: string | RegExp }) => Promise<{ text: string; props: Record<string, unknown> }[]> }, text: RegExp) {
   return (await mounted.findAll({ type: 'Text', text })).map(found => ({ text: found.text, color: found.props.color }))
@@ -802,13 +815,15 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     const drawn = textOf(await pane.drawn())
 
     expect(drawn).toContain('order-export-csv')
-    expect(drawn).toContain('feature · verify · schema v2')
+    // 儀表板改版：type／phase 改成標題卡右側膠囊，schema 在第三行
+    expect(await capsules(pane)).toEqual(expect.arrayContaining([' feature ', ' verify ']))
+    expect(drawn).toContain('schema v2')
     expect(drawn).toContain(TEXT.approval)
-    expect(drawn).toContain('requirement   approved')
-    expect(drawn).toContain('uat           pending')
+    expect(drawn).toContain('✓ requirement approved')
+    expect(drawn).toContain(`● uat ${TEXT.gatePendingShort}`)
     expect(drawn).toContain('verify    PASS')
-    expect(drawn).toContain(`${TEXT.progress}（7 / 9）`)
-    expect(drawn).toContain(TEXT.recordedNext)
+    expect(drawn).toContain('7 / 9')
+    expect(drawn).toContain(TEXT.recordedNextSnapshot)
     expect(drawn).toContain('/plan-review')
     expect(drawn).toContain('branch: feature/order-export-csv')
     expect(drawn).toContain(TEXT.branchNote)
@@ -870,21 +885,27 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     world.setState('feature-workflow', 'selectedSlug', 'order-export-csv')
     const pane = await mountPane($, 'terminal')
     const empty = textOf(await pane.drawn())
-    expect(empty, '正對照：確實畫出了 order-export-csv 的總覽').toContain('feature · verify · schema v2')
+    expect(empty, '正對照：確實畫出了 order-export-csv 的總覽').toContain('schema v2 · branch: feature/order-export-csv')
     expect(empty).not.toContain(TEXT.workUnit)
     expect(empty).not.toContain('0 / 0')
+    expect(await pane.find({ key: 'work-unit' })).toBe(undefined)
 
     world.setState('feature-workflow', 'selectedSlug', 'push-tag-query')
     await pane.redraw()
-    const [interrupted] = await textColors(pane, new RegExp(`^${TEXT.workUnit}`))
-    expect(interrupted?.text).toBe(`${TEXT.workUnit}   ⚠ ${TEXT.interrupted(3, 5)} · browser verification`)
+    // 儀表板改版：中斷時才出現 warning 色 round 框，內含接續提示
+    const alert = await pane.find({ key: 'work-unit' })
+    expect(alert?.props).toMatchObject({ borderStyle: 'round', borderColor: 'warning' })
+    const [interrupted] = await textColors(pane, /^⚠ 工作單元/)
+    expect(interrupted?.text).toBe(`${TEXT.workUnitInterrupted(3, 5)} · browser verification`)
     expect(interrupted?.color).toBe('warning')
+    expect(textOf(await pane.drawn())).toContain(`${TEXT.resumeHint}   branch: feature/push-tag-query · ${TEXT.readFirst}: plan.md, verify.md`)
 
     world.setState('feature-workflow', 'selectedSlug', 'finished-unit')
     await pane.redraw()
-    const [finished] = await textColors(pane, new RegExp(`^${TEXT.workUnit}`))
-    expect(finished?.text).toBe(`${TEXT.workUnit}   5 / 5 · browser verification`)
-    expect(finished?.color).toBe(undefined)
+    const finished = textOf(await pane.drawn())
+    expect(finished, '正對照：確實切到 finished-unit').toContain('finished-unit')
+    expect(await pane.find({ key: 'work-unit' }), '完成的工作單元不顯示警示').toBe(undefined)
+    expect(finished).not.toContain(TEXT.workUnit)
   })
 
   test('parked 任務標「已擱置」（對齊 crew-state.py park／list 用語），總覽附原因、任務列附標記', async ($, on) => {
@@ -913,10 +934,11 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     await $.command.run(COMMAND())
     const pane = await mountPane($, 'terminal')
     world.put(`${ROOT}/.spec/order-export-csv/state.json`, V2_FEATURE_VERIFY_PASS.replace('"phase": "verify"', '"phase": "review"'))
-    expect(textOf(await pane.drawn())).toContain('feature · verify')
+    expect(await capsules(pane)).toContain(' verify ')
 
     await pressAndRedraw(pane, 'refresh')
-    expect(textOf(await pane.drawn())).toContain('feature · review')
+    expect(await capsules(pane)).toContain(' review ')
+    expect(await capsules(pane)).not.toContain(' verify ')
     expect(world.forbidden).toEqual([])
   })
 
@@ -944,17 +966,22 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     world.setState('feature-workflow', 'selectedSlug', 'cache-ttl-bug')
     await pane.redraw()
     const v1Bug = textOf(await pane.drawn())
-    expect(v1Bug).toContain(`${TEXT.progress}（1 / 9）`)
+    expect(v1Bug).toContain('1 / 9')
     for (const key of ['start', 'spec', 'db', 'arch', 'build', 'security', 'verify', 'review', 'close']) {
-      expect(v1Bug).toContain(`${key} `)
+      expect(v1Bug).toContain(` ${key} `)
     }
 
     world.setState('feature-workflow', 'selectedSlug', 'login-timeout-fix')
     await pane.redraw()
     const v2Bug = textOf(await pane.drawn())
-    expect(v2Bug).toContain(`${TEXT.progress}（3 / 4）`)
-    expect(v2Bug).toContain('start ✓  investigate ✓  fix ✓  close ○')
-    expect(v2Bug).toContain('uat ')
+    expect(v2Bug).toContain('3 / 4')
+    expect(await stepCapsules(pane)).toEqual([
+      { text: ' ✓ start ', backgroundColor: 'success' },
+      { text: ' ✓ investigate ', backgroundColor: 'success' },
+      { text: ' ✓ fix ', backgroundColor: 'success' },
+      { text: ' ○ close ', backgroundColor: undefined },
+    ])
+    expect(v2Bug).toContain(`● uat ${TEXT.gatePendingShort}`)
     expect(v2Bug).not.toContain('requirement')
     expect(v2Bug).not.toContain('architecture')
   })
@@ -1311,7 +1338,7 @@ describe('Lifecycle（T-9、T-13）', () => {
     world.setState('feature-workflow', 'selectedSlug', 'order-export-csv')
     const pane = await mountPane($, 'terminal')
     const band = await mountBand($, 'terminal')
-    expect(textOf(await pane.drawn())).toContain('feature · verify')
+    expect(await capsules(pane)).toContain(' verify ')
 
     world.put(`${ROOT}/.spec/order-export-csv/state.json`, V2_FEATURE_VERIFY_PASS.replace('"phase": "verify"', '"phase": "review"'))
     world.asked.length = 0
@@ -1320,7 +1347,7 @@ describe('Lifecycle（T-9、T-13）', () => {
     expect(world.asked.filter(entry => entry.startsWith('read '))).toEqual([`read ${ROOT}/.spec/order-export-csv/state.json`])
     await pane.redraw()
     await band.redraw()
-    expect(textOf(await pane.drawn())).toContain('feature · review')
+    expect(await capsules(pane)).toContain(' review ')
     expect(textOf(await band.drawn())).toContain('CREW · order-export-csv · feature / review')
   })
 
@@ -1519,7 +1546,11 @@ describe('樣式：停滯天數色階、BLOCKED 色、進度方塊、已結案�
       await pane.redraw()
       const overview = textOf(await pane.drawn())
       expect(overview, '正對照：確實畫出已結案任務的總覽').toContain(`○ ${TEXT.closedTask}`)
-      expect(overview).not.toContain('停滯')
+      // 儀表板：已結案的第四個方塊改叫「狀態」、標題卡沒有停滯膠囊；「另有 N 個進行中」列的是別的任務
+      expect(overview).not.toContain('停滯 35 天')
+      expect(overview).toContain(TEXT.statusBox)
+      expect((await capsules(pane)).some(text => text.includes('停滯'))).toBe(false)
+      expect(overview.replace(/另有 \d+ 個進行中：.*$/, ''), '扣掉其他進行中摘要後不得出現停滯').not.toContain('停滯')
       const band = await mountBand($, surface)
       const hud = textOf(await band.drawn())
       expect(hud, '正對照：HUD 畫的是已結案任務').toContain('CREW · profile-avatar-upload')
@@ -1678,3 +1709,163 @@ function toTaskViewForGlyphs(total: number, done: number): CockpitTaskView {
   const steps = Array.from({ length: total }, (_, i) => ({ key: `s${i}`, status: i < done ? 'done' : 'pending', at: null, reason: null }))
   return { steps } as unknown as CockpitTaskView
 }
+
+// ===========================================================================
+// 總覽儀表板：標題卡、四個指標方塊（寬窄排列）、步驟膠囊、工作單元警示、其他進行中
+// ===========================================================================
+
+/** 指定 key 的元素底下所有文字（含巢狀）。 */
+async function keyedText(mounted: { find: (query: { key: string }) => Promise<unknown> }, key: string): Promise<string> {
+  const found = await mounted.find({ key })
+  return found === undefined ? '' : textOf(found as never)
+}
+
+describe('總覽儀表板', () => {
+  const DASH_FILES = {
+    'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS,
+    'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED,
+    'login-timeout-fix/state.json': V2_BUG_MINIMAL,
+    'legacy-report-filter/state.json': V1_FEATURE_LEGACY,
+  }
+
+  for (const surface of SURFACES) {
+    test(`${surface}：四方塊內容（feature v2／bug v2／v1 無 gates）與標題卡`, async ($, on) => {
+      const world = worldOf(on, specFiles(DASH_FILES))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'selectedSlug', 'order-export-csv')
+      const pane = await mountPane($, surface, 120)
+
+      // feature v2
+      expect((await pane.find({ key: 'title-card' }))?.props).toMatchObject({ borderStyle: 'round', borderColor: 'suggestion' })
+      expect(await capsules(pane)).toEqual(expect.arrayContaining([' feature ', ' verify ', ' 停滯 2 天 ']))
+      expect(await keyedText(pane, 'title-card')).toContain(`branch: feature/order-export-csv ${TEXT.branchNote}`)
+      expect(await keyedText(pane, 'metric-progress')).toBe(`${TEXT.progress}7 / 9■■■■■■■□□${TEXT.phaseInProgress('verify')}`)
+      expect(await keyedText(pane, 'metric-verify')).toBe(`${TEXT.verifyBox}verify    PASSreview    —security  —`)
+      expect(await keyedText(pane, 'metric-gates')).toBe(`${TEXT.approval}✓ requirement approved✓ architecture approved● uat ${TEXT.gatePendingShort}`)
+      expect(await keyedText(pane, 'metric-stale')).toBe(`${TEXT.staleBox}2 天${TEXT.lastUpdated('10-04 09:00')}`)
+      expect(await textColors(pane, /^(✓|●) /)).toEqual([
+        { text: '✓ requirement approved', color: 'success' },
+        { text: '✓ architecture approved', color: 'success' },
+        { text: `● uat ${TEXT.gatePendingShort}`, color: 'inactive' },
+      ])
+      expect(await textColors(pane, /^\d+ 天$/)).toEqual([{ text: '2 天', color: 'inactive' }])
+
+      // bug v2：核准閘只顯示 uat
+      world.setState(PLUGIN, 'selectedSlug', 'login-timeout-fix')
+      await pane.redraw()
+      expect(await keyedText(pane, 'metric-progress')).toBe(`${TEXT.progress}3 / 4■■■□${TEXT.phaseInProgress('fix')}`)
+      expect(await keyedText(pane, 'metric-gates')).toBe(`${TEXT.approval}● uat ${TEXT.gatePendingShort}`)
+      expect(await capsules(pane)).toEqual(expect.arrayContaining([' bug ', ' fix ']))
+
+      // v1 無 gates：「—」＋說明，不得出現 pending／待核准
+      world.setState(PLUGIN, 'selectedSlug', 'legacy-report-filter')
+      await pane.redraw()
+      const v1Gates = await keyedText(pane, 'metric-gates')
+      expect(v1Gates).toBe(`${TEXT.approval}${TEXT.gatesNone}${TEXT.v1NoGates}`)
+      expect(v1Gates).not.toContain(TEXT.gatePendingShort)
+      expect(v1Gates).not.toContain('pending')
+      // 停滯 65 天：方塊大字與標題卡框色都是 error
+      expect(await textColors(pane, /^\d+ 天$/)).toEqual([{ text: '65 天', color: 'error' }])
+      expect((await pane.find({ key: 'title-card' }))?.props.borderColor).toBe('error')
+
+      // BLOCKED：標題卡框色 claude，不是 error
+      world.setState(PLUGIN, 'selectedSlug', 'push-tag-query')
+      await pane.redraw()
+      expect((await pane.find({ key: 'title-card' }))?.props.borderColor).toBe('claude')
+      expect(await keyedText(pane, 'metric-verify')).toContain('verify    WARN（BLOCKED ×2）')
+      expect(world.forbidden).toEqual([])
+    })
+
+    test(`${surface}：指標方塊寬畫面一列 4 個、中寬 2×2、窄畫面單欄，等寬`, async ($, on) => {
+      worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const layoutAt = async (bodyColumns: number) => {
+        const pane = await mountPane($, surface, bodyColumns)
+        const rows: string[][] = []
+        for (let index = 0; index < 4; index += 1) {
+          const found = await pane.find({ key: `metric-row-${index}` })
+          if (found !== undefined) {
+            rows.push((found.children as { props?: { key?: string } }[]).map(child => child.props?.key ?? '?'))
+          }
+        }
+        const widths = await Promise.all(['progress', 'verify', 'gates', 'stale'].map(async key => (await pane.find({ key: `metric-${key}` }))?.props.width))
+        await pane.unmount()
+        return { rows, widths }
+      }
+
+      expect(await layoutAt(120)).toEqual({
+        rows: [['metric-progress', 'metric-verify', 'metric-gates', 'metric-stale']],
+        widths: [29, 29, 29, 29],
+      })
+      expect(await layoutAt(72)).toEqual({
+        rows: [
+          ['metric-progress', 'metric-verify'],
+          ['metric-gates', 'metric-stale'],
+        ],
+        widths: [35, 35, 35, 35],
+      })
+      expect(await layoutAt(40)).toEqual({
+        rows: [['metric-progress'], ['metric-verify'], ['metric-gates'], ['metric-stale']],
+        widths: [40, 40, 40, 40],
+      })
+    })
+
+    test(`${surface}：步驟膠囊 done／skipped success、目前 phase suggestion、pending 無底色；工作單元只在中斷時出現`, async ($, on) => {
+      const world = worldOf(on, specFiles(DASH_FILES))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'selectedSlug', 'push-tag-query')
+      const pane = await mountPane($, surface)
+      expect(await stepCapsules(pane)).toEqual([
+        { text: ' ✓ start ', backgroundColor: 'success' },
+        { text: ' ✓ spec ', backgroundColor: 'success' },
+        { text: ' – db ', backgroundColor: 'success' },
+        { text: ' ✓ arch ', backgroundColor: 'success' },
+        { text: ' ✓ build ', backgroundColor: 'success' },
+        { text: ' ✓ security ', backgroundColor: 'success' },
+        { text: ' ● verify ', backgroundColor: 'suggestion' },
+        { text: ' ○ review ', backgroundColor: undefined },
+        { text: ' ○ close ', backgroundColor: undefined },
+      ])
+      expect((await pane.findAll({ type: 'Text', text: /^ ○ review $/ }))[0]?.props.dimColor).toBe(true)
+      // push-tag-query 的 work_unit 3/5 中斷 → 出現警示框
+      expect(await keyedText(pane, 'work-unit')).toContain(TEXT.workUnitInterrupted(3, 5))
+
+      // order-export-csv 的 work_unit 是空的 → 不出現
+      world.setState(PLUGIN, 'selectedSlug', 'order-export-csv')
+      await pane.redraw()
+      expect(await pane.find({ key: 'work-unit' })).toBe(undefined)
+      expect(await pane.find({ key: 'title-card' }), '正對照：總覽確實有畫').toBeDefined()
+    })
+
+    test(`${surface}：其他進行中一行摘要，按 slug 只切換 selected；上次建議（快照）＋Fill 不變`, async ($, on) => {
+      const world = worldOf(on, specFiles(DASH_FILES))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.setState(PLUGIN, 'selectedSlug', 'order-export-csv')
+      const pane = await mountPane($, surface)
+      const others = await keyedText(pane, 'others')
+      expect(others).toContain(TEXT.otherActiveList(3))
+      expect(others).toContain(TEXT.otherActiveItem('push-tag-query', 3))
+      expect(others).not.toContain('order-export-csv')
+      expect(textOf(await pane.drawn())).toContain(`${TEXT.recordedNextSnapshot} /plan-review`)
+
+      const target = (await pane.findAll({ type: 'Button', text: /^push-tag-query（/ }))[0]
+      expect(target?.key).toMatch(/^other-\d+$/)
+      await pressAndRedraw(pane, target?.key ?? '')
+      expect(world.stateOf(PLUGIN, 'selectedSlug')).toBe('push-tag-query')
+      expect(world.stateOf(PLUGIN, 'tab')).toBe('overview')
+      expect((await pane.find({ key: 'fill' }))?.props.label).toBe(TEXT.fill('push-tag-query'))
+
+      await pressAndRedraw(pane, 'fill')
+      expect(world.filled).toEqual([{ text: '/plan-next push-tag-query', mode: 'replace' }])
+      expect(world.forbidden, '只改 UI state、Fill 不送出').toEqual([])
+    })
+  }
+})

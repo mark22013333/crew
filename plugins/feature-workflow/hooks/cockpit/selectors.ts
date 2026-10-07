@@ -252,3 +252,54 @@ export function taskGroups<T extends CockpitTaskView>(tasks: readonly T[]): { ac
     closed: tasks.filter(task => task.closed),
   }
 }
+
+/**
+ * 任務健康度框色（總覽標題卡與任務卡片共用）：已結案 inactive；驗收 FAIL error；BLOCKED（衍生或原值）claude（不得用 error）；
+ * 已擱置 merged；進行中依停滯天數 ≥14 error、7–13 warning、否則 suggestion。
+ * 優先序：結案 → FAIL → BLOCKED → 擱置 → 停滯（驗收問題比停滯更需要先看）。
+ */
+export function healthColor(task: CockpitTaskView): string {
+  if (task.closed) {
+    return 'inactive'
+  }
+  const verify = verifyDisplay(task.results.verify)
+  if (verify.tone === 'negative') {
+    return 'error'
+  }
+  if (verify.tone === 'blocked') {
+    return 'claude'
+  }
+  if (task.parked !== null) {
+    return 'merged'
+  }
+  return task.staleDays >= 14 ? 'error' : task.staleDays >= 7 ? 'warning' : 'suggestion'
+}
+
+/** 核准閘一列的顯示：✓ approved success、● pending inactive「待核准」、✕ rejected error，其他照原值不上色。 */
+export function gateDisplay(gate: CockpitGateView): { text: string; color: string | undefined } {
+  switch (gate.status) {
+    case 'approved':
+      return { text: `✓ ${gate.key} approved`, color: 'success' }
+    case 'pending':
+      return { text: `● ${gate.key} ${TEXT.gatePendingShort}`, color: 'inactive' }
+    case 'rejected':
+      return { text: `✕ ${gate.key} rejected`, color: 'error' }
+    default:
+      return { text: `· ${gate.key} ${gate.status ?? '—'}`, color: undefined }
+  }
+}
+
+/** 總覽指標方塊的排列：依 bodyColumns 決定一列放幾個與每個的寬度（§17.2 不假設固定寬度）。 */
+export const DASH_FOUR_COLUMNS = 96
+export const DASH_TWO_COLUMNS = 44
+
+export function metricLayout(bodyColumns: number): { perRow: 1 | 2 | 4; width: number } {
+  const columns = Math.max(1, Math.floor(bodyColumns))
+  if (columns >= DASH_FOUR_COLUMNS) {
+    return { perRow: 4, width: Math.floor((columns - 3) / 4) }
+  }
+  if (columns >= DASH_TWO_COLUMNS) {
+    return { perRow: 2, width: Math.floor((columns - 1) / 2) }
+  }
+  return { perRow: 1, width: columns }
+}

@@ -133,6 +133,20 @@ export const TEXT = {
   collapseClosed: '收合',
   invalidMark: '✕',
   gatePending: '（待核准）',
+  // ---- 以下為儀表板總覽新增（只增不改）----
+  statusBox: '狀態',
+  staleBox: '停滯',
+  verifyBox: '驗收',
+  staleDaysBig: (days: number) => `${days} 天`,
+  lastUpdated: (time: string) => `最後更新 ${time}`,
+  phaseInProgress: (phase: string) => `${phase} 進行中`,
+  gatePendingShort: '待核准',
+  gatesNone: '—',
+  workUnitInterrupted: (done: number, total: number) => `⚠ 工作單元中斷於 ${done}/${total}`,
+  recordedNextSnapshot: '上次建議（快照）',
+  otherActiveList: (n: number) => `另有 ${n} 個進行中：`,
+  otherActiveItem: (slug: string, days: number) => `${slug}（停滯 ${days} 天）`,
+  moreItems: (n: number) => `＋${n}`,
 } as const
 
 // ---------------------------------------------------------------------------
