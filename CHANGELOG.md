@@ -8,6 +8,27 @@
 
 ---
 
+## [feature-workflow@5.2.1] - 2026-10-07
+
+> **修正 Claude Desktop 看不到 `/crew-cockpit`。** 5.2.0 的 Mod 在 Claude Code 2.1.289（Claude Desktop 內建版本）載入失敗；5.2.1 修正，並在 HUD 上方加上分隔線。
+
+### Fixed
+
+- **Claude Desktop 沒有 `/crew-cockpit`**：版本檢查函式內的區域變數與模組層 `isSupported()` 同名，Claude Code 2.1.289 的載入檢查將其判為重複宣告並拒載整個 Mod（2.1.290、2.1.291 容許，所以終端機不受影響）。已改名，並以 Desktop 內建的 2.1.289、2.1.290、2.1.291 實測載入成功。
+
+### Added
+
+- **HUD 分隔線**：輸入框上方的 HUD 與上一段對話輸出之間加一條低調分隔線，只在 HUD 有內容時出現；無任務、HUD 關閉或有 survey 時不會多出任何線。
+- **`lint-claude-mods` 規則 R6**：同一檔案內，接收 `$` 的函式名稱不得再被宣告第二次，避免同類錯誤再次造成舊版 Claude Code 拒載 Mod。
+
+### Changed
+
+- 發版前檢查清單新增：Mod 必須以**最低支援版本**（目前 2.1.289）的 Claude Code 實測載入，不只測最新版（CONTRIBUTING）。
+
+### Known issues
+
+- 沿用 5.2.0：殘留的 `plugins/feature-workflow/.claude-plugin/marketplace.json`（4.24.3）與 `category` 欄位使 `claude plugin validate --strict` 失敗；`main` 本來就如此，另案處理。
+
 ## [feature-workflow@5.2.0] - 2026-10-07
 
 > **CREW Cockpit Claude Code Mod。** 在 Claude Code 內直接看見 `.spec/` 任務進度：輸入框上方有常駐 HUD，`/crew-cockpit` 可開啟總覽／任務／驗收頁；同時新增 `/plan-close` 快速結案路徑。
