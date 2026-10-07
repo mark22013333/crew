@@ -847,11 +847,28 @@ export function hudModel(data: HudData): HudSegment[][] | null {
   return [first, second]
 }
 
-/** HUD 片段轉成 element（每行一個 row Box，單行截斷）。 */
-export function hudView(kit: CockpitKit, lines: readonly HudSegment[][]): RenderElement {
+/** HUD 分隔線的 key（測試以此辨識；線不是文字欄位，不受 §9 的 ≤60 字限制）。 */
+export const HUD_DIVIDER_KEY = 'hud-divider'
+
+/**
+ * HUD 上方的分隔線。Box 不支援單邊框，改畫一行 ─：長度取 bodyColumns（不寫死），
+ * 並以 truncate-end 保底，視窗縮小時不會換行。低調色（promptBorder＋dim）與輸入框框線協調。
+ */
+function hudDivider(kit: CockpitKit, bodyColumns: number): RenderElement {
+  const width = Number.isFinite(bodyColumns) && bodyColumns > 0 ? Math.floor(bodyColumns) : 1
+  return el(
+    kit.Box,
+    { key: HUD_DIVIDER_KEY, flexDirection: 'column' },
+    colored(kit, '─'.repeat(width), 'promptBorder', { wrap: 'truncate-end', dimColor: true }),
+  )
+}
+
+/** HUD 片段轉成 element（最上方一條分隔線，其後每行一個 row Box，單行截斷）。 */
+export function hudView(kit: CockpitKit, lines: readonly HudSegment[][], bodyColumns: number): RenderElement {
   return column(
     kit,
     {},
+    hudDivider(kit, bodyColumns),
     ...lines.map(segments =>
       el(
         kit.Box,

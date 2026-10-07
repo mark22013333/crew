@@ -84,10 +84,11 @@ export async function refreshSnapshot($: EngineInterface): Promise<void> {
 const checkVersion = async ($: EngineInterface): Promise<boolean> => {
   try {
     const { version } = await $.session.version()
-    const isSupported = compareVersions(version, MIN_CLAUDE_CODE_VERSION) >= 0
+    // 區域變數不可與模組層的 isSupported() 同名：Claude Code 2.1.289 的載入檢查會判為重複宣告而拒載整個 Mod
+    const supported = compareVersions(version, MIN_CLAUDE_CODE_VERSION) >= 0
     // 保留 refreshGeneration：重設會讓世代號倒退，與進行中的 refresh 比對失準
-    await update($, runtimeAtom, current => ({ ...current, isSupported, version, minimum: MIN_CLAUDE_CODE_VERSION }))
-    return isSupported
+    await update($, runtimeAtom, current => ({ ...current, isSupported: supported, version, minimum: MIN_CLAUDE_CODE_VERSION }))
+    return supported
   } catch {
     return false
   }
@@ -348,7 +349,7 @@ export const register: Register = on => {
     try {
       const { Box, Text, Button } = $.ui.resolve(e)
       const kit = { Box, Text, Button }
-      return composeBand(kit, other, hudView(kit, lines))
+      return composeBand(kit, other, hudView(kit, lines, e.props.bodyColumns))
     } catch {
       return other
     }
