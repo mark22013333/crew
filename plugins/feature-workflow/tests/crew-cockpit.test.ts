@@ -128,14 +128,14 @@ describe('Batch 1：Mod boot', () => {
     expect(world.opened, 'session.start 不得自動開 pane').toEqual([])
   })
 
-  test('/crew-cockpit 開 pane：focus＋closeOnEscape、不設 holdToasts（§10）', async ($, on) => {
+  test('/crew-cockpit 開 pane：focus、不設 closeOnEscape／holdToasts（§10；Fill 後 Esc 只交還鍵盤、不關 pane）', async ($, on) => {
     const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
 
     await $.session.start(SESSION)
     const result = await $.command.run(COMMAND())
 
     expect(result).toEqual({ text: TEXT.paneOpened })
-    expect(world.opened).toEqual([{ id: 'crew-cockpit', focus: true, closeOnEscape: true, holdToasts: false }])
+    expect(world.opened).toEqual([{ id: 'crew-cockpit', focus: true, closeOnEscape: false, holdToasts: false }])
   })
 
   test('§10：pane 已開著（$.ui.panes）→ 再次 /crew-cockpit 不重複開啟；關閉後可再開', async ($, on) => {
@@ -1274,54 +1274,98 @@ describe('Batch 5 HUD＋composition（T-7、T-15）', () => {
 })
 
 describe('Batch 6 Safe action：Fill（T-8、T-12）', () => {
-  test('T-8：輸入框空白 → 先讀草稿、關 pane、再 fill 固定的 /plan-next {slug}（不是 state.next.command），不送出', async ($, on) => {
-    const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+  // 依使用者指示調整 §14／B1 的保守預設：pane 開著直接 fill；只有被拒才關 pane 再填一次
+  const CMD = '/plan-next push-tag-query'
+  const OTHERS = (world: World) => world.promptLog.filter(entry => entry !== 'prompt.read')
+  const paneOpen = (world: World) => world.panes.some(pane => pane.id === 'crew-cockpit')
 
-    await $.session.start(SESSION)
-    await $.command.run(COMMAND())
-    const pane = await mountPane($, 'terminal')
-    await pressAndRedraw(pane, 'fill')
-
-    // 引擎在 $.prompt.fill 之後會經 prompt.read 取回輸入框內容，所以只比對前三步的順序
-    expect(world.promptLog.slice(0, 3)).toEqual(['prompt.read', 'ui.close crew-cockpit', 'prompt.fill'])
-    expect(world.promptLog.filter(entry => entry !== 'prompt.read')).toEqual(['ui.close crew-cockpit', 'prompt.fill'])
-    expect(world.filled).toEqual([{ text: '/plan-next push-tag-query', mode: 'replace' }])
-    expect(world.filled[0]?.text).not.toBe('/plan-verify --recheck')
-    expect(world.toasts).toEqual([])
-    expect(world.forbidden, '全程不得 prompt.submit／寫檔').toEqual([])
-  })
-
-  test('T-8：輸入框有草稿 → 不 fill、不關 pane，toast 顯示指令', async ($, on) => {
-    const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
-    world.draft = '我打到一半的訊息'
-
-    await $.session.start(SESSION)
-    await $.command.run(COMMAND())
-    const pane = await mountPane($, 'terminal')
-    await pressAndRedraw(pane, 'fill')
-
-    expect(world.promptLog).toEqual(['prompt.read'])
-    expect(world.filled).toEqual([])
-    expect(world.toasts).toEqual([TEXT.draftExists('/plan-next push-tag-query')])
-    expect(world.forbidden).toEqual([])
-  })
-
-  for (const answer of [{ isFilled: false, refusal: 'dialog' as const }, { isFilled: false }]) {
-    test(`T-12：prompt.fill 被拒（${answer.refusal ?? '無 refusal'}）→ toast 完整指令，不 crash`, async ($, on) => {
+  for (const surface of SURFACES) {
+    test(`${surface} T-8：輸入框空白 → 先讀草稿、pane 開著直接 fill 固定的 /plan-next {slug}；成功時不關 pane、不送出`, async ($, on) => {
       const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
-      world.fillAnswer = answer
 
       await $.session.start(SESSION)
       await $.command.run(COMMAND())
-      const pane = await mountPane($, 'terminal')
+      const pane = await mountPane($, surface)
       await pressAndRedraw(pane, 'fill')
 
-      expect(world.filled).toEqual([{ text: '/plan-next push-tag-query', mode: 'replace' }])
-      expect(world.toasts).toEqual([TEXT.fillRefused('/plan-next push-tag-query')])
-      expect(world.forbidden).toEqual([])
-      // session 仍正常：之後的 turn 與 render 照常
-      expect(await $.turn.complete(TURN() as never)).toEqual({ text: 'ok' })
+      // 引擎在 $.prompt.fill 之後會經 prompt.read 取回輸入框內容，所以先讀草稿、再只比對非 read 的步驟
+      expect(world.promptLog[0]).toBe('prompt.read')
+      expect(OTHERS(world), '成功時不得呼叫 ui.close').toEqual(['prompt.fill'])
+      expect(paneOpen(world), 'pane 仍開著').toBe(true)
+      expect(world.filled).toEqual([{ text: CMD, mode: 'replace' }])
+      expect(world.filled[0]?.text).not.toBe('/plan-verify --recheck')
+      // pane 以 focus 開啟、仍持有鍵盤 → 提示 Esc 回輸入框後 Enter 送出
+      expect(world.toasts).toEqual([TEXT.filledKeepPane(CMD)])
+      expect(world.forbidden, '全程不得 prompt.submit／寫檔').toEqual([])
     })
+
+    test(`${surface} T-8：fill 成功且 pane 未持有鍵盤 → 不關 pane、也不 toast`, async ($, on) => {
+      const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      world.panes = world.panes.map(item => ({ ...item, isFocused: false }))
+      const pane = await mountPane($, surface)
+      await pressAndRedraw(pane, 'fill')
+
+      expect(OTHERS(world)).toEqual(['prompt.fill'])
+      expect(paneOpen(world)).toBe(true)
+      expect(world.toasts).toEqual([])
+      expect(world.forbidden).toEqual([])
+    })
+
+    test(`${surface} T-8：輸入框有草稿 → 不 fill、不關 pane，toast 顯示指令`, async ($, on) => {
+      const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+      world.draft = '我打到一半的訊息'
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface)
+      await pressAndRedraw(pane, 'fill')
+
+      expect(world.promptLog).toEqual(['prompt.read'])
+      expect(world.filled).toEqual([])
+      expect(paneOpen(world)).toBe(true)
+      expect(world.toasts).toEqual([TEXT.draftExists(CMD)])
+      expect(world.forbidden).toEqual([])
+    })
+
+    test(`${surface} T-12：第一次 fill 被拒（dialog）→ 關 pane 再 fill 一次；第二次成功就不 toast`, async ($, on) => {
+      const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+      world.fillAnswers = [{ isFilled: false, refusal: 'dialog' }]
+
+      await $.session.start(SESSION)
+      await $.command.run(COMMAND())
+      const pane = await mountPane($, surface)
+      await pressAndRedraw(pane, 'fill')
+
+      expect(OTHERS(world), '被拒 → 先 close 再 fill 第二次').toEqual(['prompt.fill', 'ui.close crew-cockpit', 'prompt.fill'])
+      expect(world.filled).toEqual([
+        { text: CMD, mode: 'replace' },
+        { text: CMD, mode: 'replace' },
+      ])
+      expect(paneOpen(world)).toBe(false)
+      expect(world.toasts).toEqual([])
+      expect(world.forbidden).toEqual([])
+    })
+
+    for (const answer of [{ isFilled: false, refusal: 'dialog' as const }, { isFilled: false }]) {
+      test(`${surface} T-12：兩次 fill 都被拒（${answer.refusal ?? '無 refusal'}）→ toast 完整指令，不 crash`, async ($, on) => {
+        const world = worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+        world.fillAnswer = answer
+
+        await $.session.start(SESSION)
+        await $.command.run(COMMAND())
+        const pane = await mountPane($, surface)
+        await pressAndRedraw(pane, 'fill')
+
+        expect(OTHERS(world)).toEqual(['prompt.fill', 'ui.close crew-cockpit', 'prompt.fill'])
+        expect(world.toasts).toEqual([TEXT.fillRefused(CMD)])
+        expect(world.forbidden).toEqual([])
+        // session 仍正常：之後的 turn 與 render 照常
+        expect(await $.turn.complete(TURN() as never)).toEqual({ text: 'ok' })
+      })
+    }
   }
 })
 
@@ -2127,7 +2171,7 @@ describe('總覽：步驟膠囊色塊與結案按鈕', () => {
       expect(world.forbidden).toEqual([])
     })
 
-    test(`${surface}：按結案只填固定 /plan-close {slug}（不是 state.next.command），流程比照 Fill：讀草稿 → 關 pane → fill，不送出`, async ($, on) => {
+    test(`${surface}：按結案只填固定 /plan-close {slug}（不是 state.next.command），流程比照 Fill：讀草稿 → pane 開著直接 fill（成功不關 pane），不送出`, async ($, on) => {
       const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
 
       await $.session.start(SESSION)
@@ -2135,14 +2179,16 @@ describe('總覽：步驟膠囊色塊與結案按鈕', () => {
       const pane = await mountPane($, surface)
       await pressAndRedraw(pane, 'fill-close')
 
-      expect(world.promptLog.slice(0, 3)).toEqual(['prompt.read', 'ui.close crew-cockpit', 'prompt.fill'])
+      expect(world.promptLog[0]).toBe('prompt.read')
+      expect(world.promptLog.filter(entry => entry !== 'prompt.read'), '成功時不得呼叫 ui.close').toEqual(['prompt.fill'])
+      expect(world.panes.some(item => item.id === 'crew-cockpit'), 'pane 仍開著').toBe(true)
       expect(world.filled).toEqual([{ text: '/plan-close order-export-csv', mode: 'replace' }])
       expect(world.filled[0]?.text).not.toBe('/plan-review')
-      expect(world.toasts).toEqual([])
+      expect(world.toasts).toEqual([TEXT.filledKeepPane('/plan-close order-export-csv')])
       expect(world.forbidden, '全程不得 prompt.submit／寫檔').toEqual([])
     })
 
-    test(`${surface}：結案按鈕遇到草稿不覆蓋（toast 指令）；fill 被拒時 toast 完整指令`, async ($, on) => {
+    test(`${surface}：結案按鈕遇到草稿不覆蓋（toast 指令）；fill 被拒 → 關 pane 再填一次，仍被拒才 toast 完整指令`, async ($, on) => {
       const world = worldOf(on, specFiles({ 'order-export-csv/state.json': V2_FEATURE_VERIFY_PASS }))
       world.draft = '我打到一半的訊息'
 
@@ -2158,7 +2204,11 @@ describe('總覽：步驟膠囊色塊與結案按鈕', () => {
       world.draft = ''
       world.fillAnswer = { isFilled: false, refusal: 'dialog' }
       await pressAndRedraw(pane, 'fill-close')
-      expect(world.filled).toEqual([{ text: '/plan-close order-export-csv', mode: 'replace' }])
+      expect(world.promptLog.filter(entry => entry !== 'prompt.read')).toEqual(['prompt.fill', 'ui.close crew-cockpit', 'prompt.fill'])
+      expect(world.filled).toEqual([
+        { text: '/plan-close order-export-csv', mode: 'replace' },
+        { text: '/plan-close order-export-csv', mode: 'replace' },
+      ])
       expect(world.toasts).toEqual([TEXT.draftExists('/plan-close order-export-csv'), TEXT.fillRefused('/plan-close order-export-csv')])
       expect(world.forbidden).toEqual([])
     })

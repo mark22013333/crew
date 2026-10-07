@@ -32,6 +32,8 @@ export type World = {
   draft: string
   /** prompt.fill 的回答（預設接受）；改成 { isFilled: false, refusal } 模擬被拒。 */
   fillAnswer: { isFilled: boolean; refusal?: 'no_composer' | 'dialog' }
+  /** 依序消耗的 prompt.fill 回答（先於 fillAnswer）；模擬「第一次被拒、第二次成功」。 */
+  fillAnswers: { isFilled: boolean; refusal?: 'no_composer' | 'dialog' }[]
   /** 每次 prompt.fill 的內容。 */
   filled: { text: string; mode: string }[]
   /** 依序記錄 prompt.read／ui.close／prompt.fill（驗 Fill 流程順序）。 */
@@ -88,6 +90,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
     toasts: [],
     draft: '',
     fillAnswer: { isFilled: true },
+    fillAnswers: [],
     filled: [],
     promptLog: [],
     store: new Map(),
@@ -283,7 +286,7 @@ export function worldOf(on: On, files: Readonly<Record<string, string>>, options
   on('prompt.fill', ($, e) => {
     world.promptLog.push('prompt.fill')
     world.filled.push({ text: e.text, mode: e.mode })
-    return world.fillAnswer
+    return world.fillAnswers.shift() ?? world.fillAnswer
   })
   on('store.get', ($, e) => ({ value: world.store.get(e.key) }))
   on('store.set', ($, e) => {

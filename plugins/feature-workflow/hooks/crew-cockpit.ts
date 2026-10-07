@@ -165,9 +165,16 @@ async function setLayoutPreference($: EngineInterface, layout: CockpitTaskLayout
 }
 
 // ---------------------------------------------------------------------------
-// §14 Fill：只填固定模板 `/plan-next {slug}`／`/plan-close {slug}`；先讀草稿（不覆蓋）→ 關 pane → fill → 被拒就 toast。
+// §14 Fill：只填固定模板 `/plan-next {slug}`／`/plan-close {slug}`；先讀草稿（不覆蓋）→ 開著 pane 直接 fill →
+// 被拒才關 pane 再 fill 一次 → 仍被拒就 toast。
+// 依使用者指示調整規格 §14／B1 的保守預設（原本一律先關 pane）：使用者不希望按填入後 Cockpit 消失。
 // 兩種模板共用同一條流程，差別只在 fillTemplateFor 選哪個固定模板。
 // ---------------------------------------------------------------------------
+
+async function fillOnce($: EngineInterface, command: string): Promise<boolean> {
+  const filled = await $.prompt.fill({ text: command, mode: 'replace' })
+  return filled.isFilled
+}
 
 async function fillTemplate($: EngineInterface, taskId: string, kind: FillKind): Promise<void> {
   const snapshot = await read($, snapshotAtom).catch(() => null)
@@ -183,10 +190,18 @@ async function fillTemplate($: EngineInterface, taskId: string, kind: FillKind):
       $.ui.toast(TEXT.draftExists(command))
       return
     }
+    if (await fillOnce($, command)) {
+      // 成功：pane 保持開啟。Mods API 沒有把鍵盤交還輸入框的呼叫（$.ui.focus 只能在本 plugin 的 site 內移動焦點），
+      // 所以 pane 仍持有鍵盤時提示使用者按 Esc 回輸入框再 Enter 送出（pane 不設 closeOnEscape，Esc 只交還鍵盤、不關 pane）。
+      const panes = await $.ui.panes().catch(() => [])
+      if (panes.some(pane => pane.id === PANE_ID && pane.isFocused)) {
+        $.ui.toast(TEXT.filledKeepPane(command))
+      }
+      return
+    }
+    // 被拒（refusal 為 dialog／no_composer／缺省＝被其他 hook 擋下）：退回原本的保守做法，關 pane 後再填一次
     await $.ui.close({ id: PANE_ID }).catch(() => undefined)
-    const filled = await $.prompt.fill({ text: command, mode: 'replace' })
-    if (!filled.isFilled) {
-      // refusal 為 dialog／no_composer／缺省（被其他 hook 擋下）皆同：toast 完整指令讓使用者自行輸入
+    if (!(await fillOnce($, command))) {
       $.ui.toast(TEXT.fillRefused(command))
     }
   } catch {
@@ -272,7 +287,8 @@ export const register: Register = on => {
         return { text: TEXT.paneOpened }
       }
       // 不設 holdToasts：否則 pane 變成 dialog，所有 toast 都要等它關閉（§10）
-      const opened = await $.ui.open({ id: PANE_ID, title: TEXT.paneTitle, focus: true, closeOnEscape: true })
+      // 不設 closeOnEscape：Fill 後 pane 保持開啟，Esc 只把鍵盤交還輸入框、不關 pane；關閉用 pane 的關閉鈕或 ctrl+x x
+      const opened = await $.ui.open({ id: PANE_ID, title: TEXT.paneTitle, focus: true })
       if (!opened.isPlaced) {
         $.ui.toast(TEXT.paneNotPlaced)
       }

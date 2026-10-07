@@ -120,6 +120,7 @@ export const TEXT = {
   usageFull: '用法：/crew-cockpit 開啟面板；/crew-cockpit hud on|off 開關 HUD',
   draftExists: (command: string) => `輸入框有未送出的內容；指令：${command}`,
   fillRefused: (command: string) => `無法填入輸入框，請自行輸入：${command}`,
+  filledKeepPane: (command: string) => `已填入 ${command}：按 Esc 或點一下輸入框回到輸入框，再按 Enter 送出`,
   loadErrors: '載入問題',
   schemaUnknown: 'schema ?',
   schema: (v: number) => `schema v${v}`,
