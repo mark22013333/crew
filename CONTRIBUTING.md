@@ -109,6 +109,9 @@ python3.11 scripts/lint-state-writers.py --strict  # 狀態單一寫者防回歸
 python3.11 scripts/lint-claude-mods.py --self-test   # Cockpit Mod guard 自測（CI job claude-mods）
 python3.11 scripts/lint-claude-mods.py --no-validate # Mod guard 輔層（CI 只跑到這裡）
 python3.11 scripts/lint-claude-mods.py --require-validate  # release 前本機必跑：含主層（claude plugin validate ＋ capability baseline）
+# release 前另須以「最低支援版本」的 Claude Code 實測 Mod 載入（5.2.0 只測 2.1.291，Desktop 內建 2.1.289 載入失敗）：
+#   cd <含 .spec 的專案> && <最低版本 claude> -p --no-session-persistence --plugin-dir plugins/feature-workflow --debug-file <log> "/crew-cockpit" </dev/null
+#   log 不得出現 `feature-workflow.*did not load`；Desktop 內建版本路徑見 ~/Library/Application Support/Claude/claude-code/
 # .spec 漂移偵測（script 尚未建立時 CI 會跳過，本地同理）
 python3.11 plugins/feature-workflow/scripts/check-spec-drift.py --all --strict
 ```

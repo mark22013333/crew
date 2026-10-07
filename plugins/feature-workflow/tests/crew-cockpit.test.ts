@@ -1011,6 +1011,9 @@ describe('Batch 3 Pane：Overview／Tasks／Refresh（含 T-2、T-3、T-11 畫�
     expect(bandText, 'HUD 不得出現 state.next 的惡意指令換行片段').not.toContain('injected\n')
     // §18.1：HUD 單一欄位 ≤ 60 字元（以 ' · ' 分隔的每個欄位）
     for (const found of await band.findAll({ type: 'Text' })) {
+      if (/^─+$/.test(found.text)) {
+        continue // 分隔線不是文字欄位
+      }
       for (const field of found.text.split(' · ')) {
         expect(Array.from(field).length <= HUD_FIELD_MAX, `HUD 欄位過長：${field}`).toBe(true)
       }
@@ -1214,6 +1217,61 @@ describe('Batch 5 HUD＋composition（T-7、T-15）', () => {
     const narrowText = textOf(await narrow.drawn())
     expect(narrowText).toBe('CREW · push-tag-query · verify · BLOCKED ×2 · ＋1')
     expect((await narrow.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'row')).toHaveLength(1)
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`${surface}：HUD 上方有一條分隔線（第一個子元素；窄畫面仍是 1 行文字＋線）`, async ($, on) => {
+      worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+      nothingBeneathBand(on)
+
+      await $.session.start(SESSION)
+      const wide = await mountBand($, surface)
+      type Node = { type?: string; props?: Record<string, unknown>; children?: Node[] | string[] }
+      const wideTree = (await wide.drawn()) as Node
+      // 外層 column：[其他 mod 的 band（此處為空 Box）, HUD column]；HUD column 的第一個子元素必須是分隔線
+      const first = ((wideTree.children as Node[])[1]?.children as Node[])[0]
+      expect(first?.props?.key, '第一個子元素是分隔線 Box').toBe('hud-divider')
+      const lineText = (first?.children as Node[])[0]
+      expect(lineText?.type).toBe('Text')
+      expect(lineText?.props?.color).toBe('promptBorder')
+      expect(String((lineText?.children as string[])[0])).toBe('─'.repeat(BAND.props.bodyColumns))
+      expect(await wide.findAll({ key: 'hud-divider' })).toHaveLength(1)
+      expect((await wide.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'row')).toHaveLength(2)
+      await wide.unmount()
+
+      const narrow = await mountBand($, surface, { bodyColumns: 50 })
+      const narrowTree = (await narrow.drawn()) as { children?: { children?: { props?: Record<string, unknown> }[] }[] }
+      expect(narrowTree.children?.[1]?.children?.[0]?.props?.key).toBe('hud-divider')
+      expect(textOf(narrowTree as never)).toBe('CREW · push-tag-query · verify · BLOCKED ×2')
+      expect((await narrow.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'row')).toHaveLength(1)
+    })
+
+    test(`${surface}：無任務／HUD 關閉／hasSurvey 時沒有分隔線，其他 mod 的 band 原樣`, async ($, on) => {
+      worldOf(on, specFiles({ 'profile-avatar-upload/state.json': V2_FEATURE_CLOSED }))
+      on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [OTHER_MOD] }) as never)
+      await $.session.start(SESSION)
+      const none = await mountBand($, surface)
+      expect(await none.findAll({ key: 'hud-divider' })).toHaveLength(0)
+      expect(textOf(await none.drawn())).toBe(OTHER_MOD)
+      await none.unmount()
+    })
+  }
+
+  test('分隔線：HUD 關閉、hasSurvey 時沒有線；開啟時線在其他 mod band 之後、HUD 之前', async ($, on) => {
+    worldOf(on, specFiles({ 'push-tag-query/state.json': V2_FEATURE_VERIFY_WARN_BLOCKED }))
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: [OTHER_MOD] }) as never)
+    await $.session.start(SESSION)
+
+    const shown = (await $.ui.render(BAND)) as { children?: { props?: Record<string, unknown> }[] }
+    expect(textOf(shown as never)).toContain(OTHER_MOD)
+    expect(shown.children?.[0]).toMatchObject({ children: [OTHER_MOD] })
+    const hud = shown.children?.[1] as { children?: { props?: Record<string, unknown> }[] }
+    expect(hud.children?.[0]?.props?.key).toBe('hud-divider')
+
+    const survey = await $.ui.render({ ...BAND, props: { ...BAND.props, hasSurvey: true } })
+    expect(JSON.stringify(survey)).not.toContain('hud-divider')
+    await $.command.run(COMMAND('hud off'))
+    expect(JSON.stringify(await $.ui.render(BAND))).not.toContain('hud-divider')
   })
 
   test('AC-3：沒有 active task（只有 closed／parked）→ HUD 不佔空間，原樣放行', async ($, on) => {

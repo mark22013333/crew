@@ -19,7 +19,7 @@
     {
       "name": "feature-workflow",
       "description": "功能開發工作流 — 整合 Notion 與 Claude Code，涵蓋需求分析、規格設計、DB 設計、架構設計、程式碼骨架產生、品質審查到結案的完整生命週期管理",
-      "version": "5.2.0",
+      "version": "5.2.1",
       "author": {
         "name": "Cheng"
       },

@@ -309,6 +309,10 @@ export function stringsOf(node: RenderNode | RenderElement | null | undefined): 
   }
   const own: string[] = []
   const props = (node as { props?: Record<string, unknown> }).props
+  // HUD 分隔線只是裝飾（一整行 ─），不算文字內容
+  if (props?.key === 'hud-divider') {
+    return []
+  }
   if (node.type === 'Button' && typeof props?.label === 'string') {
     own.push(props.label)
   }
