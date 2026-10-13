@@ -219,6 +219,17 @@ Host 沒有結構化選單時，直接用一般對話提出同一問題。
 
 ---
 
+## Review Once 專用 Host 能力（選用）
+
+- `trusted_human_approval`：Host 必須展示整份 Review Packet，取得使用者明確審查事件，由工作區外受保護私鑰簽署 canonical event；只有公鑰提供給 verifier，且公鑰路徑由 Host 固定，不允許 Agent 自己覆寫。
+- `long_running_dispatch`：Host 保持當前互動 Session 的執行迴圈，依 `crew-state.py run --action next` 的 deterministic dispatch 呼叫現有 Skill 或 `review-once-apply.py`；跨 Session 延續只能由 Host 明確恢復，不能宣稱 Python 自帶背景 Worker。
+- `write_scope_enforcement`：每次 delegate_write 限於 packet 核准路徑；在 Build 進出時使用 `review-once-build.py` 的 Git-scope check。缺此能力即 BLOCK，而不是僅由 Prompt 提醒。
+- `cancellation_and_reconciliation`：Host 可停止尚未完成的 worker，持久化 evidence 並以 `run pause/resume --reconcile` 恢復。Runner 的 owner / heartbeat 是**合作式租約**，不是簽章身分驗證。不可推斷 stale heartbeat 表示原 worker 已經停止。
+
+沒有上述能力的 Host 不得啟用無人值守 Review Once；請維持 Interactive。
+
+---
+
 ## Adapter 降級矩陣
 
 | 能力缺失 | 正確降級 | 禁止 |

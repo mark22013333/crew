@@ -27,6 +27,7 @@ class RunnerScenarios(unittest.TestCase):
     sign = g.SignedGrantScenarios.sign
     state = g.SignedGrantScenarios.state
     issue = g.SignedGrantScenarios.issue
+    write_plan = g.SignedGrantScenarios.write_plan
 
     def runner(self, action: str, owner: str = "host-a", *args):
         return self.state("run", "--action", action, "--owner", owner, *args)

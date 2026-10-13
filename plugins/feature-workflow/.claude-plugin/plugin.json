@@ -15,6 +15,7 @@
     "./skills/plan-browse",
     "./skills/plan",
     "./skills/plan-build",
+    "./skills/plan-run",
     "./skills/plan-security",
     "./skills/plan-verify",
     "./skills/plan-review",

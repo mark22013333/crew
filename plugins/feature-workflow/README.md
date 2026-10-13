@@ -220,6 +220,7 @@ Portable root：
 | `/plan-browse` | 深讀/比較既有規劃 |
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 approval loop |
 | `/plan-build` | 依核准規格執行正式實作；支援 dry-run / scoped build |
+| `/plan-run` | 選用：一次審查後依 Host 受保護授權協作執行至 Build Done；4 小時／暫停／續跑 |
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Browser/API 驗證、evidence、Word/Excel/E2E 選項 |
 | `/plan-review` | 邏輯、品質、效能 review；可 quick |
