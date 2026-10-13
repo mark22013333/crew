@@ -1146,10 +1146,19 @@ def cmd_run(args) -> int:
                 raise CrewError("Runner 並非 paused；不能重複 resume")
             if run.get("inflight"):
                 phase = run["inflight"]["step"]
-                if not _run_done(state, phase):
-                    raise CrewError(f"先對帳未完成的 {phase}；不得重新委派可能已在執行的工作")
-                run["inflight"] = None
-                run["checkpoint"] = phase
+                if _run_done(state, phase):
+                    run["inflight"] = None
+                    run["checkpoint"] = phase
+                elif not args.reconcile or not args.reason:
+                    raise CrewError(
+                        f"有未完成的 {phase}：請確認原 Host worker 已停止，並以 "
+                        "--reconcile --reason <理由> 明確恢復相同工作單元；禁止默默重派"
+                    )
+                else:
+                    # Keep the exact inflight command. The Host may explicitly
+                    # replay an idempotent packet stage; a partially completed
+                    # Build must use the existing /plan-build --resume contract.
+                    push_history(state, "runner", f"reconcile {phase}: {args.reason}"[:240])
             if run.get("owner") != owner and not args.takeover:
                 raise CrewError("其他 Runner 的擁有權不得未經明示移轉；請使用 --takeover")
             if run.get("owner") != owner and args.takeover:
@@ -2048,6 +2057,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--owner", default="", help="合作式 Runner owner 識別碼（不是安全憑證）")
     p.add_argument("--reason", default="", help="暫停／明確接管的原因")
     p.add_argument("--takeover", action="store_true", help="僅 paused 時接受帶原因的 owner 轉移")
+    p.add_argument("--reconcile", action="store_true", help="人工確認原工作單元已停止並要求顯式續跑")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("grant", help="Review Once 簽署授權、Gate 綁定、狀態檢查／撤銷")
