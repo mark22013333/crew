@@ -20,7 +20,7 @@
 1. **證明力優先，不是工具偏好優先**：Playwright 是 preferred browser adapter，但不是所有 AC 的 preferred verifier。
 2. **不要用 UI 證明 UI 看不出的事**：若修前修後在目前環境畫面相同，browser 驗證沒有判別力，改走 backend-test / API / database。
 3. **優先沿用既有自動化資產**：若 `@code:` 指向的模組已有針對該邏輯的單元/整合測試，且能直接覆蓋 AC，可選 `backend-test`。
-4. **一條 AC 一個主要 verifier**；可有 secondary cross-check，但結果判定以主要 verifier 為準，避免兩套 truth。
+4. **一條 AC 一個主要 verifier**；可有 secondary cross-check，但結果判定以主要 verifier 為準，避免兩套 truth。同一 AC 有 S01/S02 時要逐情境保留 evidence 與執行結果；不能用 S01 PASS 取代未執行的 S02。
 5. **驗證方式必須可說明原因**：任何非 browser 路由都要記錄 `reason`。
 
 ## 計畫輸出格式

@@ -21,6 +21,7 @@ model: sonnet
 2. **掃描專案現有程式碼**：學習 API 風格、Controller 模式、Service 模式
 3. **不強加外部假設**：一切基於專案實際情況
 4. **輸出使用繁體中文**
+5. **Behavior examples**：依 `../references/behavior-examples.md` 探索正向、例外、邊界；不假設使用者未確認的規則，重點是消除歧義，不是每條 AC 湊滿三例。
 
 ## 責任邊界
 
@@ -50,7 +51,14 @@ model: sonnet
 - DTO/Model 的命名模式
 - 錯誤處理慣例
 
-### 3. 想清楚這些面向，但只寫下取捨
+### 3. 行為案例探索（Specification by Example）
+
+- 對每條可觀察的 AC 先思考正常、失敗／權限／例外、邊界與狀態轉換；僅保留有辨識價值的案例。
+- 未經確認的業務規則要列為待確認歧義，不能以 AI 猜測當成可驗收的 Then。
+- AC 仍是一行；必要時於同一行附 `｜例：S01 正常：...；S02 例外：...`，不要新增文件或改變 `AC-n` 編號。
+- 非行為型任務（例如純重構）可沿用原有 AC 格式，不強迫產生 Gherkin。Human 最終核准案例與 AC。
+
+### 4. 想清楚這些面向，但只寫下取捨
 
 API 設計、業務邏輯規則、錯誤處理、分層歸屬、效能需求 —— 這些**都要想**，但輸出時只留「決策 + 理由 + 被否決方案」。
 例：不要列出六個端點的表格；要寫「D-2 [spec] 查詢與匯出拆成兩個端點｜理由：匯出是長任務、需獨立逾時設定｜否決：單一端點加 format 參數（逾時設定會互相牽制）」。
@@ -61,7 +69,7 @@ API 設計、業務邏輯規則、錯誤處理、分層歸屬、效能需求 —
 
 ```text
 [goal]  ≤12 行。為何做、In Scope、Out of Scope。禁止出現 API 表、欄位清單、類別名。
-[ac]    ≤15 行。每行 `- [ ] AC-n {可機器驗證的一句話}`。禁止寫實作步驟或 selector。
+[ac]    ≤15 行。每行 `- [ ] AC-n {可機器驗證的一句話}`，有必要時加 `｜例：S01 正常：...；S02 例外：...`。S 編號在各 AC 內由 S01 遞增，禁止寫實作步驟或 selector。
 [dec]   第一條固定為範圍判斷（下游 /plan-build 靠它決定團隊組成）：
         - D-1 [spec] 範圍判斷：TASK_TYPE={feature|adjustment|bugfix|refactor|performance}、
           CHANGE_SCOPE={full|backend-only|frontend-only|api-only|db-only}、

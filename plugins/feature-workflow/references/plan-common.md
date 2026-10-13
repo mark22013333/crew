@@ -55,7 +55,7 @@ frontmatter 只留**身分**與**漂移**兩類欄位：`slug` / `name` / `type`
 | 章節（錨點） | owner | 可以寫 | 禁止寫 | 上限 |
 |---|---|---|---|---|
 | 目標與範圍 `crew:goal` | spec | 為何做、In Scope／Out of Scope | API 表、欄位清單、類別名 | 12 行 |
-| 驗收條件 `crew:ac` | spec | `- [ ] AC-1 {可機器驗證的一句話}` | 實作步驟、selector | 15 行 |
+| 驗收條件 `crew:ac` | spec | `- [ ] AC-1 {可機器驗證的一句話}`，可同行附精簡 `｜例：S01 ...；S02 ...` | 實作步驟、selector | 15 行 |
 | 決策紀錄 `crew:dec` | 全階段 | `- D-n [階段] 決策｜理由｜被否決方案＋否決理由` | DDL、方法簽章、Mermaid | 30 行 |
 | 已知取捨與風險 `crew:risk` | 全階段 | 明知的技術債、邊界外情境 | 已修掉的問題 | 8 行 |
 | 指路 `crew:map` | 全階段 | 錨點（見下方「錨點語法」） | 把指到的內容抄一份 | 10 行 |
@@ -82,6 +82,8 @@ frontmatter 只留**身分**與**漂移**兩類欄位：`slug` / `name` / `type`
 4. **每條自帶 `[階段]` tag** —— `[spec]` `[db]` `[arch]` `[build]` `[security]` `[verify]` `[review]` `[close]`，後階段一眼看出不是自己寫的。
 
 `AC-n` 與 `D-n` 是 plan.md ↔ state.json 的 join key：**全檔遞增、不重用、不重編號**。
+
+行為示例契約見 `behavior-examples.md`：`S01`／`S02` 是**各 AC 內**的穩定情境編號，完整 key 為 `{slug}#AC-n#S01`。只為有辨識價值的規則保留精簡案例；不變更骨架、不額外建立 `.spec` 文件、不得把 selector 或測試操作寫入 AC。
 
 ### 錨點語法
 

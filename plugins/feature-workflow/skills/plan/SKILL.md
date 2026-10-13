@@ -83,7 +83,7 @@ routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`c
 
 ```text
 [goal]  ≤12 行：為何做、In Scope、Out of Scope
-[ac]    ≤15 行：- [ ] AC-1 {可機器驗證的一句話}
+[ac]    ≤15 行：- [ ] AC-1 {可機器驗證的一句話}（有必要時同行追加 `｜例：S01 正常：...；S02 邊界：...`；依 `references/behavior-examples.md`）
 [dec]   範圍判斷條目（固定第一條）：
         - D-1 [spec] 範圍判斷：TASK_TYPE={feature|adjustment|bugfix|refactor|performance}、
           CHANGE_SCOPE={full|backend-only|frontend-only|api-only|db-only}、
@@ -97,6 +97,8 @@ routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`c
 
 🔴 回傳中不得出現 API 端點表、欄位清單、方法簽章 —— 那些是程式碼的事實，用 `[map]` 錨點指過去。
 
+規格探索時依 `../../references/behavior-examples.md` 針對高風險或有歧義的 AC 用具體例子確認正向／例外／邊界情境。**不可自行補齊未知的業務規則**；未釐清者呈給 Human。每條 AC 仍只佔一行、同一份 plan.md、沿用原本行數限制。純技術任務可不加案例。
+
 #### 1-2. 寫入 plan.md
 
 依「鐵律」逐節 Edit 插入：`crew:goal`、`crew:ac`（owner=spec，首次插入；修訂時只 Edit 要改的那幾行）、`crew:dec`、`crew:risk`、`crew:map`（append-only）。
@@ -105,7 +107,7 @@ routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`c
 
 > ⚠️ **硬性規則**：spec pass 寫入後，🔴 禁止自動進入 db／arch pass，🔴 禁止直接開始寫程式碼。必須進入以下迴圈，直到使用者明確表示沒問題。
 
-摘要「目標與範圍」「驗收條件」「D-1 範圍判斷」給使用者，然後：
+摘要「目標與範圍」「驗收條件（含適用的 S01/S02 行為案例）」「D-1 範圍判斷」給使用者。對新增的例外／邊界規則明示是**已確認**還是**待決策**，讓 Human 一併核准，再進以下確認迴圈：
 
 ```
 規格已寫入 .spec/{slug}/plan.md（目標與範圍／驗收條件／決策紀錄）
