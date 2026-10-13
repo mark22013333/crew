@@ -26,6 +26,7 @@
 import argparse
 import contextlib
 import fcntl
+import importlib.util
 import json
 import os
 import re
@@ -280,6 +281,7 @@ def new_state(slug: str, name: str = "", task_type: str = "feature") -> dict:
             "evidence": [],
             "ambiguities": [],
         },
+        "autonomy": None,  # Review Once optional; old tasks remain interactive
         "gates": {
             gate: {
                 "status": "pending",
@@ -884,6 +886,15 @@ def cmd_set(args) -> int:
     slug = args.slug
     with state_lock(spec_dir(project, slug)):
         state = normalize(read_state(project, slug), slug)
+        active_grant = state.get("autonomy") or {}
+        if (active_grant.get("mode") == "review_once" and
+                active_grant.get("status") == "active" and
+                args.step in ("db", "arch", "build") and
+                args.status in ("in_progress", "done", "skipped")):
+            # Architectural content only exists after arch is complete;
+            # Build must validate both approved snapshots before modification.
+            stage = "all" if args.step == "build" else "spec"
+            _validate_review_once(project, slug, state, stage)
         changes = _apply_set(state, args)
         push_history(state, "set", "；".join(changes))
         refresh_next(state)
@@ -893,12 +904,137 @@ def cmd_set(args) -> int:
     return 0
 
 
+
+# --------------------------------------------------------------------------
+# Optional Review Once grants: the Feature plugin owns contract verification.
+# Bug workflows remain unaffected, including installations without this helper.
+# --------------------------------------------------------------------------
+
+def _review_once_mod():
+    module_path = Path(__file__).resolve().parents[2] / "feature-workflow" / "scripts" / "review-once-grant.py"
+    if not module_path.is_file():
+        raise CrewError("Review Once verifier 未安裝；不能使用委派授權")
+    spec = importlib.util.spec_from_file_location("crew_review_once_grant", module_path)
+    if spec is None or spec.loader is None:
+        raise CrewError("Review Once verifier 無法載入")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _validate_review_once(project: Path, slug: str, state: dict, stage: str) -> None:
+    verify = _review_once_mod()
+    try:
+        verify.validate_active(project, slug, state, stage)
+    except (verify.GrantError, OSError, KeyError, ValueError) as exc:
+        raise CrewError(f"Review Once 授權檢查未通過：{exc}") from exc
+
+
+def cmd_grant(args) -> int:
+    """Bind a Host-signed one-time review packet to existing Feature gates."""
+    project = project_root(args)
+    slug = args.slug
+    if args.action == "check":
+        state = normalize(read_state(project, slug), slug)
+        _validate_review_once(project, slug, state, "all" if gate_passed(state, "architecture") else
+                              "spec" if gate_passed(state, "requirement") else "none")
+        print(f"✅ {slug} Review Once grant 仍有效（grant_id={state['autonomy']['grant_id']}）")
+        return 0
+
+    with state_lock(spec_dir(project, slug)):
+        state = normalize(read_state(project, slug), slug)
+        if state.get("type") != "feature":
+            raise CrewError("Review Once v1 僅支援 Feature")
+        existing = state.get("autonomy") or {}
+
+        if args.action == "issue":
+            if existing.get("status") == "active":
+                raise CrewError("已有有效授權；必須先撤銷，不可直接延長")
+            if not all([args.packet, args.approval_event, args.signature]):
+                raise CrewError("issue 需要 --packet、--approval-event、--signature")
+            verifier = _review_once_mod()
+            try:
+                packet, event, key_sha = verifier.verify_event(
+                    project, Path(args.packet), Path(args.approval_event), Path(args.signature))
+            except (verifier.GrantError, OSError, KeyError, ValueError) as exc:
+                raise CrewError(f"Human approval proof 不合法：{exc}") from exc
+            if existing.get("grant_id") == event["grant_id"]:
+                raise CrewError("已撤銷／完成的 Grant 不可用同一個簽章重放；請重新取得 Human 授權")
+            proposal = packet["proposal"]
+            if proposal["slug"] != slug:
+                raise CrewError("packet slug 與任務不符")
+            if (state.get("git") or {}).get("branch") != proposal["repository"]["branch"]:
+                raise CrewError("本地 task 分支與核准分支不符")
+            if step_status(state, "start") not in DONE_LIKE:
+                raise CrewError("Review Once 必須先由合法的 plan-start 建立任務")
+            if step_status(state, "build") in DONE_LIKE:
+                raise CrewError("Build 已完成，不需要額外授權")
+            state["autonomy"] = {
+                "mode": "review_once",
+                "status": "active",
+                "grant_id": event["grant_id"],
+                "packet_sha256": packet["packet_sha256"],
+                "packet_path": str(Path(args.packet).resolve()),
+                "event_path": str(Path(args.approval_event).resolve()),
+                "signature_path": str(Path(args.signature).resolve()),
+                "trusted_key_sha256": key_sha,
+                "issued_at": event["issued_at"],
+                "expires_at": event["expires_at"],
+                "target_step": "build",
+                "gates_applied": [],
+            }
+            push_history(state, "autonomy", f"issue review_once grant={event['grant_id']}")
+        elif args.action == "revoke":
+            if not existing or existing.get("status") != "active":
+                raise CrewError("目前沒有可撤銷的 active Grant")
+            existing["status"] = "revoked"
+            existing["revoked_at"] = now_iso()
+            push_history(state, "autonomy", "Review Once 授權已撤銷")
+        elif args.action == "consume":
+            _validate_review_once(project, slug, state, "all")
+            if step_status(state, "build") != "done":
+                raise CrewError("只有 build=done 才能標記 Grant consumed")
+            existing["status"] = "consumed"
+            push_history(state, "autonomy", "Review Once Build 完成")
+        elif args.action in ("approve-requirement", "approve-architecture"):
+            is_spec = args.action == "approve-requirement"
+            target = "requirement" if is_spec else "architecture"
+            source = "spec" if is_spec else "arch"
+            if step_status(state, source) != "done":
+                raise CrewError(f"{source}=done 前不能核准 {target}")
+            if not is_spec and (not gate_passed(state, "requirement") or
+                                step_status(state, "db") not in DONE_LIKE):
+                raise CrewError("Architecture 核准前必須完成已核准 Spec 與 DB")
+            _validate_review_once(project, slug, state, "spec" if is_spec else "all")
+            if target in existing.get("gates_applied", []):
+                raise CrewError(f"{target} 已套用本次授權，不可重複核准")
+            gate = state["gates"][target]
+            gate["status"] = "approved"
+            gate["at"] = now_iso()
+            gate["by"] = "delegated-review-once"
+            gate["reason"] = f"trusted Review Once packet={existing['packet_sha256']}, grant={existing['grant_id']}"
+            existing.setdefault("gates_applied", []).append(target)
+            push_history(state, "gate", f"{target}=approved via review_once grant={existing['grant_id']}")
+        else:
+            raise CrewError(f"未知 grant action：{args.action}")
+
+        refresh_next(state)
+        write_state(project, slug, state)
+        print(f"✅ {slug} Review Once: {args.action}｜next={state['next']['command']}")
+        return 0
+
+
 def cmd_gate(args) -> int:
     project = project_root(args)
     slug = args.slug
     with state_lock(spec_dir(project, slug)):
         state = normalize(read_state(project, slug), slug)
         gate = state["gates"][args.name]
+        autonomy = state.get("autonomy") or {}
+        if (autonomy.get("mode") == "review_once" and autonomy.get("status") == "active"
+                and args.name in ("requirement", "architecture")
+                and args.status in ("approved", "waived")):
+            raise CrewError("Review Once 進行中不可直接偽裝 Human gate；請用 grant approve-* 驗證簽署提案，或先撤銷授權")
 
         source_step = gate_source_step(state, args.name)
         if args.status != "pending" and source_step and step_status(state, source_step) not in DONE_LIKE:
@@ -1437,6 +1573,15 @@ def cmd_validate(args) -> int:
                 )
             )
 
+    if (state.get("autonomy") or {}).get("status") == "active" and args.require_gate:
+        # Validation of delegated gates also requires the *current* approved
+        # spec/architecture snapshots, not just a cached "approved" string.
+        try:
+            stage = "all" if "architecture" in args.require_gate else "spec"
+            _validate_review_once(project, slug, state, stage)
+        except CrewError as exc:
+            problems.append((str(exc), "停止 Review Once；重新審查並取得有效授權"))
+
     if args.expect_phase:
         if args.expect_phase not in active_steps:
             problems.append((f"--expect-phase {args.expect_phase} 不適用於 type={state.get('type')}", f"合法值：{'/'.join(active_steps)}"))
@@ -1716,6 +1861,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--by", required=True, help="決策者識別（例：human / 使用者名稱）")
     p.add_argument("--reason", default="", help="核准／拒絕／waive 原因；waived 必填")
     p.set_defaults(func=cmd_gate)
+
+    p = sub.add_parser("grant", help="Review Once 簽署授權、Gate 綁定、狀態檢查／撤銷")
+    add_target(p)
+    p.add_argument("--action", required=True, choices=[
+        "issue", "check", "approve-requirement", "approve-architecture", "revoke", "consume"])
+    p.add_argument("--packet", default="", help="Human 已完整審查的 packet.json")
+    p.add_argument("--approval-event", default="", help="外部可信任 Host 已簽署的 approval event JSON")
+    p.add_argument("--signature", default="", help="外部 Host event 的 raw signature file")
+    p.set_defaults(func=cmd_grant)
 
     p = sub.add_parser("unit", help="更新工作單元進度（斷點續跑用）")
     add_target(p)
