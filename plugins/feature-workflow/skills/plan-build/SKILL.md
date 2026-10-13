@@ -1,7 +1,7 @@
 ---
 name: plan-build
 description: 從 .spec/{slug}/plan.md 以多角色 leader-delegate 模式產生程式碼，含退出驗證與錨點有效性檢查；依 Host capability 自動選擇平行或序列執行。當使用者提到 /plan-build、「從 spec 產生程式碼」、「plan-build 產碼」時觸發此 Skill。
-argument-hint: "[--with-test|--no-test|--bdd] [--backend-only] [--dry-run] [--resume]"
+argument-hint: "[--with-test|--no-test|--bdd] [--backend-only] [--dry-run] [--resume] [--review-once]"
 ---
 
 # plan-build — 多角色程式碼產生
@@ -13,6 +13,20 @@ argument-hint: "[--with-test|--no-test|--bdd] [--backend-only] [--dry-run] [--re
 > **v1 舊任務**：`.spec/{slug}/plan.md` 不存在 → 這是 v1 結構，依
 > `../../references/legacy-v1.md` 的相容模式執行，並在開頭提示一次。
 > 過渡期限定，到期本段連同該檔一併刪除。
+---
+
+## Review Once 免重複確認（僅 `--review-once`）
+
+**不改一般 `/plan-build` 流程**。只有 `/plan-run` 已取得有效 Host-signed grant 且 `crew-state.py run --action next` 回傳 `inflight.step=build` 後才可使用。
+
+- 執行前以 `crew-state.py grant --slug {slug} --action check` 驗證簽章、4h、已核准 Spec/Arch/DB 與 Gate，並執行：
+  `python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-build.py" --project . --slug {slug}`。
+- 不得把 `--review-once` 當作 `--yes`：任何簽章／Scope／分支／Host worker allowed scope 驗證失敗都 BLOCK。Host 無法實際限制 worker 可寫路徑時，不可降級成「僅 Prompt 提醒」。
+- 由已核准的 `test_policy` 決定 `--with-test` 或 `--bdd`。Review Once 必須包含測試；不得選擇 `--no-test`。BDD 工具缺失時 BLOCK，不能靜默降級為一般 `--with-test`。
+- 上述前提均通過時，**只略過本 Skill「確認執行計畫」的重複詢問**；其餘 Scout／Delegation／編譯、測試、E0～E7 退出驗證照舊。
+- 每個正式程式碼寫入角色只可在 packet `scope.allowed_paths` 內操作，寫入後再次執行 `review-once-build.py` 檢查全部 Git 變更；超出範圍即停止，**不得標記 build=done**。
+- 成功時仍由本 Skill 執行 `crew-state.py set --step build --status done`，再由 Runner 的下一次 `run --action next` 判斷 `completed_build`。不自動進 Security／Review／Human UAT。
+
 ---
 
 ## 前置條件
@@ -116,7 +130,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
   • api-engineer      — API 層（Controller/DTO/驗證）
   {• frontend-engineer — 前端頁面（{FRONTEND_TECH}）}
 
-是否產出測試程式碼？（未指定 --bdd 時）
+是否產出測試程式碼？（未指定 --bdd，且未經有效 Review Once 授權時）
   1. 是 — 包含 test-engineer 角色
   2. 否（預設）— 跳過測試，節省 token
 

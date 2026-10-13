@@ -173,6 +173,9 @@ def validate_active(project: Path, slug: str, state: dict,
             grant.get("grant_id") == event["grant_id"] and
             grant.get("trusted_key_sha256") == key_sha,
             "Review Once Grant 內容／信任根與原始授權不符")
+    require(grant.get("issued_at") == event["issued_at"] and
+            grant.get("expires_at") == event["expires_at"],
+            "Grant 記錄的原始四小時期限與簽署事件不符")
     proposal = packet["proposal"]
     require(proposal["slug"] == slug and state.get("type") == "feature",
             "僅支援授權的 Feature slug")
