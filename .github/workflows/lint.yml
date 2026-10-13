@@ -80,6 +80,17 @@ jobs:
       - name: 驗證 Feature/Bug type-aware lifecycle
         run: python3 scripts/lint-state-lifecycle.py
 
+  review-once-runner:
+    name: Review Once Runner behavior
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Executable Host dispatch, stage apply, pause, resume and scope tests
+        run: python3 scripts/lint-review-once-runner.py
+
   review-once-grants:
     name: Review Once signed grant + approval gates
     runs-on: ubuntu-latest
