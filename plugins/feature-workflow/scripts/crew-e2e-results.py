@@ -24,10 +24,10 @@ from typing import Any
 
 AC_RE = re.compile(r"^(?P<slug>[A-Za-z0-9][A-Za-z0-9._-]*)#AC-(?P<number>[1-9]\d*)$")
 SCENARIO_ID_RE = re.compile(
-    r"^(?P<ac>[A-Za-z0-9][A-Za-z0-9._-]*#AC-[1-9]\\d*)#S(?:0[1-9]|[1-9]\\d+)$"
+    r"^(?P<ac>[A-Za-z0-9][A-Za-z0-9._-]*#AC-[1-9]\d*)#S(?:0[1-9]|[1-9]\d+)$"
 )
-EXAMPLE_RE = re.compile(r"^\\s*-\\s*\\[[ xX]\\]\\s*(AC-[1-9]\\d*)\\b.*?｜例：(?P<examples>.*)$")
-EXAMPLE_ID_RE = re.compile(r"(?<![A-Za-z0-9])S(?:0[1-9]|[1-9]\\d+)(?!\\d)")
+EXAMPLE_RE = re.compile(r"^\s*-\s*\[[ xX]\]\s*(AC-[1-9]\d*)\b.*?｜例：(?P<examples>.*)$")
+EXAMPLE_ID_RE = re.compile(r"(?<![A-Za-z0-9])S(?:0[1-9]|[1-9]\d+)(?!\d)")
 ALLOWED_STATUSES = {"passed", "failed", "flaky", "blocked", "skipped", "manual"}
 ALLOWED_COVERAGE = {"full", "partial"}
 
@@ -332,6 +332,73 @@ def self_test() -> int:
     assert result["ac_results"][3]["coverage"] == "partial", result
     assert result["ac_results"][3]["verify_status"] == "WARN", result
     assert result["stale"] is False, result
+
+    # Opt-in BDD: declared Sxx are a deterministic, required coverage set.
+    with tempfile.TemporaryDirectory() as tmp:
+        plan = Path(tmp) / "plan.md"
+        plan.write_text(
+            "# 任務\n## 驗收條件 <!-- crew:ac owner=spec -->\n"
+            "- [ ] AC-1 不可重疊｜例：S01 成功：無衝突；S02 失敗：重疊拒絕\n"
+            "## 決策紀錄\n- D-1 S99 不屬於 AC\n",
+            encoding="utf-8",
+        )
+        expected = load_expected_scenarios(plan, "feature-x")
+        assert expected == {
+            "feature-x#AC-1": ["feature-x#AC-1#S01", "feature-x#AC-1#S02"]
+        }, expected
+
+        bdd_payload = {
+            "schema_version": 1, "runner": "playwright", "environment": "self-test",
+            "results": [
+                {"ac": "feature-x#AC-1", "scenario_id": "feature-x#AC-1#S01",
+                 "status": "passed", "coverage": "full"},
+                {"ac": "feature-x#AC-1", "scenario_id": "feature-x#AC-1#S02",
+                 "status": "passed", "coverage": "full"},
+            ],
+        }
+        both = summarize(bdd_payload, "feature-x", expected_scenarios=expected)
+        assert both["status"] == "PASS", both
+        assert not both["missing_scenario_ids"], both
+
+        missing_payload = {**bdd_payload, "results": bdd_payload["results"][:1]}
+        missing = summarize(missing_payload, "feature-x", expected_scenarios=expected)
+        assert missing["status"] == "WARN", missing
+        assert missing["ac_results"][0]["coverage"] == "partial", missing
+        assert missing["missing_scenario_ids"] == ["feature-x#AC-1#S02"], missing
+
+        legacy_payload = {**bdd_payload, "results": [
+            {"ac": "feature-x#AC-1", "status": "passed"}
+        ]}
+        legacy = summarize(legacy_payload, "feature-x", expected_scenarios=expected)
+        assert legacy["status"] == "WARN", legacy
+
+        partial_payload = {**bdd_payload, "results": [
+            bdd_payload["results"][0], {**bdd_payload["results"][1], "coverage": "partial"}
+        ]}
+        partial = summarize(partial_payload, "feature-x", expected_scenarios=expected)
+        assert partial["status"] == "WARN", partial
+        assert partial["ac_results"][0]["coverage"] == "partial", partial
+
+        bad_id = {**bdd_payload, "results": [
+            {**bdd_payload["results"][0], "scenario_id": "wrong#AC-1#S01"}
+        ]}
+        try:
+            summarize(bad_id, "feature-x", expected_scenarios=expected)
+        except ValidationError as exc:
+            assert "scenario_id" in str(exc), exc
+        else:
+            raise AssertionError("cross-AC scenario_id must be rejected")
+
+        duplicate = plan.read_text(encoding="utf-8").replace(
+            "S02 失敗", "S01 失敗"
+        )
+        plan.write_text(duplicate, encoding="utf-8")
+        try:
+            load_expected_scenarios(plan, "feature-x")
+        except ValidationError as exc:
+            assert "重複" in str(exc), exc
+        else:
+            raise AssertionError("duplicate declared scenario IDs must be rejected")
 
     stale = summarize(payload, "feature-x", "zzz999")
     assert stale["stale"] is True, stale
