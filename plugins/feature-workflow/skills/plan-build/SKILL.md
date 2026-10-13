@@ -166,7 +166,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 > **必讀契約**：`../../references/bdd-test-first.md`。不是要求所有任務寫 Gherkin，而是要求已核准的 `Sxx` 行為案例在產品碼修改前有可重現的失敗測試。
 
 1. **重檢 Human approval**：沿用本 Skill 前置的 `crew-state.py validate --require-gate requirement --require-gate architecture`，`--bdd` 不跳過任何關卡。確認 `plan.md` 的 `crew:ac` 至少有一條 `｜例：S01 ...` 且已核准；沒有則 BLOCK，回 `/plan spec`（若規格修改須重新 Human approve）。
-2. **先決定 runner**：探索既有 JUnit / pytest / Playwright／Cucumber 測試資產，依專案慣例選擇能輸出 `crew-results.json` schema v1（包含 `{slug}#AC-n#Sxx` `scenario_id`）的 runner 或 adapter。無法輸出可驗證結果 → BDD BLOCK；可由 Human 明確改成一般 `--with-test`，**不可悄悄降級**。
+2. **先決定 runner**：探索既有 JUnit / pytest / Playwright／Cucumber 測試資產（JUnit XML 可用內建 `crew-bdd-junit.py` 轉換，見 `bdd-test-first.md`），依專案慣例選擇能輸出 `crew-results.json` schema v1（包含 `{slug}#AC-n#Sxx` `scenario_id`）的 runner 或 adapter。無法輸出可驗證結果 → BDD BLOCK；可由 Human 明確改成一般 `--with-test`，**不可悄悄降級**。
 3. **測試先行（獨立 write scope）**：僅委派 `test-engineer`，其 allowed paths 限制為專案既有測試目錄、測試 fixture 與 runner adapter；此時禁止任何 backend/API/frontend/DB 產品實作角色寫入。針對每個已核准 Sxx 建立或補足可執行的 assertion 與 Scenario ID，缺漏案例不可宣稱完成。
 4. **執行 RED**：確認 test discovery/config/fixture 均正常，執行測試並把機器可讀輸出保留在 `.spec/{slug}/.cache/bdd-red.json`（來源為實際 runner；不能手寫合成測試結果），然後執行：
 
@@ -177,7 +177,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
    ```
 
    必須至少一個已核准 Scenario **因產品行為 assertion** 失敗；僅 environment / fixture / auth / framework 失敗不能當 RED。腳本檢查完整 Scenario ID、full coverage 與 failure reason；Leader 必須額外檢查失敗訊息確實指向目標產品行為。沒有有效 RED → BLOCK，**不得實作產品碼**。
-5. **提交可續跑的 RED 證據引用**：`crew-state.py unit --slug {slug} --skill plan-build --done 1 --total {角色總數+2} --label "BDD RED" --remaining "產品實作,BDD GREEN" --evidence ".spec/{slug}/.cache/bdd-red.json"`。進度只經既有 state writer；不可手寫 `state.json`，亦不可把完整 log 放到 `plan.md`。
+5. **提交可續跑的 RED 證據引用**：`crew-state.py unit --slug {slug} --skill plan-build --done 1 --total {角色總數+2} --label "BDD RED" --remaining "{實際產品角色 ID，以逗號分隔},bdd-green" --evidence ".spec/{slug}/.cache/bdd-red.json"`。`--remaining` 須填實際角色 ID（如 `backend-engineer,api-engineer,bdd-green`）；`bdd-green` 是檢查階段而不是 worker。進度只經既有 state writer；不可手寫 `state.json`，亦不可把完整 log 放到 `plan.md`。
 6. **才進產品實作**：由下一節的既有 `delegate_write` 角色依 allowed scope 編修產品碼，可平行互不衝突的角色，**不得為了測試變綠而刪除 assertion、放寬規格或直接改 Sxx**。真有規格錯誤需返回 `/plan spec` 取得 Human 重新核准，再重做 RED。
 7. **執行 GREEN**：重新執行同一套測試得到 `.spec/{slug}/.cache/bdd-green.json`，執行：
 
@@ -190,7 +190,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 
    所有宣告 Sxx 必須 `passed + coverage=full`；任何 missing/failed/flaky/BLOCKED/skipped/manual 都不能 GREEN。RED/GREEN 不可使用同一份檔案或相同 run_id。GREEN 未通過 → build 保持 in_progress、保留 `work_unit`，不得標 `build=done`。
 
-**`--bdd --resume`**：若產品碼曾開始修改，先重新驗證既有 RED artifact 與 approval gate，並確認 RED 是修改產品碼**之前**執行（比較實際 Git diff 與本次紀錄；單靠 JSON 不足以證明時間順序）。證據遺失、時序不可證明或 Sxx 已變更 → BLOCK 並請 Human 決定重啟任務或改為一般 `--with-test`；絕不補造 RED。可降級 inline/sequential 委派，但**不降級 Test-First 順序及證據門檻**。
+**`--bdd --resume`**：`remaining` 裡的 `bdd-green` 只需執行 GREEN gate、不可委派為 worker；已完成的 test-engineer 不重跑。若產品碼曾開始修改，先重新驗證既有 RED artifact 與 approval gate，並確認 RED 是修改產品碼**之前**執行（比較實際 Git diff 與本次紀錄；單靠 JSON 不足以證明時間順序）。證據遺失、時序不可證明或 Sxx 已變更 → BLOCK 並請 Human 決定重啟任務或改為一般 `--with-test`；絕不補造 RED。可降級 inline/sequential 委派，但**不降級 Test-First 順序及證據門檻**。
 
 ### 6. 啟動實作 Agent（逐一具名 delegate_write，profile: DEEP）
 
@@ -229,7 +229,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
 根據『判斷團隊組成』一節的判斷結果（見 plugin 根目錄 `references/team-composition.md`，相對 SKILL.md 為 `../../references/`）：
 - 1 人 → 單一具名 `delegate_write`，帶 `task: high_risk_implementation` + `profile: DEEP` + allowed scope。
 - 2+ 人 → 優先 `parallel_delegate`；其中**每個**子工作單元仍各自帶相同 routing contract 與自己的 allowed scope。若 Host 無平行能力則序列 `delegate_write`。跨角色 API 契約由 Leader 彙整後再傳遞，不依賴特定 Team message 工具。
-- **BDD 例外**：上述平行規則只適用 RED 成功後的產品實作角色；`--bdd` 必須在執行本節之前完成 5e 的 test-engineer 與 RED gate，不能將 test-engineer 與產品實作者同時 spawn。後續 GREEN 亦需按 5e 跑完整驗證。
+- **BDD 例外**：上述平行規則只適用 RED 成功後的產品實作角色；`--bdd` 必須在執行本節之前完成 5e 的 test-engineer 與 RED gate，不能將 test-engineer 與產品實作者同時 spawn，也不能在本節再次 spawn test-engineer。後續 GREEN 亦需按 5e 跑完整驗證。
 
 ### 7. 更新狀態與指路錨點
 

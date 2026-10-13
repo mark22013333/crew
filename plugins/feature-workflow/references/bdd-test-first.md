@@ -7,6 +7,7 @@
 - 需求規格與架構已經分別由 Human approve；如果任何新增／修訂 Sxx 影響語意，回 `/plan spec` 重新 approve 後才能開始。
 - `plan.md` 的 `crew:ac` 需至少有一個 Sxx，完整 key `{slug}#AC-n#S01`。未宣告 Sxx 的 AC 仍由後續一般 `/plan-verify` 驗收。
 - 在專案現有測試目錄建立測試，不在 `.spec/` 新增永久文件或源碼。Gherkin 是選用，JUnit／pytest／Playwright 皆可由 adapter 輸出既有 `crew-results.json` schema v1。
+- Java 可用內建 `crew-bdd-junit.py` 轉換 Surefire／Gradle JUnit XML；`@DisplayName` 或方法名稱需包含 `{slug}#AC-n#Sxx`。`<failure>` 是斷言失敗，`<error>` 映射 BLOCKED，`<skipped>` 映射 SKIP。
 - `--bdd --no-test` 拒絕、`--dry-run` 僅呈現計畫，不呼叫寫入與測試，不得標示 RED/GREEN。
 - 測試命令與結果由實際專案環境決定；若無可執行 runner/adapter，明確 BLOCK，不能假裝有 BDD。
 
@@ -34,6 +35,24 @@ crew-bdd-gate.py --phase green --red-results ... [BLOCK if any incomplete]
 crew-state.py unit --clear; set --step build --status done
 ```
 
+### JUnit XML 轉換範例
+
+JUnit 5 可在 `@DisplayName` 放入 `reservation#AC-1#S02`；RED 與 GREEN 必須各自重新執行測試，勿沿用舊 XML。
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-junit.py" \
+  --junit-xml target/surefire-reports/TEST-BookingTest.xml \
+  --output .spec/{slug}/.cache/bdd-red.json \
+  --environment local --run-id red-{run-id}
+
+# 實作產品碼之後重新執行相同 JUnit 測試，再轉換新 XML
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-junit.py" \
+  --junit-xml target/surefire-reports/TEST-BookingTest.xml \
+  --output .spec/{slug}/.cache/bdd-green.json \
+  --environment local --run-id green-{run-id}
+```
+
+可多次提供 `--junit-xml`，但至少要有一筆有效 `{slug}#AC-n#Sxx` 測試結果。
 `crew-bdd-gate.py` 的使用：
 
 ```bash

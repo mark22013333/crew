@@ -159,6 +159,54 @@ class BddBehaviorScenarios(unittest.TestCase):
         )
         self.assertEqual(failed.returncode, 1)
 
+    def test_given_junit_xml_when_converted_then_gate_validates_red_green(self) -> None:
+        """Given JUnit/Surefire evidence; When converted; Then RED/GREEN remain traceable."""
+        adapter = SCRIPTS / "crew-bdd-junit.py"
+        reports = []
+        for mode, failure in (("red", True), ("green", False)):
+            source = self.root / f"{mode}.xml"
+            detail = '<failure message="expected rejection"/>' if failure else ""
+            source.write_text(
+                '<testsuite><testcase name="reservation#AC-1#S01" time="0.01"/>'
+                f'<testcase name="reservation#AC-1#S02" time="0.02">{detail}</testcase>'
+                '</testsuite>', encoding="utf-8"
+            )
+            report = self.root / f"{mode}-junit.json"
+            proc = subprocess.run([
+                sys.executable, str(adapter), "--junit-xml", str(source),
+                "--output", str(report), "--environment", "test", "--run-id", mode,
+            ], capture_output=True, text=True, check=False)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            reports.append(report)
+        self.assertEqual(bdd.check(self.plan, self.slug, reports[0], "red")["status"], "RED_VALID")
+        self.assertEqual(bdd.check(self.plan, self.slug, reports[1], "green", reports[0])["status"], "GREEN_VALID")
+
+        source = self.root / "broken.xml"
+        source.write_text(
+            '<testsuite><testcase name="reservation#AC-1#S01"><error message="boot failure"/>'
+            '</testcase><testcase name="reservation#AC-1#S02">'
+            '<failure message="expected rejection"/></testcase></testsuite>', encoding="utf-8"
+        )
+        blocked = self.root / "blocked-junit.json"
+        proc = subprocess.run([
+            sys.executable, str(adapter), "--junit-xml", str(source),
+            "--output", str(blocked), "--environment", "test",
+        ], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with self.assertRaisesRegex(bdd.BddGateError, "RED 不接受 blocked"):
+            bdd.check(self.plan, self.slug, blocked, "red")
+
+    def test_given_junit_without_sxx_when_converting_then_block(self) -> None:
+        """Given generic tests without scenario ids; Then converter cannot fabricate evidence."""
+        source = self.root / "generic.xml"
+        source.write_text('<testsuite><testcase name="ordinaryTest"/></testsuite>', encoding="utf-8")
+        proc = subprocess.run([
+            sys.executable, str(SCRIPTS / "crew-bdd-junit.py"), "--junit-xml", str(source),
+            "--output", str(self.root / "out.json"), "--environment", "test",
+        ], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("沒有帶", proc.stderr)
+
     def test_given_pending_human_approval_when_build_attempted_then_runtime_blocks(self) -> None:
         """Given unapproved state; When build starts, Then BDD cannot bypass Human approval."""
         def state(*args: str) -> subprocess.CompletedProcess[str]:
