@@ -23,6 +23,11 @@ from typing import Any
 
 
 AC_RE = re.compile(r"^(?P<slug>[A-Za-z0-9][A-Za-z0-9._-]*)#AC-(?P<number>[1-9]\d*)$")
+SCENARIO_ID_RE = re.compile(
+    r"^(?P<ac>[A-Za-z0-9][A-Za-z0-9._-]*#AC-[1-9]\\d*)#S(?:0[1-9]|[1-9]\\d+)$"
+)
+EXAMPLE_RE = re.compile(r"^\\s*-\\s*\\[[ xX]\\]\\s*(AC-[1-9]\\d*)\\b.*?｜例：(?P<examples>.*)$")
+EXAMPLE_ID_RE = re.compile(r"(?<![A-Za-z0-9])S(?:0[1-9]|[1-9]\\d+)(?!\\d)")
 ALLOWED_STATUSES = {"passed", "failed", "flaky", "blocked", "skipped", "manual"}
 ALLOWED_COVERAGE = {"full", "partial"}
 
@@ -71,6 +76,32 @@ def load_payload(file_path: Path) -> dict[str, Any]:
     return payload
 
 
+def load_expected_scenarios(plan_path: Path, slug: str) -> dict[str, list[str]]:
+    """Read only the approved, compact Sxx examples in plan.md's AC section."""
+    try:
+        lines = plan_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ValidationError(f"plan.md 無法讀取：{plan_path}: {exc}") from exc
+
+    expected: dict[str, list[str]] = {}
+    in_ac = False
+    for line in lines:
+        if line.startswith("## "):
+            in_ac = line.startswith("## 驗收條件")
+            continue
+        if not in_ac:
+            continue
+        match = EXAMPLE_RE.match(line)
+        if not match:
+            continue
+        ac = f"{slug}#{match.group(1)}"
+        ids = EXAMPLE_ID_RE.findall(match.group("examples"))
+        require(len(ids) == len(set(ids)), f"{ac} 重複宣告 Sxx 情境")
+        require(ids, f"{ac} 的例：必須至少有一個 Sxx")
+        expected[ac] = [f"{ac}#{scenario}" for scenario in ids]
+    return expected
+
+
 def validate_result(item: Any, index: int) -> dict[str, Any]:
     require(isinstance(item, dict), f"results[{index}] 必須是 object")
 
@@ -97,15 +128,31 @@ def validate_result(item: Any, index: int) -> dict[str, Any]:
     if scenario is not None:
         require(isinstance(scenario, str), f"results[{index}].scenario 必須是字串")
 
+    scenario_id = item.get("scenario_id")
+    if scenario_id is not None:
+        match = SCENARIO_ID_RE.fullmatch(scenario_id) if isinstance(scenario_id, str) else None
+        require(match is not None and match.group("ac") == ac,
+                f"results[{index}].scenario_id 必須符合該 AC 的 {{slug}}#AC-n#Sxx")
+
     return item
 
 
-def aggregate_ac(items: list[dict[str, Any]]) -> dict[str, Any]:
+def aggregate_ac(
+    items: list[dict[str, Any]], expected_scenarios: list[str] | None = None
+) -> dict[str, Any]:
     require(items, "aggregate_ac 不可接收空清單")
 
     worst = max(items, key=lambda item: STATUS_PRIORITY[item["status"]])
     status = worst["status"]
-    coverage = "full" if any(item.get("coverage", "full") == "full" for item in items) else "partial"
+    scenario_ids = list(dict.fromkeys(item["scenario_id"] for item in items if item.get("scenario_id")))
+    missing = [key for key in (expected_scenarios or []) if key not in scenario_ids]
+    # Legacy AC-only data keeps its v1 aggregation; approved scenario examples
+    # require EVERY declared Sxx to have full evidence, never "any full".
+    if expected_scenarios:
+        coverage = ("full" if not missing and all(item.get("coverage", "full") == "full" for item in items)
+                    else "partial")
+    else:
+        coverage = "full" if any(item.get("coverage", "full") == "full" for item in items) else "partial"
     reasons = []
     for item in items:
         reason = item.get("reason")
@@ -134,11 +181,16 @@ def aggregate_ac(items: list[dict[str, Any]]) -> dict[str, Any]:
         "duration_ms": int(sum(float(item.get("duration_ms", 0)) for item in items)),
         "reason": " | ".join(reasons) if reasons else None,
         "scenarios": scenarios,
+        "scenario_ids": scenario_ids,
+        "missing_scenario_ids": missing,
         "evidence": evidence,
     }
 
 
-def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None = None) -> dict[str, Any]:
+def summarize(
+    payload: dict[str, Any], slug: str, expected_git_sha: str | None = None,
+    expected_scenarios: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
     validated = [validate_result(item, i) for i, item in enumerate(payload["results"])]
 
     scoped: list[dict[str, Any]] = []
@@ -158,7 +210,7 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
         grouped[item["ac"]].append(item)
 
     ac_results = [
-        aggregate_ac(grouped[key])
+        aggregate_ac(grouped[key], (expected_scenarios or {}).get(key))
         for key in sorted(
             grouped,
             key=lambda ac: int(AC_RE.match(ac).group("number")),  # type: ignore[union-attr]
@@ -170,6 +222,11 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
     for item in ac_results:
         counts[item["status"]] += 1
         if item["coverage"] == "partial":
+            partial_coverage += 1
+
+    # A declared AC with no E2E record must not silently disappear from coverage.
+    for ac in (expected_scenarios or {}):
+        if ac not in grouped:
             partial_coverage += 1
 
     stale = False
@@ -205,6 +262,12 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
             "manual": counts["manual"],
         },
         "partial_coverage": partial_coverage,
+        "missing_scenario_ids": [
+            scenario for item in ac_results for scenario in item["missing_scenario_ids"]
+        ] + [
+            scenario for ac, keys in (expected_scenarios or {}).items()
+            if ac not in grouped for scenario in keys
+        ],
         "ignored_results": ignored,
         "ac_results": ac_results,
     }
@@ -213,7 +276,8 @@ def summarize(payload: dict[str, Any], slug: str, expected_git_sha: str | None =
 def command_summarize(args: argparse.Namespace) -> int:
     try:
         payload = load_payload(Path(args.file))
-        result = summarize(payload, args.slug, args.expected_git_sha)
+        expected = load_expected_scenarios(Path(args.plan), args.slug) if args.plan else None
+        result = summarize(payload, args.slug, args.expected_git_sha, expected)
     except ValidationError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
@@ -310,6 +374,7 @@ def parse_args() -> argparse.Namespace:
     summarize_parser.add_argument("--file", required=True)
     summarize_parser.add_argument("--slug", required=True)
     summarize_parser.add_argument("--expected-git-sha")
+    summarize_parser.add_argument("--plan", help="可選：讀 plan.md 內的 Sxx 清單並檢查缺漏情境")
 
     return parser.parse_args()
 

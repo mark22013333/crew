@@ -31,6 +31,10 @@ maturity = draft
 
 ## 2. Scenario 組織
 
+若 `plan.md` 的 AC 明確宣告 S01/S02，優先使用 IR `acs.AC-n.scenarios[]`（見 `../../references/verification-ir.md`）為每個 Sxx 建立**獨立 test**，將 `crew-ac` 設為 `{slug}#AC-n`，`crew-scenario-id` 設為 `{slug}#AC-n#Sxx`。這樣 CI Reporter 可以個別輸出 `scenario_id`，避免一條 AC 少跑某個例子仍顯示 PASS；缺漏由 `--from-e2e --plan` 檢查。
+
+不得把多個 Sxx 壓成同一個沒識別碼的 Playwright test；原本沒有 Sxx 的 AC 依舊採下列既有分組策略。
+
 ### 獨立 AC
 若 AC 無共享昂貴 state，優先一 AC 一 test。
 
