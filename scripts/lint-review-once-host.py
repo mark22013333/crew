@@ -165,6 +165,25 @@ class HostBridgeScenarios(unittest.TestCase):
         self.assertEqual(state["autonomy"]["status"], "revoked")
         self.assertNotEqual(state["autonomy"]["execution"]["status"], "completed_build")
 
+    def test_explicit_resume_runs_the_original_inflight_build(self):
+        self.prepare_repo()
+        with self.assertRaises(bridge.BridgeError):
+            self.drive("fail")
+        config = self.protected_worker("success")
+        with patch.dict(os.environ, {
+            "CREW_REVIEW_ONCE_TRUSTED_PUBLIC_KEY": str(self.pub)
+        }):
+            result = bridge.drive(
+                self.project, self.slug, "test-host",
+                bridge.protected_config(config, self.project),
+                "resume", poll=0.1, reconcile=True,
+                reason="operator verified previous worker exited",
+            )
+        self.assertEqual(result["status"], "completed_build")
+        state = json.loads((self.spec_dir / "state.json").read_text())
+        self.assertEqual(state["autonomy"]["status"], "consumed")
+        self.assertEqual(state["autonomy"]["execution"]["checkpoint"], "build")
+
     def test_reject_unprotected_or_workspace_controlled_adapter(self):
         self.prepare_repo()
         config = self.protected_worker()
@@ -179,6 +198,13 @@ class HostBridgeScenarios(unittest.TestCase):
             bridge.protected_config(config, self.project)
         config.chmod(0o600)
         obj = json.loads(config.read_text())
+        worker = self.project / "untrusted-worker.py"
+        worker.write_text("print('do not run')\n")
+        obj["worker_argv"][1] = str(worker)
+        config.write_text(json.dumps(obj))
+        with self.assertRaisesRegex(bridge.BridgeError, "Repo 中 Agent 可修改"):
+            bridge.protected_config(config, self.project)
+        obj["worker_argv"][1] = str(Path(self._host_dir.name) / "mock-host-worker.py")
         obj["host_guarantees"]["enforced_write_scope"] = False
         config.write_text(json.dumps(obj))
         with self.assertRaisesRegex(bridge.BridgeError, "Host 缺少"):
