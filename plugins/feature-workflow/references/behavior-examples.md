@@ -31,6 +31,10 @@
 - `Verification IR` 可以選用每個 AC 的 `scenarios[]`，不得從人類摘要反推 selector/action；E2E candidate 保留 draft → promotion gate。
 - `Machine Verify ≠ Code Review ≠ Human UAT`。不更改 `state.json` 的單一寫者、Host adapter 或結案權限。
 
+## 選用 Test-First 實作
+
+`/plan-build --bdd` 的完整順序與 runner/gate/checkpoint 規則見 `bdd-test-first.md`。原本 `/plan-build`、`--with-test`、`--no-test` 行為不變；`--bdd` 不可和 `--no-test` 併用，且不能以假的 RED 或環境錯誤代替產品 assertion 失敗。可用 JUnit、Playwright 或其他能提供 `crew-results.json` 結果的 adapter，不要求 Gherkin。
+
 ## 例子品質檢查
 
 1. 能否用相同 Given、不同 When/Then 區分正常與拒絕行為？
