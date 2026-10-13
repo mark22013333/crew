@@ -1024,6 +1024,185 @@ def cmd_grant(args) -> int:
         return 0
 
 
+
+# --------------------------------------------------------------------------
+# Review Once cooperative Runner coordinator.
+# Stage writes go through existing skills / crew-state.py; this only decides,
+# leases and checkpoints. It DOES NOT spawn a Host or run in the background.
+# --------------------------------------------------------------------------
+
+def _run_owner(owner: str) -> str:
+    if not owner or len(owner) > 80 or not re.fullmatch(r"[a-zA-Z0-9._-]+", owner):
+        raise CrewError("Runner owner 必須是 1–80 字元的安全識別碼")
+    return owner
+
+
+def _run_grant(project: Path, slug: str, state: dict) -> dict:
+    if state.get("inferred") or state.get("parked"):
+        raise CrewError("狀態為 inferred／parked，Review Once 必須由人類先核對")
+    grant = state.get("autonomy") or {}
+    if grant.get("status") != "active":
+        raise CrewError("Review Once 授權並非 active；請重新取得 Human 授權")
+    stage = ("all" if gate_passed(state, "architecture") or
+             step_status(state, "arch") == "done" else
+             "spec" if gate_passed(state, "requirement") or
+             step_status(state, "spec") == "done" else "none")
+    _validate_review_once(project, slug, state, stage)
+    # Validate the actual checked-out branch when this is a Git workspace.
+    branch = git_out(project, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    if branch and branch != (state.get("git") or {}).get("branch"):
+        raise CrewError("實際 Git checkout 分支不等於 Review Once 核准分支")
+    return grant
+
+
+def _run_done(state: dict, step: str) -> bool:
+    if step == "build":
+        return step_status(state, step) == "done" and not (state.get("work_unit") or {}).get("skill")
+    return step_status(state, step) in DONE_LIKE
+
+
+def _run_next_command(state: dict, grant: dict) -> tuple[str, str] | None:
+    if step_status(state, "spec") not in DONE_LIKE:
+        return ("spec", "apply-spec")
+    if not gate_passed(state, "requirement"):
+        raise CrewError("Requirement Gate 未通過；請先用 grant approve-requirement 核對已核准提案")
+    if step_status(state, "db") not in DONE_LIKE:
+        return ("db", "apply-db")
+    if step_status(state, "arch") not in DONE_LIKE:
+        return ("arch", "apply-arch")
+    if not gate_passed(state, "architecture"):
+        raise CrewError("Architecture Gate 未通過；請先用 grant approve-architecture 核對已核准提案")
+    if step_status(state, "build") not in DONE_LIKE:
+        verifier = _review_once_mod()
+        import importlib.util as _importlib_util
+        path = Path(grant["packet_path"])
+        packet = verifier.packet_contract.verify_packet(verifier.packet_contract.parse_object(path))
+        mode = packet["test_policy"]
+        if mode == "bdd" and not (Path(__file__).resolve().parent / "crew-bdd-gate.py").is_file():
+            raise CrewError("BDD test policy 已核准但測試 Gate 不存在，不能靜默降級")
+        command = "/plan-build --bdd" if mode == "bdd" else "/plan-build --with-test"
+        work = state.get("work_unit") or {}
+        if work.get("skill") == "plan-build" and as_int(work.get("done")) < as_int(work.get("total")):
+            command += " --resume"
+        return ("build", command + " --review-once")
+    return None
+
+
+def _run_output(state: dict, action: str, **additional) -> int:
+    grant = state.get("autonomy") or {}
+    running = grant.get("execution") or {}
+    out = {"action": action, "status": running.get("status") or "not_started",
+           "run_id": running.get("run_id"), "owner": running.get("owner"),
+           "checkpoint": running.get("checkpoint"), "inflight": running.get("inflight"),
+           "expires_at": grant.get("expires_at")}
+    out.update(additional)
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
+def cmd_run(args) -> int:
+    project, slug = project_root(args), args.slug
+    if args.action == "status":
+        state = normalize(read_state(project, slug), slug)
+        grant = state.get("autonomy") or {}
+        return _run_output(state, "status", grant_status=grant.get("status"),
+                           next=compute_next(state), step_build=step_status(state, "build"))
+
+    owner = _run_owner(args.owner)
+    with state_lock(spec_dir(project, slug)):
+        state = normalize(read_state(project, slug), slug)
+        grant = state.get("autonomy") or {}
+        run = grant.get("execution") or {}
+        try:
+            _run_grant(project, slug, state)
+        except CrewError as exc:
+            if run.get("status") == "running":
+                run["status"] = "paused"
+                run["stop_reason"] = "GRANT_OR_SCOPE_INVALID"
+                run["inflight"] = run.get("inflight")
+                push_history(state, "runner", "paused: grant or scope invalid")
+                refresh_next(state)
+                write_state(project, slug, state)
+            raise exc
+
+        if args.action == "start":
+            if run:
+                raise CrewError("Runner 已建立，請 resume/status；不能重新開始四小時計時")
+            grant["execution"] = {
+                "status": "running", "run_id": __import__("uuid").uuid4().hex,
+                "owner": owner, "checkpoint": "start", "inflight": None,
+                "heartbeat_at": now_iso(), "stop_reason": None,
+            }
+            push_history(state, "runner", "start: existing Human-signed 4h grant")
+        elif args.action == "pause":
+            if run.get("status") != "running" or run.get("owner") != owner:
+                raise CrewError("只有目前 Runner 可暫停運行中的工作")
+            run["status"] = "paused"
+            run["stop_reason"] = args.reason or "USER_PAUSED"
+            run["heartbeat_at"] = now_iso()
+            push_history(state, "runner", f"pause: {run['stop_reason']}"[:200])
+        elif args.action == "resume":
+            if run.get("status") != "paused":
+                raise CrewError("Runner 並非 paused；不能重複 resume")
+            if run.get("inflight"):
+                phase = run["inflight"]["step"]
+                if not _run_done(state, phase):
+                    raise CrewError(f"先對帳未完成的 {phase}；不得重新委派可能已在執行的工作")
+                run["inflight"] = None
+                run["checkpoint"] = phase
+            if run.get("owner") != owner and not args.takeover:
+                raise CrewError("其他 Runner 的擁有權不得未經明示移轉；請使用 --takeover")
+            if run.get("owner") != owner and args.takeover:
+                if not args.reason:
+                    raise CrewError("接管 Runner 需要說明原因及確認原 worker 已停止")
+                push_history(state, "runner", f"takeover {run['owner']} -> {owner}: {args.reason}"[:240])
+            run["owner"] = owner
+            run["status"] = "running"
+            run["stop_reason"] = None
+            run["heartbeat_at"] = now_iso()
+        elif args.action == "heartbeat":
+            if run.get("status") != "running" or run.get("owner") != owner:
+                raise CrewError("Runner 未運作或 owner 不符")
+            run["heartbeat_at"] = now_iso()
+        elif args.action == "next":
+            if run.get("status") != "running" or run.get("owner") != owner:
+                raise CrewError("Runner 未運作或 owner 不符")
+            # A prior dispatch is never blindly repeated. It is reconciled
+            # only with the existing state writer's actual done-like evidence.
+            previous = run.get("inflight")
+            if previous:
+                if not _run_done(state, previous["step"]):
+                    return _run_output(state, "blocked",
+                                       reason="INFLIGHT_UNRECONCILED",
+                                       instruction="先完成或對帳上次派工，不得重複啟動")
+                run["checkpoint"] = previous["step"]
+                run["inflight"] = None
+            if _run_done(state, "build"):
+                if not (gate_passed(state, "requirement") and
+                        gate_passed(state, "architecture")):
+                    raise CrewError("Build Done 缺已核准 Requirement/Architecture Gate")
+                run["status"] = "completed_build"
+                run["checkpoint"] = "build"
+                grant["status"] = "consumed"
+                run["stop_reason"] = "BUILD_DONE"
+                push_history(state, "runner", "completed_build")
+            else:
+                action = _run_next_command(state, grant)
+                if action is None:
+                    raise CrewError("非預期流程位置；不能自動前往 security/verify/close")
+                step, command = action
+                run["inflight"] = {"step": step, "command": command,
+                                   "started_at": now_iso()}
+                run["heartbeat_at"] = now_iso()
+                push_history(state, "runner", f"dispatch {step}")
+        else:
+            raise CrewError(f"未知 run action：{args.action}")
+
+        refresh_next(state)
+        write_state(project, slug, state)
+        return _run_output(state, args.action)
+
+
 def cmd_gate(args) -> int:
     project = project_root(args)
     slug = args.slug
@@ -1861,6 +2040,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--by", required=True, help="決策者識別（例：human / 使用者名稱）")
     p.add_argument("--reason", default="", help="核准／拒絕／waive 原因；waived 必填")
     p.set_defaults(func=cmd_gate)
+
+    p = sub.add_parser("run", help="Review Once Runner：有限派工／暫停／續跑（不直接啟動 Host）")
+    add_target(p)
+    p.add_argument("--action", choices=["start", "next", "heartbeat", "pause", "resume", "status"],
+                   required=True)
+    p.add_argument("--owner", default="", help="合作式 Runner owner 識別碼（不是安全憑證）")
+    p.add_argument("--reason", default="", help="暫停／明確接管的原因")
+    p.add_argument("--takeover", action="store_true", help="僅 paused 時接受帶原因的 owner 轉移")
+    p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("grant", help="Review Once 簽署授權、Gate 綁定、狀態檢查／撤銷")
     add_target(p)
