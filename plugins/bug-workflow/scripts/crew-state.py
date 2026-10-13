@@ -958,6 +958,8 @@ def cmd_grant(args) -> int:
                     project, Path(args.packet), Path(args.approval_event), Path(args.signature))
             except (verifier.GrantError, OSError, KeyError, ValueError) as exc:
                 raise CrewError(f"Human approval proof 不合法：{exc}") from exc
+            if existing.get("grant_id") == event["grant_id"]:
+                raise CrewError("已撤銷／完成的 Grant 不可用同一個簽章重放；請重新取得 Human 授權")
             proposal = packet["proposal"]
             if proposal["slug"] != slug:
                 raise CrewError("packet slug 與任務不符")
