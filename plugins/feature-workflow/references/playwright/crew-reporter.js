@@ -9,6 +9,8 @@
  * Stable AC identity:
  *   - preferred: step/title contains "{slug}#AC-n"
  *   - fallback: test annotation { type: "crew-ac", description: "{slug}#AC-n" }
+ *   - optional distinct BDD scenario: { type: "crew-scenario-id",
+ *       description: "{slug}#AC-n#S01" } (one AC per independent test)
  *
  * BLOCKED:
  *   - whole test: { type: "crew-blocked", description: "reason" }
@@ -32,6 +34,7 @@ const path = require('path');
 const assert = require('assert');
 
 const AC_KEY_RE = /([A-Za-z0-9][A-Za-z0-9._-]*#AC-\d+)\b/g;
+const SCENARIO_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*#AC-[1-9]\d*#S(?:0[1-9]|[1-9]\d+)$/;
 
 function extractAcKeys(text) {
   const keys = [];
@@ -79,6 +82,11 @@ function scenarioOf(test, result) {
     if (parts.length) return parts.join(' > ');
   }
   return test && test.title ? String(test.title) : 'unknown';
+}
+
+function scenarioIdOf(test, result, ac) {
+  const id = annotationValues(test, result, 'crew-scenario-id')[0] || null;
+  return id && SCENARIO_ID_RE.test(id) && id.startsWith(`${ac}#`) ? id : null;
 }
 
 function blockedReasonOf(test, result) {
@@ -348,6 +356,7 @@ class CrewReporter {
         this.groups.set(key, {
           ac: record.ac,
           scenario,
+          scenario_id: scenarioIdOf(test, result, record.ac),
           attempts: [],
         });
       }
@@ -373,6 +382,7 @@ class CrewReporter {
         return {
           ac: group.ac,
           scenario: group.scenario,
+          ...(group.scenario_id ? { scenario_id: group.scenario_id } : {}),
           status,
           coverage: last.coverage || 'full',
           attempts: attempts.length,
@@ -634,11 +644,31 @@ function selfTest() {
     ],
   });
 
+  // Two independent examples for the same AC must stay distinguishable.
+  for (const [id, scenarioId] of [['t10', 'S01'], ['t11', 'S02']]) {
+    const test = {
+      id,
+      title: 'feature-bdd#AC-1 booking',
+      annotations: [
+        { type: 'crew-ac', description: 'feature-bdd#AC-1' },
+        { type: 'crew-scenario-id', description: `feature-bdd#AC-1#${scenarioId}` },
+      ],
+      titlePath: () => ['suite', 'feature-bdd#AC-1 booking'],
+    };
+    reporter.onTestEnd(test, {
+      status: 'passed', retry: 0, duration: 1, attachments: [], steps: [],
+    });
+  }
+
   reporter.onEnd();
   const payload = JSON.parse(fs.readFileSync(output, 'utf8'));
   const byAc = Object.fromEntries(payload.results.map((item) => [item.ac, item]));
 
   assert.equal(payload.schema_version, 1);
+  assert.deepEqual(
+    payload.results.filter((item) => item.ac === 'feature-bdd#AC-1').map((item) => item.scenario_id).sort(),
+    ['feature-bdd#AC-1#S01', 'feature-bdd#AC-1#S02'],
+  );
   assert.equal(byAc['feature-a#AC-1'].status, 'passed');
   assert.equal(byAc['feature-a#AC-2'].status, 'flaky');
   assert.equal(byAc['feature-a#AC-2'].attempts, 2);
@@ -676,6 +706,7 @@ module.exports._internals = {
   annotationsOf,
   acStatusPayloads,
   acStatusOverrides,
+  scenarioIdOf,
 };
 
 if (require.main === module) {

@@ -23,6 +23,7 @@ test-results/crew-results.json
     {
       "ac": "example-feature#AC-1",
       "scenario": "example-main-flow",
+      "scenario_id": "example-feature#AC-1#S01",
       "status": "passed",
       "coverage": "full",
       "attempts": 1,
@@ -48,6 +49,8 @@ E2E repo 應 vendor/copy 或自行實作相同 schema，不要讓 CI 依賴某�
 
 Mapping：
 - test annotation `crew-ac`：description = `{slug}#AC-n`
+- 選用 BDD 行為情境時，獨立 test 再加 `crew-scenario-id`：description = `{slug}#AC-n#S01`（每個 Sxx 一個 test，Reporter 才能區別）
+- `scenario` 是可讀標題；`scenario_id` 才是精準 join key。未使用行為情境的舊 Reporter 只輸出 `scenario`，仍可相容。
 - stateful `test.step`：title 直接包含 `{slug}#AC-n`
 - 整支 scenario 的 precondition blocked：annotation `crew-blocked`，description = reason
 - 只阻擋部分 AC：runtime annotation `crew-ac-status`，description 為 JSON，例如 `{"ac":"slug#AC-5","status":"blocked","reason":"fixture mismatch"}`
@@ -89,13 +92,21 @@ Mapping：
 
 `status=passed + coverage=partial` 匯回 plan-verify 時是 **WARN**，不是 PASS。這能避免部分 evidence 被冒充成完整驗收。
 
+## 情境覆蓋與相容性
+
+- `scenario_id` 是 **schema v1 選填欄位**；有值時需與同筆 `ac` 相符，格式固定 `{slug}#AC-n#Sxx`（S01、S02……）。
+- 若 `plan.md` 某條 AC 宣告了 S01/S02，請使用 `--plan .spec/{slug}/plan.md`；彙總器會對照 **所有已宣告的 Sxx**。少一個或其中任何一筆 coverage=partial，該 AC 只能 WARN（若另有 FAIL／BLOCKED，保留更嚴重狀態）。
+- 沒宣告 Sxx 的舊 AC 繼續使用原本 AC 層級聚合規則；不需要 migration。
+- 獨立 test 各使用自己的 `crew-scenario-id`。在多 AC 的 stateful test 中不要共用同一個 `crew-scenario-id`，否則無法精確歸屬；仍可用既有 AC step 做追蹤。
+
 ## Import / aggregation
 
 `--from-e2e` 先執行 plugin 內建：
 
 ```bash
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-results.py" summarize \
-  --file {result} --slug {slug} --expected-git-sha {sha}
+  --file {result} --slug {slug} --expected-git-sha {sha} \
+  --plan .spec/{slug}/plan.md
 ```
 
 同一個 AC 若被多個 test / scenario 覆蓋，採**最差狀態優先**：

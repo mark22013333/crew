@@ -24,14 +24,15 @@
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-e2e-results.py" summarize \
   --file {crew-results.json} \
   --slug {slug} \
-  --expected-git-sha {目前受測 commit}
+  --expected-git-sha {目前受測 commit} \
+  --plan .spec/{slug}/plan.md
 ```
 
 此腳本負責：
 - schema / status / AC join key 驗證
 - blocked 必須有 reason
 - 只保留目前 slug，其他結果計入 ignored
-- 同一 AC 多筆 coverage 採最差狀態聚合
+- 同一 AC 多筆結果採最差狀態優先；有 Sxx 宣告時逐情境檢查 full coverage，缺任一 Scenario 就標 WARN，不把其他 PASS 當成全部通過
 - git SHA freshness
 - deterministic counts / partial coverage / overall PASS|WARN|FAIL
 

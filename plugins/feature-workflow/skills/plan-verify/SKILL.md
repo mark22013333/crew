@@ -154,6 +154,8 @@ CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 ```
 
 - **編號 `AC-n` 是 join key**，後續所有輸出（逐條結果、摘要行、`state.json`、截圖檔名）一律沿用同一個編號，🔴 不要自己重新編號。
+- 若 AC 同行有 `｜例：S01 ...；S02 ...`，依 `../../references/behavior-examples.md` 將各案例視為**需要覆蓋的驗收情境**，以 `{slug}#AC-n#Sxx` 追溯結果。只驗過 S01 而漏 S02，不能將整條 AC 報 PASS。
+- 未宣告情境的舊任務維持既有 AC 驗收流程；不可自行臆測情境清單或以範例文字 fuzzy match 當唯一映射。
 - 同時讀「已知取捨與風險」節：列為 Out of Scope 或已接受的取捨，對應項目標 `⏭️ SKIP` 並註明理由，不要報成 FAIL。
 - 決策紀錄 `D-n` 提供「為什麼這樣做」，判斷實際行為是刻意還是缺陷時用。
 - 🔴 plan.md 的 checkbox **不由本 skill 勾選**（那是規格的狀態，不是驗證結果）；驗證結果寫在摘要行與 `state.json`。
