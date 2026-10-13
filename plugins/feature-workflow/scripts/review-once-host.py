@@ -98,6 +98,9 @@ def protected_config(raw: Path, project: Path) -> dict:
                               "--yolo", "--danger-full-access",
                               "bypassPermissions"),
                   "不允許繞過 Host 權限的 CLI 參數")
+        if arg.startswith("/") and arg not in TEMPLATES:
+            assert_ok(not Path(arg).resolve().is_relative_to(project),
+                      "不可透過受保護 Adapter 執行 Repo 中 Agent 可修改的 Script")
     return config
 
 
@@ -200,6 +203,29 @@ def safe_pause(project: Path, slug: str, owner: str, reason: str) -> None:
         pass
 
 
+def execute_dispatch(project: Path, slug: str, owner: str,
+                     config: dict, item: dict, poll: float) -> None:
+    step = item["step"]
+    assert_ok(step in EXPECTED, "Runner 下達未知階段")
+    check_runtime(project, slug, owner)
+    if step in ("spec", "db", "arch"):
+        stage_apply(project, slug, step)
+    else:
+        scope = build_guard(project, slug)
+        assert_ok(scope["test_policy"] in ("with_test", "bdd"),
+                  "Review Once 不允許無測試 Build")
+        instruction = item["command"]
+        assert_ok(instruction.startswith("/plan-build ") and
+                  instruction.endswith(" --review-once"),
+                  "只允許已核准的 Build Skill 指令")
+        run_worker(project, slug, owner, config, instruction, poll)
+        build_guard(project, slug)
+        current = cmd(project, slug, "run", "--action", "status")
+        assert_ok(current["step_build"] == "done",
+                  "Host Worker 未以正式 state writer 完成 Build")
+    check_runtime(project, slug, owner)
+
+
 def drive(project: Path, slug: str, owner: str, config: dict,
           mode: str, *, max_stages: int = 6, poll: float = 2.0,
           reconcile: bool = False, reason: str = "") -> dict:
@@ -215,6 +241,22 @@ def drive(project: Path, slug: str, owner: str, config: dict,
                 argv += ["--reconcile", "--reason", reason]
             cmd(project, slug, *argv)
         check_runtime(project, slug, owner)
+        if mode == "resume" and reconcile:
+            # crew-state.py intentionally retains unresolved in-flight evidence
+            # after explicit reconciliation; only this Host can now replay
+            # that precise task after the operator confirmed old worker stopped.
+            previous = cmd(project, slug, "run", "--action", "status").get("inflight")
+            if previous:
+                assert_ok(reason.strip(), "中斷派工續跑需要明確的對帳理由")
+                if previous["step"] == "build":
+                    # Delegate already-started Build through its native work_unit
+                    # resume contract, never quietly restart a clean Build.
+                    prior = previous.copy()
+                    command = prior["command"]
+                    if "--resume" not in command.split():
+                        command = command.replace(" --review-once", " --resume --review-once")
+                    previous = {**prior, "command": command}
+                execute_dispatch(project, slug, owner, config, previous, poll)
         for _ in range(max_stages):
             result = cmd(project, slug, "run", "--action", "next", "--owner", owner)
             if result["status"] == "completed_build":
@@ -224,26 +266,7 @@ def drive(project: Path, slug: str, owner: str, config: dict,
                       result.get("inflight") is not None,
                       "未完成派工尚未對帳，不得重複呼叫 Worker")
             item = result["inflight"]
-            step = item["step"]
-            assert_ok(step in EXPECTED, "Runner 下達未知階段")
-            check_runtime(project, slug, owner)
-            if step in ("spec", "db", "arch"):
-                stage_apply(project, slug, step)
-            else:
-                scope = build_guard(project, slug)
-                assert_ok(scope["test_policy"] in ("with_test", "bdd"),
-                          "Review Once 不允許無測試 Build")
-                assert_ok(item["command"].startswith("/plan-build ") and
-                          item["command"].endswith(" --review-once"),
-                          "只允許已核准的 Build Skill 指令")
-                run_worker(project, slug, owner, config, item["command"], poll)
-                # A zero exit code is insufficient: revalidate scope and
-                # *actual* state evidence, then let crew-state finalize.
-                build_guard(project, slug)
-                current = cmd(project, slug, "run", "--action", "status")
-                assert_ok(current["step_build"] == "done",
-                          "Host Worker 未以正式 state writer 完成 Build")
-            check_runtime(project, slug, owner)
+            execute_dispatch(project, slug, owner, config, item, poll)
         raise BridgeError("超過階段派工上限；停止以避免失控迴圈")
     except (BridgeError, OSError, ValueError, subprocess.TimeoutExpired,
             KeyboardInterrupt) as exc:
