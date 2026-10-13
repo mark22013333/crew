@@ -80,6 +80,17 @@ jobs:
       - name: 驗證 Feature/Bug type-aware lifecycle
         run: python3 scripts/lint-state-lifecycle.py
 
+  review-once-host:
+    name: Review Once Host Bridge integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exercise real signed grant and trusted worker subprocess
+        run: python3 scripts/lint-review-once-host.py
+
   review-once-runner:
     name: Review Once Runner behavior
     runs-on: ubuntu-latest
