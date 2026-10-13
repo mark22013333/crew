@@ -80,6 +80,28 @@ jobs:
       - name: 驗證 Feature/Bug type-aware lifecycle
         run: python3 scripts/lint-state-lifecycle.py
 
+  review-once-grants:
+    name: Review Once signed grant + approval gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate real signatures, expiry, snapshots, revocation and gates
+        run: python3 scripts/lint-review-once-grants.py
+
+  review-once-packet:
+    name: Review Once packet contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate read-only packet, hashes, scope and negative cases
+        run: python3 scripts/lint-review-once.py
+
   approval-gates:
     name: Approval gates
     runs-on: ubuntu-latest
@@ -154,6 +176,7 @@ jobs:
           python-version: '3.11'
       - name: 驗證 RED/GREEN、Scenario coverage、Human approval 及 CLI exit semantics
         run: python3 scripts/lint-bdd-behavior.py
+
 
   skill-contract:
     name: SKILL.md 內容契約
