@@ -127,6 +127,25 @@ class RunnerScenarios(unittest.TestCase):
         self.assertEqual(json.loads(transfer.stdout)["owner"], "host-b")
         self.assertNotEqual(self.runner("next", "host-a").returncode, 0)
 
+    def test_original_grant_expiry_cannot_be_renewed_by_event_replacement(self):
+        self.initialize()
+        from datetime import datetime
+        end = g.grant_tool.parse_time(self.event["expires_at"], "expires_at")
+        with self.assertRaisesRegex(g.grant_tool.GrantError, "授權已到期"):
+            g.grant_tool.verify_event(
+                self.project, self.packet_file, self.event_file, self.signature_file,
+                when=end + timedelta(seconds=1),
+            )
+        # Even a newly signed shorter event cannot change the original
+        # grant deadline without issuing a new, explicitly approved Grant.
+        self.event["expires_at"] = (self.issued + timedelta(hours=3)).isoformat()
+        self.sign()
+        invalid = self.runner("next")
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("原始四小時期限", invalid.stderr)
+        status = json.loads(self.runner("status").stdout)
+        self.assertEqual(status["status"], "paused")
+
     def test_revocation_and_expired_grant_pause_execution(self):
         self.initialize()
         self.assertEqual(self.state("grant", "--action", "revoke").returncode, 0)
