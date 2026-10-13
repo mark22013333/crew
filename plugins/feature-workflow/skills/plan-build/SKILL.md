@@ -1,7 +1,7 @@
 ---
 name: plan-build
 description: 從 .spec/{slug}/plan.md 以多角色 leader-delegate 模式產生程式碼，含退出驗證與錨點有效性檢查；依 Host capability 自動選擇平行或序列執行。當使用者提到 /plan-build、「從 spec 產生程式碼」、「plan-build 產碼」時觸發此 Skill。
-argument-hint: "[--with-test|--no-test] [--backend-only] [--dry-run] [--resume]"
+argument-hint: "[--with-test|--no-test|--bdd] [--backend-only] [--dry-run] [--resume]"
 ---
 
 # plan-build — 多角色程式碼產生
@@ -66,12 +66,15 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 /plan-build                # 完整產生（後端 + 前端，預設不含測試）
 /plan-build --with-test    # 包含測試程式碼
 /plan-build --no-test      # 明確不含測試（同預設）
+/plan-build --bdd          # 選用：先建立行為測試、取得 RED 證據，再實作並取得 GREEN
 /plan-build --dry-run      # 預覽不建立檔案
 /plan-build --backend-only # 只產後端
 /plan-build --resume       # 從 state.json 的 work_unit 續跑未完成的角色
 ```
 
-`--resume`：先讀 `crew-state.py list --slug {slug} --format json` 的 `work_unit`，只 spawn `remaining` 列出的角色，已完成的不重跑。`work_unit` 為空 → 視同完整執行。
+`--resume`：先讀 `crew-state.py list --slug {slug} --format json` 的 `work_unit`，只 spawn `remaining` 列出的角色，已完成的不重跑。`work_unit` 為空 → 視同完整執行。**若使用 `--bdd --resume`，還必須驗證保留的 RED 證據；缺少證據不能自行假設前次測試先行。**
+
+`--bdd` **明確選用**，預設仍不含測試；含意是 `--with-test` 加上 **Test-First RED→GREEN 順序**。`--bdd --no-test` 是衝突參數，立即 BLOCK；`--bdd --dry-run` 只顯示計畫，不產生測試、不呼叫寫入、不冒充 RED/GREEN。
 
 ---
 
@@ -113,9 +116,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
   • api-engineer      — API 層（Controller/DTO/驗證）
   {• frontend-engineer — 前端頁面（{FRONTEND_TECH}）}
 
-是否產出測試程式碼？
+是否產出測試程式碼？（未指定 --bdd 時）
   1. 是 — 包含 test-engineer 角色
   2. 否（預設）— 跳過測試，節省 token
+
+{--bdd: Test-First 開啟，先產測試並取得 RED，才允許產品碼實作，最後取得 GREEN}
 
 {--dry-run: 預覽模式，不建立檔案}
 
@@ -125,6 +130,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 #### 測試可選化判斷規則
 
 - 若團隊組成原本只有 1-2 人且不含 test-engineer → 不顯示此選項
+- 若使用者使用 `--bdd` 參數 → 強制包含 test-engineer（即使原本是單一角色），不顯示測試選項；`--no-test` 同時存在則 BLOCK。
 - 若使用者使用 `--with-test` 參數 → 自動選是，不互動
 - 若使用者使用 `--no-test` 參數 → 自動選否（同預設），不互動
 - 使用者選「是」時，在團隊中加入 test-engineer
@@ -154,6 +160,37 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 
 #### 5d. 預備交叉引用清單（Layer 3）
 從 `deploy.sql` 與 plan.md 的驗收條件提取跨角色約束（NOT NULL、UNIQUE、必填參數、外鍵、分頁限制）。約束的事實在 `deploy.sql`，不是在文件敘述裡。
+
+### 5e. BDD 選用模式：Test-First RED → GREEN（只在 `--bdd` 執行）
+
+> **必讀契約**：`../../references/bdd-test-first.md`。不是要求所有任務寫 Gherkin，而是要求已核准的 `Sxx` 行為案例在產品碼修改前有可重現的失敗測試。
+
+1. **重檢 Human approval**：沿用本 Skill 前置的 `crew-state.py validate --require-gate requirement --require-gate architecture`，`--bdd` 不跳過任何關卡。確認 `plan.md` 的 `crew:ac` 至少有一條 `｜例：S01 ...` 且已核准；沒有則 BLOCK，回 `/plan spec`（若規格修改須重新 Human approve）。
+2. **先決定 runner**：探索既有 JUnit / pytest / Playwright／Cucumber 測試資產，依專案慣例選擇能輸出 `crew-results.json` schema v1（包含 `{slug}#AC-n#Sxx` `scenario_id`）的 runner 或 adapter。無法輸出可驗證結果 → BDD BLOCK；可由 Human 明確改成一般 `--with-test`，**不可悄悄降級**。
+3. **測試先行（獨立 write scope）**：僅委派 `test-engineer`，其 allowed paths 限制為專案既有測試目錄、測試 fixture 與 runner adapter；此時禁止任何 backend/API/frontend/DB 產品實作角色寫入。針對每個已核准 Sxx 建立或補足可執行的 assertion 與 Scenario ID，缺漏案例不可宣稱完成。
+4. **執行 RED**：確認 test discovery/config/fixture 均正常，執行測試並把機器可讀輸出保留在 `.spec/{slug}/.cache/bdd-red.json`（來源為實際 runner；不能手寫合成測試結果），然後執行：
+
+   ```bash
+   python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-gate.py" \
+     --plan .spec/{slug}/plan.md --slug {slug} \
+     --phase red --results .spec/{slug}/.cache/bdd-red.json
+   ```
+
+   必須至少一個已核准 Scenario **因產品行為 assertion** 失敗；僅 environment / fixture / auth / framework 失敗不能當 RED。腳本檢查完整 Scenario ID、full coverage 與 failure reason；Leader 必須額外檢查失敗訊息確實指向目標產品行為。沒有有效 RED → BLOCK，**不得實作產品碼**。
+5. **提交可續跑的 RED 證據引用**：`crew-state.py unit --slug {slug} --skill plan-build --done 1 --total {角色總數+2} --label "BDD RED" --remaining "產品實作,BDD GREEN" --evidence ".spec/{slug}/.cache/bdd-red.json"`。進度只經既有 state writer；不可手寫 `state.json`，亦不可把完整 log 放到 `plan.md`。
+6. **才進產品實作**：由下一節的既有 `delegate_write` 角色依 allowed scope 編修產品碼，可平行互不衝突的角色，**不得為了測試變綠而刪除 assertion、放寬規格或直接改 Sxx**。真有規格錯誤需返回 `/plan spec` 取得 Human 重新核准，再重做 RED。
+7. **執行 GREEN**：重新執行同一套測試得到 `.spec/{slug}/.cache/bdd-green.json`，執行：
+
+   ```bash
+   python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-gate.py" \
+     --plan .spec/{slug}/plan.md --slug {slug} \
+     --phase green --results .spec/{slug}/.cache/bdd-green.json \
+     --red-results .spec/{slug}/.cache/bdd-red.json
+   ```
+
+   所有宣告 Sxx 必須 `passed + coverage=full`；任何 missing/failed/flaky/BLOCKED/skipped/manual 都不能 GREEN。RED/GREEN 不可使用同一份檔案或相同 run_id。GREEN 未通過 → build 保持 in_progress、保留 `work_unit`，不得標 `build=done`。
+
+**`--bdd --resume`**：若產品碼曾開始修改，先重新驗證既有 RED artifact 與 approval gate，並確認 RED 是修改產品碼**之前**執行（比較實際 Git diff 與本次紀錄；單靠 JSON 不足以證明時間順序）。證據遺失、時序不可證明或 Sxx 已變更 → BLOCK 並請 Human 決定重啟任務或改為一般 `--with-test`；絕不補造 RED。可降級 inline/sequential 委派，但**不降級 Test-First 順序及證據門檻**。
 
 ### 6. 啟動實作 Agent（逐一具名 delegate_write，profile: DEEP）
 
@@ -192,6 +229,7 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
 根據『判斷團隊組成』一節的判斷結果（見 plugin 根目錄 `references/team-composition.md`，相對 SKILL.md 為 `../../references/`）：
 - 1 人 → 單一具名 `delegate_write`，帶 `task: high_risk_implementation` + `profile: DEEP` + allowed scope。
 - 2+ 人 → 優先 `parallel_delegate`；其中**每個**子工作單元仍各自帶相同 routing contract 與自己的 allowed scope。若 Host 無平行能力則序列 `delegate_write`。跨角色 API 契約由 Leader 彙整後再傳遞，不依賴特定 Team message 工具。
+- **BDD 例外**：上述平行規則只適用 RED 成功後的產品實作角色；`--bdd` 必須在執行本節之前完成 5e 的 test-engineer 與 RED gate，不能將 test-engineer 與產品實作者同時 spawn。後續 GREEN 亦需按 5e 跑完整驗證。
 
 ### 7. 更新狀態與指路錨點
 
@@ -227,7 +265,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} \
   --remaining "{未完成角色，逗號分隔}" --evidence "{已產出的檔案或指令輸出}"
 ```
 
-全部角色完成後收尾（`--clear` 清掉工作單元，代表沒有斷點）：
+全部角色完成後收尾（`--clear` 清掉工作單元，代表沒有斷點）：**`--bdd` 須先取得 5e 的 GREEN_VALID，否則嚴禁執行下列清除或 `build=done`。**
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" unit --slug {slug} --clear
@@ -275,6 +313,7 @@ Leader 在回傳結果前，逐項檢查以下退出條件：
 | E5 | 錨點有效性（檔案／符號還在） | `check-spec-drift.py --spec .spec/{slug}/plan.md --format json`，看 D1／D2 | 列出失效錨點，標記 ⚠️ 並建議跑 `/plan-drift`；**不阻擋** |
 | E6 | `AC-n` 驗收條件有對應程式碼 | 讀 plan.md「驗收條件」節的 `AC-n`，grep 本次產出檔案確認有相關實作 | 列出無對應的 `AC-n`，標記 ⚠️ |
 | E7 | `deploy.sql` 校驗（若 DB_REQUIRED != false） | 見下方 E7 詳細邏輯 | 見下方 E7 詳細邏輯 |
+| E8 | BDD RED / GREEN 證據（僅 `--bdd`） | `crew-bdd-gate.py` 對核准 Sxx 比對 RED+GREEN，確認無漏跑／無 BLOCKED | **BLOCK，不得將 build=done**；保留 work_unit 供續跑 |
 
 > **測試已跳過時**：若使用者選否（不含測試），E6 仍執行但不檢查測試檔案，驗證結果中標記「測試已跳過」。
 
@@ -307,7 +346,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 
 #### 驗證結果分級
 
-- **🔴 BLOCK**（E0, E1, E2, E3, E7 當 DB_REQUIRED=true 且 deploy.sql 缺失）：必須解決後才能標記完成
+- **🔴 BLOCK**（E0, E1, E2, E3, E8（僅 BDD）, E7 當 DB_REQUIRED=true 且 deploy.sql 缺失）：必須解決後才能標記完成
 - **⚠️ WARN**（E4, E5, E6, E7 其餘情況）：在回報中提醒，不阻擋
 
 #### 驗證結果格式

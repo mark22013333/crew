@@ -364,7 +364,7 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 | `/plan-explore` | 自由探索與方案比較 |
 | `/plan-browse` | 深讀/比較既有 `.spec/` |
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 Human approval loop |
-| `/plan-build` | 依核准規格產生正式程式碼 |
+| `/plan-build` | 依核准規格產生正式程式碼；可選 `--bdd` Test-First RED→GREEN（需 Sxx 情境） |
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Verification Router + BLOCKED 語意 + Playwright draft/result/promotion；產出 UAT 前 machine evidence |
 | `/plan-review` | 邏輯/品質/效能 review |

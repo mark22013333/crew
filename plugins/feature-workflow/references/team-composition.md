@@ -66,6 +66,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 | false | false | true | 3 人（後端 + API + 測試）|
 | false | false | false | 後端 + 測試（2 人 Team 或 Subagent）|
 
+### BDD Test-First 角色順序（選用）
+
+`/plan-build --bdd` 不改變原本依 D-1 判斷 DB/backend/API/frontend 的組成，但**必須另外保留 test-engineer**，即使原本只需單一實作角色。test-engineer 先獨立寫測試並取得 `crew-bdd-gate.py --phase red` 有效證據，**完成之前不得 spawn 產品實作角色**；RED 後才採用既有 parallel/sequential 規則，GREEN 後才能結束。其他模式完全沿用原本選配測試政策。
+
 ### Step 3.5：DB_REQUIRED 處理
 
 `D-1 [spec] 範圍判斷` 條目可能包含 `DB_REQUIRED` 欄位，影響團隊組成和退出驗證。
