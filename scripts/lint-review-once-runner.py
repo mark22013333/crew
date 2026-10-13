@@ -179,7 +179,7 @@ class RunnerScenarios(unittest.TestCase):
         (self.project / "src" / "main.txt").write_text("baseline\n")
         git("add", "src/main.txt")
         git("commit", "-q", "-m", "baseline")
-        sha = git("rev-parse", "HEAD").stdout.decode().strip()
+        sha = git("rev-parse", "HEAD").stdout.strip()
         self.proposal["repository"]["base_commit"] = sha
         self.packet = g.packet_tool.create_packet(self.proposal)
         self.packet_file.write_bytes(g.packet_tool.canonical_bytes(self.packet))
