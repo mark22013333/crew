@@ -219,7 +219,7 @@ Portable root：
 | `/plan-explore` | 想法探索、問題調查、方案比較 |
 | `/plan-browse` | 深讀/比較既有規劃 |
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 approval loop |
-| `/plan-build` | 依核准規格執行正式實作；支援 dry-run / scoped build |
+| `/plan-build` | 依核准規格執行正式實作；支援 dry-run / scoped build / 選用 `--bdd` Test-First |
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Browser/API 驗證、evidence、Word/Excel/E2E 選項 |
 | `/plan-review` | 邏輯、品質、效能 review；可 quick |
