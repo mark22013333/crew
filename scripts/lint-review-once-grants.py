@@ -201,6 +201,9 @@ class SignedGrantScenarios(unittest.TestCase):
         self.assertEqual(revoke.returncode, 0, revoke.stderr)
         self.assertNotEqual(self.state("grant", "--action", "check").returncode, 0)
         self.assertNotEqual(self.state("grant", "--action", "approve-requirement").returncode, 0)
+        replay = self.issue()
+        self.assertNotEqual(replay.returncode, 0, replay.stderr)
+        self.assertIn("不可用同一個簽章重放", replay.stderr)
 
 
 if __name__ == "__main__":
