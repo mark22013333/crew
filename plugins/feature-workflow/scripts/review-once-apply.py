@@ -167,6 +167,9 @@ def apply(project: Path, slug: str, stage: str) -> dict:
     if stage == "spec":
         state_command(project, slug, "set", "--step", "spec", "--status", "done")
         state_command(project, slug, "grant", "--action", "approve-requirement")
+        # packet 是測試策略的權威：鏡像進 state.json.testing，供 /plan-next、/plan-verify 沿用
+        state_command(project, slug, "set", "--test-policy", proposal["test_policy"],
+                      "--by", "packet")
     elif stage == "db":
         status = "done" if proposal["db"]["required"] else "skipped"
         options = ["--step", "db", "--status", status]

@@ -160,22 +160,60 @@ def check_stage(project: Path, slug: str, proposal: dict, stage: str) -> None:
             require(not sql.exists(), "DB_REQUIRED=false 不得新增 deploy.sql")
 
 
+def verify_dialogue(project: Path, grant: dict, when: datetime | None = None) -> dict:
+    """同 session 對話核准（proof=dialogue）的防竄改檢查，回傳重新驗證過的 packet。
+
+    只保證「套用的＝Human 在對話中審過的 packet」：重讀 packet_path、重算 hash、
+    比對 grant 記錄的 packet_sha256，並確認未到期、期限不超過四小時。
+    信任等級等同 Interactive 的 Human 核准，不是不可偽造的簽章。
+    """
+    current = when or now_utc()
+    require(grant.get("by") == "human-dialogue", "dialogue Grant 的核准者紀錄不合法")
+    try:
+        uuid.UUID(str(grant.get("grant_id")))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise GrantError("grant_id 必須是 UUID") from exc
+    raw_path = grant.get("packet_path")
+    require(isinstance(raw_path, str) and bool(raw_path), "dialogue Grant 缺 packet_path")
+    try:
+        packet = packet_contract.parse_object(Path(raw_path))
+        packet_contract.verify_packet(packet)
+    except packet_contract.PacketError as exc:
+        raise GrantError(str(exc)) from exc
+    require(grant.get("packet_sha256") == packet["packet_sha256"],
+            "審查封包已變更：重算 hash 與 Human 核准的 packet_sha256 不一致")
+    issued = parse_time(grant.get("issued_at"), "issued_at")
+    expires = parse_time(grant.get("expires_at"), "expires_at")
+    require(issued <= current + timedelta(seconds=60), "授權簽發時間在未來")
+    require(expires > current, "授權已到期")
+    require(timedelta(seconds=0) < expires - issued <= timedelta(seconds=14400),
+            "Review Once 授權不可超過四小時")
+    return packet
+
+
 def validate_active(project: Path, slug: str, state: dict,
-                    stage: str = "all") -> tuple[dict, dict]:
+                    stage: str = "all") -> tuple[dict, dict | None]:
+    """回傳 (proposal, event)；dialogue Grant 沒有簽署事件，event 為 None。"""
     grant = state.get("autonomy") or {}
     require(grant.get("mode") == "review_once" and grant.get("status") == "active",
             "沒有可用的 Review Once Grant")
-    packet_file = Path(grant["packet_path"])
-    event_file = Path(grant["event_path"])
-    sig_file = Path(grant["signature_path"])
-    packet, event, key_sha = verify_event(project, packet_file, event_file, sig_file)
-    require(grant.get("packet_sha256") == packet["packet_sha256"] and
-            grant.get("grant_id") == event["grant_id"] and
-            grant.get("trusted_key_sha256") == key_sha,
-            "Review Once Grant 內容／信任根與原始授權不符")
-    require(grant.get("issued_at") == event["issued_at"] and
-            grant.get("expires_at") == event["expires_at"],
-            "Grant 記錄的原始四小時期限與簽署事件不符")
+    proof = grant.get("proof", "signed")
+    require(proof in ("signed", "dialogue"), f"未知的 Review Once 核准證明：{proof}")
+    if proof == "dialogue":
+        packet = verify_dialogue(project, grant)
+        event = None
+    else:
+        packet_file = Path(grant["packet_path"])
+        event_file = Path(grant["event_path"])
+        sig_file = Path(grant["signature_path"])
+        packet, event, key_sha = verify_event(project, packet_file, event_file, sig_file)
+        require(grant.get("packet_sha256") == packet["packet_sha256"] and
+                grant.get("grant_id") == event["grant_id"] and
+                grant.get("trusted_key_sha256") == key_sha,
+                "Review Once Grant 內容／信任根與原始授權不符")
+        require(grant.get("issued_at") == event["issued_at"] and
+                grant.get("expires_at") == event["expires_at"],
+                "Grant 記錄的原始四小時期限與簽署事件不符")
     proposal = packet["proposal"]
     require(proposal["slug"] == slug and state.get("type") == "feature",
             "僅支援授權的 Feature slug")

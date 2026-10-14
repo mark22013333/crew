@@ -186,6 +186,144 @@ class RunnerScenarios(unittest.TestCase):
         # Stage already done, cannot use the signed packet to repeat the writer.
         self.assertNotEqual(self.apply_stage("spec").returncode, 0)
 
+    def issue_dialogue(self, until: str = "build", seconds: int = 14400):
+        proc = self.state("grant", "--action", "issue", "--proof", "dialogue",
+                          "--packet", str(self.packet_file),
+                          "--approved-sha", self.packet["packet_sha256"],
+                          "--max-duration", str(seconds), "--until", until)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def start_dialogue(self, until: str = "build", seconds: int = 14400, owner: str = "dialogue-1"):
+        self.set_skeleton()
+        self.issue_dialogue(until, seconds)
+        started = self.runner("start", owner)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        return json.loads(started.stdout)
+
+    def read_state(self) -> dict:
+        return json.loads((self.spec_dir / "state.json").read_text(encoding="utf-8"))
+
+    def test_dialogue_full_path_commands(self):
+        started = self.start_dialogue()
+        self.assertEqual((started["grant_proof"], started["target_step"]), ("dialogue", "build"))
+        for stage in ("spec", "db", "arch"):
+            p = self.runner("next", "dialogue-1")
+            self.assertEqual(p.returncode, 0, p.stderr)
+            inflight = json.loads(p.stdout)["inflight"]
+            self.assertEqual(inflight["command"], f"review-once-apply.py --step {stage}")
+            applied = self.apply_stage(stage)
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            if stage == "spec":
+                # packet 的測試策略鏡像進 state.json.testing
+                testing = self.read_state()["testing"]
+                self.assertEqual((testing["policy"], testing["by"]), ("with_test", "packet"))
+        build = self.runner("next", "dialogue-1")
+        self.assertEqual(json.loads(build.stdout)["inflight"]["command"],
+                         "/plan-build --with-test --review-once")
+        self.assertEqual(self.runner("heartbeat", "dialogue-1").returncode, 0)
+        self.assertEqual(self.state("set", "--step", "build", "--status", "done").returncode, 0)
+        done = self.runner("next", "dialogue-1")
+        self.assertEqual(json.loads(done.stdout)["status"], "completed_build")
+        state = self.read_state()
+        self.assertEqual(state["autonomy"]["status"], "consumed")
+        self.assertEqual(state["gates"]["uat"]["status"], "pending")
+
+    def test_until_arch_completed_plan(self):
+        self.start_dialogue(until="arch", owner="host-a")  # plan_stages 以預設 owner 派工
+        self.plan_stages()
+        p = self.runner("next", "host-a")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout)["status"], "completed_plan")
+        state = self.read_state()
+        self.assertEqual(state["autonomy"]["status"], "consumed")
+        self.assertEqual(state["autonomy"]["execution"]["stop_reason"], "PLAN_DONE")
+        self.assertEqual(state["steps"]["build"]["status"], "pending")
+        self.assertEqual(state["gates"]["architecture"]["status"], "approved")
+        # 授權已用盡，不得順勢派 build
+        self.assertNotEqual(self.runner("next", "host-a").returncode, 0)
+
+    def test_reclaim_running_from_new_session(self):
+        self.start_dialogue(owner="dialogue-old")
+        self.dispatched_by("spec", "dialogue-old")
+        self.assertNotEqual(self.runner("reclaim", "dialogue-new").returncode, 0)  # 缺 --reason
+        self.assertNotEqual(self.runner("reclaim", "dialogue-old", "--reason", "x").returncode, 0)
+        reclaimed = self.runner("reclaim", "dialogue-new", "--reason", "原 session 已關閉")
+        self.assertEqual(reclaimed.returncode, 0, reclaimed.stderr)
+        run = self.read_state()["autonomy"]["execution"]
+        self.assertEqual((run["status"], run["stop_reason"], run["previous_owner"], run["owner"]),
+                         ("paused", "SESSION_LOST", "dialogue-old", "dialogue-new"))
+        self.assertEqual(run["inflight"]["step"], "spec")
+        self.assertNotEqual(self.runner("reclaim", "dialogue-other", "--reason", "x").returncode, 0)
+        # 之後照既有 resume 規則：有 inflight 必須明示對帳
+        self.assertNotEqual(self.runner("resume", "dialogue-new").returncode, 0)
+        resumed = self.runner("resume", "dialogue-new", "--reconcile",
+                              "--reason", "確認原 session 已結束")
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertEqual(self.apply_stage("spec").returncode, 0)
+        self.dispatched_by("db", "dialogue-new")
+
+    def dispatched_by(self, step: str, owner: str) -> dict:
+        p = self.runner("next", owner)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = json.loads(p.stdout)
+        self.assertEqual(out["inflight"]["step"], step)
+        return out
+
+    def test_dialogue_expiry_pauses(self):
+        self.start_dialogue(seconds=600)
+        grant = self.read_state()["autonomy"]
+        end = g.grant_tool.parse_time(grant["expires_at"], "expires_at")
+        with self.assertRaisesRegex(g.grant_tool.GrantError, "授權已到期"):
+            g.grant_tool.verify_dialogue(self.project, grant, when=end + timedelta(seconds=1))
+        # 模擬時間經過：把同樣 600 秒的窗口整段移到過去
+        from datetime import datetime, timezone
+        path = self.spec_dir / "state.json"
+        raw = self.read_state()
+        past = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=1)
+        raw["autonomy"]["issued_at"] = past.isoformat()
+        raw["autonomy"]["expires_at"] = (past + timedelta(seconds=600)).isoformat()
+        path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        expired = self.runner("next", "dialogue-1")
+        self.assertNotEqual(expired.returncode, 0)
+        self.assertIn("授權已到期", expired.stderr)
+        status = json.loads(self.runner("status").stdout)
+        self.assertEqual(status["status"], "paused")
+
+    def test_plan_run_skill_contract(self):
+        skill_dir = ROOT / "plugins/feature-workflow/skills/plan-run"
+        texts = [(skill_dir / "SKILL.md").read_text(encoding="utf-8")]
+        texts += [p.read_text(encoding="utf-8") for p in sorted((skill_dir / "phases").glob("*.md"))]
+        combined = "\n".join(texts)
+        for needle in ("ask_user(", "CREW_PLUGIN_ROOT=", "不是無人值守"):
+            self.assertIn(needle, combined)
+        self.assertNotIn("AskUserQuestion", combined)
+        # resume 分流：owner 不同時必須明示接管（同一行同時帶 --takeover 與 --reason）
+        resume_lines = [line for line in combined.splitlines()
+                        if "--action resume" in line and "--takeover" in line and "--reason" in line]
+        self.assertTrue(resume_lines, "plan-run 的 resume 指令缺 --takeover／--reason")
+
+    def test_resume_by_other_owner_requires_takeover_and_reason(self):
+        self.start_dialogue(owner="dialogue-a")
+        self.assertEqual(self.runner("pause", "dialogue-a", "--reason", "SESSION_END").returncode, 0)
+        direct = self.runner("resume", "dialogue-b")
+        self.assertNotEqual(direct.returncode, 0)
+        no_reason = self.runner("resume", "dialogue-b", "--takeover")
+        self.assertNotEqual(no_reason.returncode, 0)
+        taken = self.runner("resume", "dialogue-b", "--takeover",
+                            "--reason", "確認 dialogue-a 的 session 已結束")
+        self.assertEqual(taken.returncode, 0, taken.stderr)
+        self.assertEqual(json.loads(taken.stdout)["owner"], "dialogue-b")
+
+    def test_arch_only_grant_blocks_build_guard(self):
+        self.start_dialogue(until="arch", owner="host-a")
+        self.plan_stages()
+        guard = subprocess.run(
+            [sys.executable, str(FEATURE / "review-once-build.py"),
+             "--slug", self.slug, "--project", str(self.project)],
+            env=self.env, capture_output=True, text=True, check=False)
+        self.assertEqual(guard.returncode, 1, guard.stdout)
+        self.assertIn("grant 只核准到 arch", guard.stderr)
+
     def test_git_scope_guard_rejects_unapproved_product_files(self):
         git = lambda *args: subprocess.run(
             ["git", "-C", str(self.project), *args],

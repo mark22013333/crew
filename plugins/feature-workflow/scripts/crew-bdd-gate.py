@@ -108,16 +108,41 @@ def check(
     return output
 
 
+def plan_cases(plan: Path, slug: str) -> dict[str, Any]:
+    """--phase plan：只列 plan.md 已宣告的 expected Sxx，不讀任何測試結果。
+
+    供 /plan-build 的 BDD 開工確認畫面使用；未宣告 Sxx 時回 NO_SCENARIOS（exit 0），
+    由 skill 據此把 BDD 選項標為不可選。
+    """
+    expected = _e2e.load_expected_scenarios(plan, slug)
+    scenario_ids = sorted(sid for group in expected.values() for sid in group)
+    return {
+        "phase": "plan",
+        "status": "SCENARIOS_DECLARED" if scenario_ids else "NO_SCENARIOS",
+        "expected": {ac: list(ids) for ac, ids in sorted(expected.items())},
+        "scenario_ids": scenario_ids,
+        "count": len(scenario_ids),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CREW opt-in BDD Test-First evidence gate")
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--slug", required=True)
-    parser.add_argument("--results", required=True, type=Path)
-    parser.add_argument("--phase", required=True, choices=("red", "green"))
+    parser.add_argument("--results", type=Path,
+                        help="red／green 必填；plan 階段不讀測試結果")
+    parser.add_argument("--phase", required=True, choices=("plan", "red", "green"))
     parser.add_argument("--red-results", type=Path)
     args = parser.parse_args()
+    if args.phase == "plan" and (args.results is not None or args.red_results is not None):
+        parser.error("--phase plan 只列宣告的 Sxx，不接受 --results／--red-results")
+    if args.phase != "plan" and args.results is None:
+        parser.error(f"--phase {args.phase} 需要 --results")
     try:
-        result = check(args.plan, args.slug, args.results, args.phase, args.red_results)
+        if args.phase == "plan":
+            result = plan_cases(args.plan, args.slug)
+        else:
+            result = check(args.plan, args.slug, args.results, args.phase, args.red_results)
     except (BddGateError, _e2e.ValidationError) as exc:
         print(f"BLOCKED: {exc}", file=sys.stderr)
         return 1

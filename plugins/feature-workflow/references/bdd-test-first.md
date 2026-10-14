@@ -1,15 +1,16 @@
 # BDD Test-First（`/plan-build --bdd`）
 
-> 本契約只在使用者明確指定 `--bdd` 時啟用。不改動 `/plan-build` 原本測試預設、Human approval、`state.json` 單一寫者或 Feature lifecycle。
+> 本契約只在使用者於 `/plan-build` 第 4 步明確選「BDD Test-First」、或指定 `--bdd` 旗標時啟用（旗標是跳過詢問的捷徑，不是預設）。不改動 Human approval、`state.json` 單一寫者或 Feature lifecycle。
 
 ## 前置條件
 
+- **測試策略由詢問或旗標決定，記在 `state.json.testing`**：`/plan-build` 第 4 步以 `ask_user` 三選一（不產測試／一般測試／BDD Test-First，沒有隱含預設）或 `--no-test`／`--with-test`／`--bdd` 旗標決定 `testing.policy`；選 BDD 後還要經 4b 開工確認（展示 runner、test-engineer 允許路徑、Sxx 清單）才寫入 `testing.policy=bdd` 與 `testing.runner`；`testing.scenario_depth` 則由 `/plan spec` 1-0 決定。三個欄位只經 `crew-state.py set … --by human`（Review Once 由 packet 鏡像時 `--by packet`）寫入；沉默、Enter 不算選擇，headless 無旗標 BLOCK。`/plan-next` 依 `testing.policy` 推薦 `--bdd`，有斷點時推薦 `--bdd --resume`。
 - 需求規格與架構已經分別由 Human approve；如果任何新增／修訂 Sxx 影響語意，回 `/plan spec` 重新 approve 後才能開始。
 - `plan.md` 的 `crew:ac` 需至少有一個 Sxx，完整 key `{slug}#AC-n#S01`。未宣告 Sxx 的 AC 仍由後續一般 `/plan-verify` 驗收。
 - 在專案現有測試目錄建立測試，不在 `.spec/` 新增永久文件或源碼。Gherkin 是選用，JUnit／pytest／Playwright 皆可由 adapter 輸出既有 `crew-results.json` schema v1。
 - Java 可用內建 `crew-bdd-junit.py` 轉換 Surefire／Gradle JUnit XML；`@DisplayName` 或方法名稱需包含 `{slug}#AC-n#Sxx`。`<failure>` 是斷言失敗，`<error>` 映射 BLOCKED，`<skipped>` 映射 SKIP。
 - `--bdd --no-test` 拒絕、`--dry-run` 僅呈現計畫，不呼叫寫入與測試，不得標示 RED/GREEN。
-- 測試命令與結果由實際專案環境決定；若無可執行 runner/adapter，明確 BLOCK，不能假裝有 BDD。
+- 測試命令與結果由實際專案環境決定；若無可執行 runner/adapter，明確停下由 Human 三選一（指定 runner 後重探／降級一般測試並明示不再滿足 Test-First／暫停），不能假裝有 BDD，也不能悄悄降級；無法提問（headless）一律 BLOCK。
 
 ## 可稽核的執行順序
 
@@ -70,5 +71,6 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-gate.py" \
 - GREEN：RED 證據仍有效，所有 Sxx 都 `passed + full`，runner 必須重新執行；同一檔、相同非空 `run_id`、相同 payload 都拒絕。
 - Runner 提供的 JSON 為證據而非安全邊界；此 script **不能保證實際執行順序、測試來源可信或未竄改測試**。流程必須依 Git diff、unit checkpoint、命令輸出與 Human review 交叉核對。
 - RED/GREEN 證據暫存在 gitignored `.cache/`；`state.json` 的進度與指標仍只能由 `crew-state.py` 寫入。不可把整份 test log 放到 `plan.md`。
-- `--bdd --resume` 必須重新驗證之前的 RED 和核准情境，若 RED 遺失、規格變更或不能證明是在改產品碼之前產生，立即 BLOCK；若使用者選擇改回一般 `--with-test`，須明確回報不再滿足 Test-First。
+- `--bdd --resume` 必須重新驗證之前的 RED 和核准情境，若 RED 遺失、規格變更或不能證明是在改產品碼之前產生，停下由 Human 三選一（重啟 Test-First：`unit --clear` 後從 RED 重跑、產品碼不自動 revert／改一般測試／暫停）；選改一般測試須明確回報不再滿足 Test-First；無法提問（headless）BLOCK。
+- GREEN 未通過時由 Human 三選一（續修產品碼再跑 GREEN、不得改 assertion 或 Sxx／規格有誤回 `/plan spec` 重新核准並重做 RED／暫停，之後 `--bdd --resume`）；**不提供降級**——RED 成立後改一般測試等於放寬門檻。
 - `build=done` 需要通過 GREEN。Machine Verify 與 Human UAT 仍分離；此 gate 不替代後續 `/plan-verify`、`/plan-review` 或 `/plan-close`。

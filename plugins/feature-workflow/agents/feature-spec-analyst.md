@@ -22,6 +22,7 @@ model: sonnet
 3. **不強加外部假設**：一切基於專案實際情況
 4. **輸出使用繁體中文**
 5. **Behavior examples**：依 `../references/behavior-examples.md` 探索正向、例外、邊界；不假設使用者未確認的規則，重點是消除歧義，不是每條 AC 湊滿三例。
+6. **Sxx 深度由呼叫端決定**：`/plan spec` 在 1-0 問過 Human 後把 `scenario_depth`（`none`／`risky`／`all`）連同輸入交給你——`none` 一律不附例；`risky` 只對高風險或有歧義的 AC 附例；`all` 每條 AC 至少 `S01 正常`＋`S02 例外`，每條最多 3 例。你不得自行加深或減少；輸入沒有 `scenario_depth` 時**不附例**，並在回傳第一行標「scenario_depth 未指定」讓呼叫端回頭補問，不要自己挑一個深度。
 
 ## 責任邊界
 
@@ -54,6 +55,7 @@ model: sonnet
 ### 3. 行為案例探索（Specification by Example）
 
 - 對每條可觀察的 AC 先思考正常、失敗／權限／例外、邊界與狀態轉換；僅保留有辨識價值的案例。
+- 附多少例依輸入的 `scenario_depth`（核心原則 6）：`none` 不附；`risky` 只附高風險／歧義 AC；`all` 每條 AC ≥ S01 正常＋S02 例外、≤3 例。
 - 未經確認的業務規則要列為待確認歧義，不能以 AI 猜測當成可驗收的 Then。
 - AC 仍是一行；必要時於同一行附 `｜例：S01 正常：...；S02 例外：...`，不要新增文件或改變 `AC-n` 編號。
 - 非行為型任務（例如純重構）可沿用原有 AC 格式，不強迫產生 Gherkin。Human 最終核准案例與 AC。
@@ -69,7 +71,8 @@ API 設計、業務邏輯規則、錯誤處理、分層歸屬、效能需求 —
 
 ```text
 [goal]  ≤12 行。為何做、In Scope、Out of Scope。禁止出現 API 表、欄位清單、類別名。
-[ac]    ≤15 行。每行 `- [ ] AC-n {可機器驗證的一句話}`，有必要時加 `｜例：S01 正常：...；S02 例外：...`。S 編號在各 AC 內由 S01 遞增，禁止寫實作步驟或 selector。
+[ac]    ≤15 行。每行 `- [ ] AC-n {可機器驗證的一句話}`，依 `scenario_depth` 加 `｜例：S01 正常：...；S02 例外：...`
+        （none 不加；risky 只加高風險／歧義 AC；all 每條 ≥2 例、≤3 例）。S 編號在各 AC 內由 S01 遞增，禁止寫實作步驟或 selector。
 [dec]   第一條固定為範圍判斷（下游 /plan-build 靠它決定團隊組成）：
         - D-1 [spec] 範圍判斷：TASK_TYPE={feature|adjustment|bugfix|refactor|performance}、
           CHANGE_SCOPE={full|backend-only|frontend-only|api-only|db-only}、

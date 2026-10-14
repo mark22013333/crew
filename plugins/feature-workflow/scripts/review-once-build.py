@@ -36,6 +36,9 @@ def validate(project: Path, slug: str) -> dict:
         proposal, _ = contract.validate_active(project, slug, state, "all")
     except (contract.GrantError, contract.packet_contract.PacketError, OSError, KeyError, ValueError) as exc:
         raise GuardError(f"簽署 Grant 或 Spec/Arch 不合法：{exc}") from exc
+    if (state.get("autonomy") or {}).get("target_step") == "arch":
+        # --until arch 的授權只涵蓋 Spec／DB／Arch，不得用來執行任何 Build
+        raise GuardError("grant 只核准到 arch，不得執行 Build；請改走互動 /plan-build 或重新核准到 build 的 packet")
     run = (state.get("autonomy") or {}).get("execution") or {}
     inflight = run.get("inflight") or {}
     if run.get("status") != "running" or inflight.get("step") != "build":

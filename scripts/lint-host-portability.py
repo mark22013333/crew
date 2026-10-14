@@ -23,6 +23,8 @@ STRICT = "--strict" in sys.argv
 
 SCAN_GLOBS = (
     "plugins/*/skills/*/SKILL.md",
+    # SKILL 拆出的分段檔（例：plan-run/phases/session.md）同屬 active workflow，一併掃描
+    "plugins/*/skills/*/phases/*.md",
     "plugins/*/references/*.md",
 )
 
@@ -33,6 +35,8 @@ HARD_PATTERNS = {
     "TEAM_LIFECYCLE": re.compile(r"\bTeam(?:Create|Delete)\b", re.I),
     "CLAUDE_TEAM_ENV": re.compile(r"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"),
     "CLAUDE_MCP_LIST": re.compile(r"\bclaude\s+mcp\s+list\b", re.I),
+    # 詢問 Human 一律寫 ask_user(question, options, why_required) 契約；Claude 專用工具名只准留在 adapter 契約
+    "ASK_USER_TOOL": re.compile(r"\bAskUserQuestion\b"),
 }
 
 # Phase 2B/後續才全面收斂；目前只做可見性。

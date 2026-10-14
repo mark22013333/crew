@@ -8,6 +8,9 @@
 >
 > `state.json` 的 `type` 只分 `feature` / `bug`（見 `crew-state.py init --type` 的選項），
 > **不含**上列旗標；把旗標寫進 `state.json` 或 plan.md frontmatter 都是錯的。
+> `state.json.testing`（`policy`、`scenario_depth`、`runner`）是**流程欄位**，不是範圍旗標：
+> 由 `/plan spec` 1-0 與 `/plan-build` 第 4 步／4b 問過 Human 後經 `crew-state.py set … --by human` 寫入，
+> 決定 test-engineer 要不要加、何時加；不寫進 plan.md，也不由 D-1 推斷。
 
 ## 判斷流程
 
@@ -68,7 +71,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" list --slug {slug} --forma
 
 ### BDD Test-First 角色順序（選用）
 
-`/plan-build --bdd` 不改變原本依 D-1 判斷 DB/backend/API/frontend 的組成，但**必須另外保留 test-engineer**，即使原本只需單一實作角色。test-engineer 先獨立寫測試並取得 `crew-bdd-gate.py --phase red` 有效證據，**完成之前不得 spawn 產品實作角色**；RED 後才採用既有 parallel/sequential 規則，GREEN 後才能結束。其他模式完全沿用原本選配測試政策。
+BDD 由 `/plan-build` 第 4 步三選一選「BDD Test-First」（或 `--bdd` 旗標）進入，4b 開工確認後 `testing.policy=bdd`、`testing.runner` 記下 runner；`no_test` 不加 test-engineer，`with_test` 在產品角色之後加。`/plan-build --bdd` 不改變原本依 D-1 判斷 DB/backend/API/frontend 的組成，但**必須另外保留 test-engineer**，即使原本只需單一實作角色。test-engineer 先獨立寫測試並取得 `crew-bdd-gate.py --phase red` 有效證據，**完成之前不得 spawn 產品實作角色**；RED 後才採用既有 parallel/sequential 規則，GREEN 後才能結束。其他模式完全沿用原本選配測試政策。
 
 ### Step 3.5：DB_REQUIRED 處理
 

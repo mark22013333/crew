@@ -1,105 +1,261 @@
 ---
 name: plan-run
-description: 以受保護 Human Review Once 授權持續推進 CREW Feature 到 Build Done，含 4 小時有效期、Gate 綁定、暫停與續跑。當使用者提到 /plan-run、「一次審查後自動實作」、「Review Once 長時間執行」時觸發此 Skill。
-argument-hint: "[--mode review-once] [--until build] [--max-duration 4h] [status|pause|resume|revoke]"
+description: 先問使用者要用哪種方式推進 CREW Feature —— 互動逐站、同 session 一次審查連跑（核准一次 Review Packet 後在本對話連跑到目標站）或 trusted-host 簽章，含時限、Gate 綁定、停止點詢問、暫停／續跑／接管。當使用者提到 /plan-run、「一次審查後自動實作」、「Review Once 長時間執行」、「連跑到 build」時觸發此 Skill。
+argument-hint: "[--mode interactive|session|trusted-host] [--until build|arch] [--max-duration 4h|2h|1h] [--test with_test|bdd] [--scenarios none|risky|all] [status|pause|resume|revoke|reclaim]"
 ---
 
-# plan-run — Review Once Host Orchestrator
+# plan-run — 先問再做的 Feature 推進入口
 
-> 此 Skill 由 Host **同步**驅動既有 Skills，不會自行建立背景 Daemon。若 Host 不支援受保護 Approval Event／delegated write scope／長時間 Session，**BLOCK 或退回 Interactive**，不得宣稱真正無人值守。
+> **誠實定位（三處文件一致：本檔、`../../references/review-once-grants.md` 的 dialogue 節、`../../references/review-once.md`）**
+> - dialogue grant 的 packet hash 只保證「**套用的＝審過的**」；信任等級等同 Interactive 的 `gate --by human`，**不是不可偽造的核准**。
+> - 同 session 模式**不是無人值守**：迴圈在目前對話裡同步執行，session 結束即 paused，`/plan-run resume` 續跑。
+> - 本 Skill 不建立背景 Daemon、排程或常駐程序。
 
 ## 使用方式
 
 ```text
-/plan-run --mode review-once --until build --max-duration 4h
-/plan-run status
-/plan-run pause
-/plan-run resume
-/plan-run revoke
+/plan-run                                   # 無旗標：先問要用哪種方式
+/plan-run --mode interactive                # 互動逐站
+/plan-run --mode session --until build --max-duration 4h --test with_test
+/plan-run --mode review-once ...            # review-once 是 session 的別名
+/plan-run --mode trusted-host               # 需工作區外簽章 Host 與受保護 adapter
+/plan-run status | pause | resume | revoke | reclaim
 ```
 
-v1 僅 `feature`、`review_once`、`14400s`、Build Done；不可擴及 Bug、UAT、部署或 Git push/merge。參照 `../../references/review-once-runner.md`、`../../references/review-once-grants.md`、`../../references/host-capabilities.md`。
+v1 僅 `feature`；不擴及 Bug、UAT、部署、Git commit／push／merge。參照 `../../references/review-once-runner.md`、`../../references/review-once-grants.md`、`../../references/host-capabilities.md`。
 
-## 第一階段：準備且只審查一次
+## 詢問紀律（本 Skill 所有 `ask_user` 共用）
 
-1. 以 `delegate_readonly` 探索 Spec、DB、Architecture、測試策略與 allowed paths，不修改正式 `plan.md`、`state.json` 或程式碼。
-2. 建立 `.spec/.drafts/{proposal_id}/draft.json`（gitignored），使用 `review-once-packet.py prepare --draft ... --output .../packet.json` 取得 SHA-256 指紋。
-3. 向 Human 顯示完整 Goal、AC/Sxx、DB SQL、Architecture、修改檔案路徑、測試策略、明確禁止動作與 **4 小時從核准開始計時**；只有 Host 的可信任互動才能取得核准與簽章。若使用者修改需求，重新產生 packet，舊 SHA 無效。
-4. Host 必須保護 private key／信任公鑰路徑，將 `packet.json`、`approval.json` 與 raw `approval.sig` 傳給既有 `/plan-start --from-review-once` 建立 skeleton/task/branch。**未取得 signed proof 時不得假裝核准或建正式任務**。
-5. 初始化後由 `crew-state.py grant --action issue` 綁定相同 packet，才可呼叫 `crew-state.py run --action start --owner {runner-owner}`。
-
-## 第二階段：持續執行直到 Build Done
-
-下列所有呼叫都必須帶 `--slug {slug} --project {repo-root}`，runner owner 是同一次 Host 工作階段產生的安全字串：
-
-```bash
-python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
-  --action start --owner {runner-owner} --slug {slug} --project .
-python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
-  --action next --owner {runner-owner} --slug {slug} --project .
-```
-
-`run next` 輸出 JSON 的 `inflight.step`、`inflight.command` 是 **Host 派工契約**，不是已執行證據：
-
-| `inflight.step` | Host 必須實際執行的工作 |
-|---|---|
-| `spec` | `review-once-apply.py --step spec`，寫入核准 Goal/AC/Spec 並透過既有 Gate 確認 |
-| `db` | `review-once-apply.py --step db`，只產核准 SQL，不在 DB 執行 |
-| `arch` | `review-once-apply.py --step arch`，套用已核准 Architecture 並合法核准 Gate |
-| `build` | 呼叫現有 `/plan-build --with-test --review-once` 或已安裝的 `/plan-build --bdd --review-once`，委派具 allowed scope 的實作者 |
-
-```bash
-python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-apply.py" \
-  --project . --slug {slug} --step spec
-```
-
-- 每次派工前檢查授權簽章、當前分支、Spec/Arch 內容是否仍匹配與 4 小時期限，結果 invalid → 停止派工。
-- Host 在長時間 delegate 期間每 30 秒若可行呼叫 `run --action heartbeat`，並持續評估授權與是否收到 Human Pause/Revoke；無法中止的 Host worker 必須明確說明限制。
-- 每個階段完成後由原工作單元**實際更新** `crew-state.py` 的 `steps/gates/work_unit`，Host 再呼叫 `run next` 對帳並派下一步。
-- `run next` 發現未對帳的 `inflight` 只會回報 BLOCKED，不會重複派工。
-- 只有 `build=done`、`work_unit` 清空、Gate 正確及授權仍有效，才回 `status=completed_build` 並將 Grant `consumed`。
-- **遇到 TEST_FAILED、NEED_HUMAN、範圍衝突或 Host 不支援時必須停止**，不得偽造 `build=done`。不轉進 Security/Verify/Review/close。
-
-## 第三階段前：使用受保護 Host Bridge 同步執行（PR-D）
-
-現有 `run start/next` 是 deterministic 派工契約。Host 若能提供**工作區外的受保護 Worker Adapter**，可使用以下真實執行入口，由 Bridge 依序呼叫既有 `crew-state.py run`、`review-once-apply.py` 和 Host worker：
-
-```bash
-python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
-  --project . --slug {slug} --owner {host-runner-id} \
-  --adapter /host-managed/review-once-adapter.json --action start
-```
-
-- **前提**：Review Packet 已由 Host 真正展示給 Human，可信任簽署事件已經用 `crew-state.py grant issue` 綁定到這個 Feature task。Bridge 不會自行簽署、核准或建立 Grant。
-- Bridge 在同一個 Host Session 真正啟動子程序，不建立 Daemon、不保證 Session 結束後背景執行。
-- Adapter 設定檔和 Worker Executable 必須由 Host 控制、位於專案工作區外。其 `host_guarantees` 四種能力都必須已由 Host **實際實施**，不能讓 Agent 單純寫入 `true`。
-- `claude -p` 和 `codex exec --sandbox workspace-write` 的現有命令模式**不等同於檔案級 Scope Sandbox**。若只能使用這些一般 CLI 而無額外外部隔離，不能打開 Review Once 自主寫入。
-- 每個 Build 工作單元前後執行 Git-scope 檢查。若 Worker exit=0，但 `crew-state.py` 的 Build 階段沒有完成，Bridge 仍拒絕標記完成。
-- Bridge 輪詢 Grant／Runner status，撤銷、到期、暫停及 worker 失敗會終止已啟動的子程序，保留 checkpoint；不可依靠 CLI 提示詞來保證可取消。
-- `--action status|pause|revoke` 可在另一個終端呼叫，`resume --reconcile --reason` 只有確認舊 Worker 已停止、結果已對帳才可使用，不能直接重派。
-
-設定檔 Schema、Host 信任邊界與完整指令見 `../../references/review-once-host.md`。
+- 詢問只在 Skill 層的主對話進行；委派角色（test-engineer、backend 等）不得負責提問，worker 的 NEED_HUMAN 一律由 Leader 帶回主對話問。
+- **只有本輪明確選擇才算**：沉默、Enter、「繼續」、「ok」、「好」都不算選擇，必須重問同一題；不得沿用先前聊天中說過的「可以」。
+- 旗標是跳過詢問的捷徑，不是預設；旗標齊全的題目不再問，缺的題目照問。
+- Host 沒有結構化選單時，用**一則對話**列出本輪全部題目與編號選項，請使用者逐題回覆編號。
+- **headless**（無法提問：例如權限提示關閉、排程、`claude -p` 非互動）且旗標不齊 → **BLOCK**，訊息列出缺少的旗標，不得代選。
+- 停止點的詢問**不提供「跳過」**選項。
 
 ---
 
-## 第三階段：Pause / Resume
+## 步驟 0：前置與子指令分流
+
+先判斷這個 Feature 是否已有狀態檔：
 
 ```bash
-python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
-  --action pause --owner {runner-owner} --reason USER_PAUSED --slug {slug}
-python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
-  --action resume --owner {runner-owner} --slug {slug}
-python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
-  --action status --slug {slug}
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+if [ -f ".spec/{slug}/state.json" ]; then
+  python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
+    --action status --slug {slug} --project .
+else
+  echo "NEW_TASK: .spec/{slug}/state.json 不存在"
+fi
 ```
 
-- 若有未完成 `inflight`，先確保舊 worker 已停止，取得 Host/檔案／測試證據後，才能用 `resume --reconcile --reason "confirmed worker stopped"` 明確繼續相同單元；Build 中斷須遵循既有 `/plan-build --resume`，不可自動生成新的平行 worker。
-- `resume --takeover --reason ...` 僅在先前 Runner paused 且 Host 明確確認原 worker 停止時允許 owner 轉移，**不是突破四小時期限**。
-- 撤銷需走 `crew-state.py grant --action revoke`；撤銷後不得重放同一 Grant；原有有效 Human UAT 仍獨立。
-- 根據 Host 能力在工作階段中持續執行；本 Skill 不建立排程、常駐程序或虛假的背景執行。
+- `.spec/{slug}/state.json` 不存在（或 `run status` 回「找不到狀態檔」）→ 視為新任務，直接進步驟 1 入口詢問；模式 2、3 會在核准後由 `/plan-start --from-review-once` 建立狀態檔。
+- 參數是 `status`／`pause`／`resume`／`revoke`／`reclaim` → 跳到下方「子指令」，不問模式；這些子指令**要求狀態檔已存在**，不存在就回報「此 Feature 尚無 Runner 狀態」並結束。
+- 參數有 `--mode` → 跳過步驟 1 的模式題；`review-once` 視為 `session`。
+- 目前 Feature 已有 `running`／`paused` 的 Runner → 不得重開新 grant，改提示 `/plan-run status` 或 `/plan-run resume`。
+
+## 步驟 1：入口詢問 —— 要用哪種方式推進
+
+無 `--mode` 時：
+
+```text
+ask_user(
+  question: "要用哪種方式推進這個 Feature？",
+  options: [
+    "1. 互動逐站：每站停下來問，本 skill 只回 /plan-next 建議的下一步",
+    "2. 同 session 一次審查連跑（建議）：核准一次 Review Packet 後在本對話連跑到目標站；session 結束即 paused，/plan-run resume 續跑；不是無人值守",
+    "3. trusted-host 簽章：需工作區外的簽章 Host 與受保護 worker adapter；一般 claude -p／codex exec 不符合"
+  ],
+  why_required: "決定是否逐站詢問與授權的信任等級，Agent 不可代選；沉默／Enter／「繼續」不算選擇。"
+)
+```
+
+- headless 且無 `--mode` → BLOCK：「需 `--mode interactive|session|trusted-host`」。
+
+### 模式 1：互動逐站
+
+本 Skill 只讀狀態並回報下一步，不派工、不建立 grant：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" next \
+  --slug {slug} --project .
+```
+
+把結果轉成人話（同 `/plan-next`），由使用者自己執行該指令；每站的 Approval Gate 照既有 `/plan` 流程由 Human 核准。
+
+### 模式 2：同 session 一次審查連跑 —— 第二層三題
+
+旗標齊全就跳過；缺哪題問哪題，Host 無多題選單時用一則對話列出三題：
+
+```text
+ask_user(
+  question: "同 session 連跑的三個設定（請逐題回覆編號）",
+  options: [
+    "跑到哪一站（--until）：1. build（預設：Spec→DB→Arch→Build）  2. arch（只套用 Spec／DB／Arch，不進 build）",
+    "時限（--max-duration）：1. 4h（預設）  2. 2h  3. 1h —— 從 grant 簽發起算，不從 packet 產生起算",
+    "測試策略（--test）：1. with_test（預設：產品碼後補測試）  2. bdd（Test-First；packet 必須含 Sxx，探索時依 --scenarios 或 risky 深度產生）"
+  ],
+  why_required: "目標站、時限與測試策略會寫進 packet 與 grant，核准後不能改；「預設」只是建議標示，仍需本輪明確選擇。"
+)
+```
+
+- `git commit` **不問、固定不允許**（packet 白名單沒有 git_commit）。
+- headless 且任一題缺旗標 → BLOCK：「需 `--until build|arch`、`--max-duration 4h|2h|1h`、`--test with_test|bdd`」。
+
+接著產生 Review Packet，展示整份內容後問核准題：
+
+```text
+ask_user(
+  question: "核准 packet {packet_sha256 前 12 碼}？（核准後 {N} 內在本對話連跑到 {until}）",
+  options: [
+    "1. 核准並連跑",
+    "2. 修改 → 說明要改哪裡，重產 packet，舊 sha 作廢",
+    "3. 取消（零 side effect：不建 .spec、branch、grant）"
+  ],
+  why_required: "Review Once 只批准這一份完整 packet；hash 只保證套用的＝審過的，等同一次 Human gate 核准。"
+)
+```
+
+packet 準備、`/plan-start --from-review-once --proof dialogue` 鏈、grant 簽發、主對話迴圈、heartbeat 與 `--until arch` 細節 → [phases/session.md](phases/session.md)。
+
+### 模式 3：trusted-host 簽章 —— 多問一題
+
+```text
+ask_user(
+  question: "trusted-host 需要 Host 管理的 adapter：請提供 adapter 設定檔絕對路徑，並確認四項 host_guarantees 已由 Host 實際實施",
+  options: [
+    "1. 已確認：adapter 位於工作區外，protected_human_approval／enforced_write_scope／worker_cancellation／no_unattended_escalation 四項皆由 Host 實施（附路徑）",
+    "2. 不確定或只有一般 claude -p／codex exec → 改用模式 2（同 session）",
+    "3. 取消"
+  ],
+  why_required: "host_guarantees 是 operator 宣告、不是密碼學證明；Agent 不得自行把它寫成 true。"
+)
+```
+
+- headless 且無 `--mode trusted-host` 與 adapter 路徑 → BLOCK。
+- 簽章 packet、`approval.sig`、Host Bridge 與 `--worker-log` 細節 → [phases/trusted-host.md](phases/trusted-host.md)。Bridge 對 `autonomy.proof=dialogue` 的 grant 一律 BLOCK。
+
+---
+
+## 停止點（模式 2、3 共用；全部 ask_user，**不提供「跳過」**）
+
+遇到下列情況立即停止派工，不得偽造 `build=done`，不轉進 Security／Verify／Review／close：
+
+**A. TEST_FAILED／E0-E3／E8**
+
+```text
+ask_user(
+  question: "Build 在 {錯誤碼} 停止：{摘要}。要怎麼處理？",
+  options: [
+    "1. 續修：/plan-build --resume --review-once（inflight 保留，免 reconcile）",
+    "2. 暫停：crew-state.py run --action pause --owner {runner-owner} --reason {原因} --slug {slug} --project .",
+    "3. 撤銷授權轉 Interactive：crew-state.py grant --action revoke --slug {slug} --project .，之後逐站核准"
+  ],
+  why_required: "失敗後的方向會改變授權與工作單元狀態，Agent 不可代選。"
+)
+```
+
+**B. NEED_HUMAN**（worker 需要人回答的問題，由 Leader 帶回主對話）
+
+```text
+ask_user(
+  question: "worker 需要你決定：{問題}",
+  options: [
+    "1. 回答後重試（答案只用於本工作單元，不得超出 packet 範圍）",
+    "2. 暫停",
+    "3. 撤銷並回 /plan spec 修改規格"
+  ],
+  why_required: "packet 未涵蓋的決定只能由 Human 做。"
+)
+```
+
+**C. 範圍衝突**（`review-once-build.py` 偵測到核准路徑外的變更）
+
+```text
+ask_user(
+  question: "偵測到核准範圍外的變更：{路徑清單}。要怎麼處理？",
+  options: [
+    "1. 人工還原範圍外變更後重試",
+    "2. 暫停",
+    "3. 撤銷授權但保留目前變更（轉 Interactive 人工檢視）"
+  ],
+  why_required: "不得擴大已核准的 scope；任何擴大都要重審新 packet。"
+)
+```
+
+**D. 到期／GRANT_OR_SCOPE_INVALID**（Runner 已自動 paused）
+
+```text
+ask_user(
+  question: "授權已失效（{stop_reason}），Runner 已暫停。下一步？",
+  options: [
+    "1. revoke 後重審新 packet（重新走模式 2 的三題與核准題）",
+    "2. 轉 Interactive：crew-state.py grant --action revoke --slug {slug} --project . 後逐站 /plan-next",
+    "3. 停止，保留 checkpoint"
+  ],
+  why_required: "授權不能延長或沿用，只能重審或改人工逐站。"
+)
+```
+
+---
+
+## 子指令
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
+  --action status --slug {slug} --project .
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
+  --action pause --owner {runner-owner} --reason USER_PAUSED --slug {slug} --project .
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" grant \
+  --action revoke --slug {slug} --project .
+```
+
+- `status`：只讀 checkpoint，回報 `status`（`running`／`paused`／`completed_build`／`completed_plan`）、`stop_reason`（含 `PLAN_DONE`、`SESSION_LOST`、`GRANT_OR_SCOPE_INVALID`）、`autonomy.proof`、`autonomy.target_step`；不是「worker 仍在跑」的證據。
+- `pause`：需同一個 owner；session 已死時改用 `reclaim`。
+- `revoke`：撤銷後不得重放同一 grant；既有有效的 Human Gate 與 UAT 不受影響。
+
+### resume 分流（先跑 `crew-state.py run --action status --slug {slug} --project .`）
+
+| 狀態 | 處理 |
+|------|------|
+| `paused` 且有 `inflight` | 問下方「原 worker 已停止？」 |
+| `paused` 且無 `inflight`，`run status` 的 owner **等於**本 session owner | 直接 `crew-state.py run --action resume --owner {本 session owner} --slug {slug} --project .`，再回 `phases/session.md` 的迴圈 |
+| `paused` 且無 `inflight`，`run status` 的 owner **不等於**本 session owner（換了 session 的常態） | `crew-state.py run --action resume --owner {新 owner} --takeover --reason "previous session ended" --slug {slug} --project .`，再回迴圈；沒帶 `--takeover` 會被拒（擁有權不得未經明示移轉） |
+| `running` 但原 session 已死（無法用原 owner pause） | 先 `reclaim`（running→paused、stop_reason=`SESSION_LOST`、記錄舊 owner），再依上三列處理 |
+| `completed_build`／`completed_plan` 或 grant `consumed` | 回報已完成，不再派工 |
+
+判斷依據：比對 `run status` 輸出的 owner 與本 session 自己產生的 owner 字串（例如 `dialogue-{YYYYMMDDHHMMSS}`）；新 session 一律產生新 owner，所以前一個 session 留下的 paused Runner 都走「不等於」那列。
+
+**reclaim 注意**：`reclaim` 只會把 `running` 轉成 `paused`，不會推進任何一站，也**不檢查心跳是否過期**。只在確認原 session 已結束時使用；原 session 其實還活著時，它等同從另一個終端強制暫停對方。
+
+```text
+ask_user(
+  question: "上一個 worker（owner={舊 owner}，inflight={step}）已確認停止了嗎？",
+  options: [
+    "1. 已確認停止 → resume --takeover --reconcile；build 則接 /plan-build --resume --review-once",
+    "2. 不確定 → 停在這裡，先去確認（不接管）",
+    "3. 撤銷授權（crew-state.py grant --action revoke --slug {slug} --project .）"
+  ],
+  why_required: "stale heartbeat 不能證明舊 worker 已停，接管與否只能由 Human 確認，避免兩個 worker 同時寫。"
+)
+```
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
+  --action reclaim --owner {新 owner} --reason "previous session ended" --slug {slug} --project .
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" run \
+  --action resume --owner {新 owner} --takeover --reconcile \
+  --reason "human confirmed previous worker stopped" --slug {slug} --project .
+```
+
+- `resume` 會重驗 grant（dialogue 重算 packet hash；signed 重驗簽章）、時限與已核准 plan；**不是突破時限**，到期即走停止點 D。
+- 不得自動生成新的平行 worker。
 
 ## 必守邊界
 
-- Review Once 的 user approval 只批准當時完整 packet，不允許在 Agent 將 AC／架構改變後繼續使用舊授權。
-- 永遠先保護授權與 allowed scope，再啟動正式 `delegate_write`。不可把使用者之前說過「可以」當作本輪 Host-signed Human event。
-- 未核准的產品修改、正式 SQL 執行、Git push/merge、機密與權限操作全部 BLOCK。
+- Review Once 的核准只涵蓋當時那一份完整 packet；AC／架構／scope 有任何改變就要重產 packet 重審，不得沿用舊 grant。
+- 核准一律經 `grant --action approve-requirement|approve-architecture`（`review-once-apply.py` 內部呼叫），記為 `by=delegated-review-once`，不得偽裝成 `by=human`。
+- 未核准的產品修改、正式 SQL 執行、Git commit／push／merge、機密與權限操作全部 BLOCK；Human UAT 永不自動通過。

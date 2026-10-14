@@ -195,6 +195,87 @@ class SignedGrantScenarios(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("AC 已偏離", rejected.stderr)
 
+    def issue_dialogue(self, *extra: str, sha: str | None = None, seconds: str = "3600",
+                       until: str = "build"):
+        return self.state("grant", "--action", "issue", "--proof", "dialogue",
+                          "--packet", str(self.packet_file),
+                          "--approved-sha", sha or self.packet["packet_sha256"],
+                          "--max-duration", seconds, "--until", until, *extra)
+
+    def test_dialogue_grant_issue_and_bounded_gates(self):
+        # 不合法的對話核准：sha 不符、時限越界、混入簽章、signed 夾帶 dialogue 參數，一律拒絕且不寫入
+        for proc in (
+            self.issue_dialogue(sha="f" * 64),
+            self.issue_dialogue(seconds="14401"),
+            self.issue_dialogue(seconds="599"),
+            self.issue_dialogue("--signature", str(self.signature_file)),
+            self.issue_dialogue("--approval-event", str(self.event_file)),
+            self.state("grant", "--action", "issue", "--packet", str(self.packet_file),
+                       "--approval-event", str(self.event_file),
+                       "--signature", str(self.signature_file), "--until", "arch"),
+        ):
+            self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        state_path = self.spec_dir / "state.json"
+        self.assertIsNone(json.loads(state_path.read_text(encoding="utf-8"))["autonomy"])
+
+        issued = self.issue_dialogue()
+        self.assertEqual(issued.returncode, 0, issued.stderr)
+        grant = json.loads(state_path.read_text(encoding="utf-8"))["autonomy"]
+        self.assertEqual((grant["proof"], grant["by"], grant["target_step"]),
+                         ("dialogue", "human-dialogue", "build"))
+        self.assertIsNone(grant["signature_path"])
+        span = (datetime.fromisoformat(grant["expires_at"]) -
+                datetime.fromisoformat(grant["issued_at"]))
+        self.assertEqual(span, timedelta(seconds=3600))
+
+        spoof = self.state("gate", "--name", "requirement", "--status", "approved", "--by", "human")
+        self.assertNotEqual(spoof.returncode, 0)
+        self.assertIn("不可直接偽裝", spoof.stderr)
+        self.assertEqual(self.state("set", "--step", "spec", "--status", "done").returncode, 0)
+        approved = self.state("grant", "--action", "approve-requirement")
+        self.assertEqual(approved.returncode, 0, approved.stderr)
+        self.assertEqual(self.state("set", "--step", "db", "--status", "skipped",
+                                    "--reason", "DB_REQUIRED=false").returncode, 0)
+        self.assertEqual(self.state("set", "--step", "arch", "--status", "done").returncode, 0)
+        arch = self.state("grant", "--action", "approve-architecture")
+        self.assertEqual(arch.returncode, 0, arch.stderr)
+        gates = json.loads(state_path.read_text(encoding="utf-8"))["gates"]
+        for name in ("requirement", "architecture"):
+            self.assertEqual(gates[name]["by"], "delegated-review-once")
+            self.assertIn("proof=dialogue", gates[name]["reason"])
+        self.assertEqual(self.state("grant", "--action", "check").returncode, 0)
+
+        # 核准後竄改 packet：重算 hash 不符即失效
+        original = self.packet_file.read_bytes()
+        tampered = json.loads(original)
+        tampered["proposal"]["scope"]["allowed_paths"].append("secrets/**")
+        self.packet_file.write_bytes(packet_tool.canonical_bytes(tampered))
+        broken = self.state("grant", "--action", "check")
+        self.assertNotEqual(broken.returncode, 0)
+        self.assertIn("packet_sha256", broken.stderr)
+        self.packet_file.write_bytes(original)
+
+        first_id = json.loads(state_path.read_text(encoding="utf-8"))["autonomy"]["grant_id"]
+        self.assertEqual(self.state("grant", "--action", "revoke").returncode, 0)
+        reissued = self.issue_dialogue()
+        self.assertEqual(reissued.returncode, 0, reissued.stderr)
+        second_id = json.loads(state_path.read_text(encoding="utf-8"))["autonomy"]["grant_id"]
+        self.assertNotEqual(first_id, second_id)
+
+    def test_legacy_signed_grant_without_proof_field_still_validates(self):
+        # 升級前簽發的 grant 沒有 proof 欄位：仍走簽章路徑、Runner 狀態回報為 signed
+        self.assertEqual(self.issue().returncode, 0)
+        path = self.spec_dir / "state.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        del raw["autonomy"]["proof"]
+        del raw["testing"]
+        path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        checked = self.state("grant", "--action", "check")
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        status = json.loads(self.state("run", "--action", "status").stdout)
+        self.assertEqual(status["grant_proof"], "signed")
+        self.assertEqual(status["target_step"], "build")
+
     def test_revoke_blocks_later_grant_actions(self):
         self.assertEqual(self.issue().returncode, 0)
         revoke = self.state("grant", "--action", "revoke")

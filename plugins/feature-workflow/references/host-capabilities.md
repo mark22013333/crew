@@ -217,16 +217,34 @@ ask_user(question, options, why_required)
 不要把 `AskUserQuestion` 或其他 UI tool 名稱寫成 workflow 必要條件。
 Host 沒有結構化選單時，直接用一般對話提出同一問題。
 
+### 共通規則（所有 Host）
+
+- `options` 以編號列出；**只有本輪明確選到某一項才算答案**。沉默、Enter、「繼續」、「ok」、「照建議」、前一輪的答案都不算，一律重問；標「建議」的選項只是標記，不是預設值，Agent 不得代選。
+- 旗標是跳過詢問的捷徑（例：`/plan spec --scenarios`、`/plan-build --with-test`），不是預設值；沒帶旗標就要問。
+- 答案若影響流程，只經 `crew-state.py` 寫進 `state.json`，後續 Skill 讀取、不重問。
+- `ask_user` 不可用（headless：`--permission-prompts none`、`dontAsk`、排程執行、無互動輸入）且沒有對應旗標 → **BLOCK**，訊息列出所需旗標；不得用猜的補答案。
+- Subagent／委派角色不得提問；需要 Human 決策時回報 Leader，由 Skill 層的主對話提問。
+
+### Claude Code adapter
+
+有結構化選單時用它呈現同一組編號選項；沒有時退回一般對話。選單被取消或空回覆視同沒有選擇，重問。
+
+### Codex adapter
+
+用一般對話逐題列出同一組編號選項（一次一題），等使用者回覆編號；「ok／繼續」或任何對不上編號的回覆一律重問，不得自行對映成某個選項。
+
 ---
 
-## Review Once 專用 Host 能力（選用）
+## Review Once 專用 Host 能力（選用；僅 feature-workflow 的 `/plan-run` 使用，bug 型任務由 `crew-state.py` 擋）
 
-- `trusted_human_approval`：Host 必須展示整份 Review Packet，取得使用者明確審查事件，由工作區外受保護私鑰簽署 canonical event；只有公鑰提供給 verifier，且公鑰路徑由 Host 固定，不允許 Agent 自己覆寫。
-- `long_running_dispatch`：Host 保持當前互動 Session 的執行迴圈，依 `crew-state.py run --action next` 的 deterministic dispatch 呼叫現有 Skill 或 `review-once-apply.py`；跨 Session 延續只能由 Host 明確恢復，不能宣稱 Python 自帶背景 Worker。
+- `trusted_human_approval`：分兩級，`state.json.autonomy.proof` 記錄是哪一級。
+  - `dialogue`（同 session 一次審查）：Host 在主對話展示整份 Review Packet，Human 以 `ask_user` 明確核准指定 sha；grant 只記 packet hash，之後每站重算 hash 確認「套用的＝審過的」。信任等級等同 Interactive 的 `gate --by human`，**不是不可偽造的核准**。
+  - `signed`（trusted-host）：Host 必須展示整份 Review Packet，取得使用者明確審查事件，由工作區外受保護私鑰簽署 canonical event；只有公鑰提供給 verifier，且公鑰路徑由 Host 固定，不允許 Agent 自己覆寫。
+- `long_running_dispatch`：Host 保持當前互動 Session 的執行迴圈（主對話迴圈），依 `crew-state.py run --action next` 的 deterministic dispatch 呼叫現有 Skill 或 `review-once-apply.py`；Session 結束即 `paused`，只能由 `/plan-run resume` 明確恢復，不能宣稱 Python 自帶背景 Worker。
 - `write_scope_enforcement`：每次 delegate_write 限於 packet 核准路徑；在 Build 進出時使用 `review-once-build.py` 的 Git-scope check。缺此能力即 BLOCK，而不是僅由 Prompt 提醒。
 - `cancellation_and_reconciliation`：Host 可停止尚未完成的 worker，持久化 evidence 並以 `run pause/resume --reconcile` 恢復。Runner 的 owner / heartbeat 是**合作式租約**，不是簽章身分驗證。不可推斷 stale heartbeat 表示原 worker 已經停止。
 
-沒有上述能力的 Host 不得啟用無人值守 Review Once；請維持 Interactive。
+沒有簽章能力的 Host 只能用 `dialogue` 的 session 模式，且**不得稱為無人值守**；連 `long_running_dispatch`／`write_scope_enforcement` 都沒有的 Host 請維持 Interactive。
 
 ---
 
