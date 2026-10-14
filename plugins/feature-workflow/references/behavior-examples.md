@@ -6,6 +6,7 @@
 
 - 新需求仍先經 Intake Refiner + Human confirm；Intake **只確認意圖**，不提前產 AC 或架構。
 - 由 `/plan spec` 針對每條 AC 思考正常、失敗／例外／權限、邊界與狀態轉換；僅保留能區分行為的最少案例。
+- **附多少例由 Human 決定**：`/plan spec` 在派工前（1-0）以 `ask_user` 問 Sxx 深度——`none`（不附）／`risky`（只標高風險或有歧義的 AC，標「建議」但不是預設）／`all`（每條 AC 都附，之後可走 BDD Test-First）——或由 `--scenarios none|risky|all` 旗標指定；答案記在 `state.json.testing.scenario_depth`。AI 不代選，沉默、Enter 不算，headless 無旗標 BLOCK。
 - 如果「包含起訖時間」或權限等行為尚未有業務決定，**標記為歧義交由 Human 決定**，不得由 AI 猜測後當成既定規格。
 - 純重構、環境設定、無業務行為可觀察的任務沿用現行 AC，不強迫產案例。
 
@@ -21,6 +22,7 @@
 - `S01`、`S02` 在同一 AC 內遞增且不重用；完整身分為 `{slug}#AC-n#S01`。**AC-n 仍是唯一驗收 join key**，Scenario 只做細分追溯。
 - 此格式是精簡的行為範例而不是可直接執行的 `.feature`；需要可執行 BDD 時，使用者在應用專案的既有測試目錄維護 `.feature` / JUnit / Playwright，並保持 scenario_id 對應。
 - `plan.md` 保持六個章節、`AC ≤15 行`、全檔 `≤100 行`；不要另建 `.spec/{slug}/scenarios.md`、不要為湊數強制每 AC 三例。
+- 深度語意：`none` → AC 不附例；`risky` → 只對高風險／歧義 AC 附例；`all` → 每條 AC 至少 `S01 正常`＋`S02 例外`、最多 3 例（只有 `all` 能讓每條 AC 走 Test-First，代價是每個 Sxx 都要 GREEN 才能 `build=done`，UI 類情境容易 BLOCKED；`all` 時注意 AC 行長與全檔 100 行上限）。
 - 規格與情境皆須 Human 明確核准；語意變更先將 requirement gate 設為 pending，再重新核准。Approval 不得由 Agent 代行。
 
 ## Automation（逐情境可追溯）

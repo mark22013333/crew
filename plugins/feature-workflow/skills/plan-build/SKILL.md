@@ -17,12 +17,17 @@ argument-hint: "[--with-test|--no-test|--bdd] [--backend-only] [--dry-run] [--re
 
 ## Review Once 免重複確認（僅 `--review-once`）
 
-**不改一般 `/plan-build` 流程**。只有 `/plan-run` 已取得有效 Host-signed grant 且 `crew-state.py run --action next` 回傳 `inflight.step=build` 後才可使用。
+**不改一般 `/plan-build` 流程**。只有 `/plan-run` 已取得**有效 grant**（`state.json.autonomy.proof` 為 `dialogue`（同 session 一次審查）或 `signed`（trusted-host 簽章）兩者之一，由 `crew-state.py grant --action check` 驗證）且 `crew-state.py run --action next` 回傳 `inflight.step=build` 後才可使用。
 
-- 執行前以 `crew-state.py grant --slug {slug} --action check` 驗證簽章、4h、已核准 Spec/Arch/DB 與 Gate，並執行：
-  `python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-build.py" --project . --slug {slug}`。
-- 不得把 `--review-once` 當作 `--yes`：任何簽章／Scope／分支／Host worker allowed scope 驗證失敗都 BLOCK。Host 無法實際限制 worker 可寫路徑時，不可降級成「僅 Prompt 提醒」。
-- 由已核准的 `test_policy` 決定 `--with-test` 或 `--bdd`。Review Once 必須包含測試；不得選擇 `--no-test`。BDD 工具缺失時 BLOCK，不能靜默降級為一般 `--with-test`。
+- 執行前以 `crew-state.py grant --slug {slug} --action check` 驗證 grant 有效（`signed` 驗簽章；`dialogue` 重算 packet hash 比對）、時限（`expires_at`）、已核准 Spec/Arch/DB 與 Gate，並執行：
+
+  ```bash
+  CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+  python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-build.py" --project . --slug {slug}
+  ```
+
+- 不得把 `--review-once` 當作 `--yes`：任何 grant（簽章或 packet hash）／Scope／分支／Host worker allowed scope 驗證失敗都 BLOCK。Host 無法實際限制 worker 可寫路徑時，不可降級成「僅 Prompt 提醒」。
+- 由已核准 packet 的 `test_policy` 決定 `--with-test` 或 `--bdd`（套用 spec 時已鏡像進 `state.json.testing.policy`，第 4 步的三選一不再詢問）。Review Once 必須包含測試；不得選擇 `--no-test`。BDD 工具缺失時 BLOCK，不能靜默降級為一般 `--with-test`；4b 只展示 runner／路徑／Sxx 清單、不問開工。
 - 上述前提均通過時，**只略過本 Skill「確認執行計畫」的重複詢問**；其餘 Scout／Delegation／編譯、測試、E0～E7 退出驗證照舊。
 - 每個正式程式碼寫入角色只可在 packet `scope.allowed_paths` 內操作，寫入後再次執行 `review-once-build.py` 檢查全部 Git 變更；超出範圍即停止，**不得標記 build=done**。
 - 成功時仍由本 Skill 執行 `crew-state.py set --step build --status done`，再由 Runner 的下一次 `run --action next` 判斷 `completed_build`。不自動進 Security／Review／Human UAT。
@@ -77,18 +82,19 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 ## 使用方式
 
 ```
-/plan-build                # 完整產生（後端 + 前端，預設不含測試）
-/plan-build --with-test    # 包含測試程式碼
-/plan-build --no-test      # 明確不含測試（同預設）
-/plan-build --bdd          # 選用：先建立行為測試、取得 RED 證據，再實作並取得 GREEN
+/plan-build                # 無測試旗標：第 4 步以三選一詢問測試策略（沒有預設）
+/plan-build --no-test      # 不產測試（跳過詢問）
+/plan-build --with-test    # 一般測試：產品碼後補測試（跳過詢問）
+/plan-build --bdd          # BDD Test-First：先寫 Sxx 測試取 RED，再實作取 GREEN（跳過詢問，直接進 4b 開工確認）
 /plan-build --dry-run      # 預覽不建立檔案
 /plan-build --backend-only # 只產後端
 /plan-build --resume       # 從 state.json 的 work_unit 續跑未完成的角色
+/plan-build --bdd --resume # 續跑 BDD：先驗 RED 證據與時序，再續 GREEN
 ```
 
 `--resume`：先讀 `crew-state.py list --slug {slug} --format json` 的 `work_unit`，只 spawn `remaining` 列出的角色，已完成的不重跑。`work_unit` 為空 → 視同完整執行。**若使用 `--bdd --resume`，還必須驗證保留的 RED 證據；缺少證據不能自行假設前次測試先行。**
 
-`--bdd` **明確選用**，預設仍不含測試；含意是 `--with-test` 加上 **Test-First RED→GREEN 順序**。`--bdd --no-test` 是衝突參數，立即 BLOCK；`--bdd --dry-run` 只顯示計畫，不產生測試、不呼叫寫入、不冒充 RED/GREEN。
+測試策略三個值（`no_test`／`with_test`／`bdd`）**沒有隱含預設**：旗標是跳過第 4 步詢問的捷徑，沒帶旗標就一定要問；選定後記在 `state.json.testing.policy`，供 `/plan-next`（推薦 `--no-test`／`--with-test`／`--bdd`，斷點時 `--bdd --resume`）與 `/plan-verify` 沿用、不重問。`--bdd` 的含意是 `--with-test` 加上 **Test-First RED→GREEN 順序**。`--bdd --no-test`、`--with-test --no-test` 是衝突參數，立即 BLOCK；`--bdd --dry-run` 只顯示計畫（含 4b 畫面），不產生測試、不寫 state、不呼叫寫入、不冒充 RED/GREEN。
 
 ---
 
@@ -117,7 +123,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 
 若 `D-1` 條目缺少 TASK_TYPE / CHANGE_SCOPE → 回退邏輯，只看 FRONTEND_REQUIRED × DB_MCP 兩個欄位判斷。若 `D-1` 被後續條目 supersede（`D-n [階段] 取代 D-1：…`）→ **以最新的取代條目為準**。
 
-### 4. 確認執行計畫
+### 4. 確認執行計畫（測試策略三選一；沒有預設）
+
+先展示配置：
 
 ```
 即將啟動 CREW 多角色程式碼產生：
@@ -129,27 +137,98 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
   • backend-engineer  — 後端核心（POJO/Mapper/Service）
   • api-engineer      — API 層（Controller/DTO/驗證）
   {• frontend-engineer — 前端頁面（{FRONTEND_TECH}）}
+🧪 已宣告 Sxx：{N} 個（crew-bdd-gate.py --phase plan 的 expected 清單；0 個時寫「無」）
 
-是否產出測試程式碼？（未指定 --bdd，且未經有效 Review Once 授權時）
-  1. 是 — 包含 test-engineer 角色
-  2. 否（預設）— 跳過測試，節省 token
-
-{--bdd: Test-First 開啟，先產測試並取得 RED，才允許產品碼實作，最後取得 GREEN}
-
-{--dry-run: 預覽模式，不建立檔案}
-
-確認開始？[Y/n]
+{--dry-run: 預覽模式，不建立檔案、不寫 state}
 ```
 
-#### 測試可選化判斷規則
+接著詢問測試策略（未帶 `--no-test`／`--with-test`／`--bdd`、且非 `--review-once` 時**必問**；依 `../../references/host-capabilities.md` 的 `ask_user` 契約）：
 
-- 若團隊組成原本只有 1-2 人且不含 test-engineer → 不顯示此選項
-- 若使用者使用 `--bdd` 參數 → 強制包含 test-engineer（即使原本是單一角色），不顯示測試選項；`--no-test` 同時存在則 BLOCK。
-- 若使用者使用 `--with-test` 參數 → 自動選是，不互動
-- 若使用者使用 `--no-test` 參數 → 自動選否（同預設），不互動
-- 使用者選「是」時，在團隊中加入 test-engineer
-- 使用者選「否」或直接 Enter（預設）時，不含 test-engineer
-- test-engineer 的加入/移除在 plugin 根目錄 `references/team-composition.md`（相對 SKILL.md 為 `../../references/`）判斷**之後**操作，不修改判斷表本身
+```text
+ask_user(
+  question     = "這次實作用哪種測試策略？",
+  options      = [
+    "1. 不產測試（--no-test）— 不含 test-engineer",
+    "2. 一般測試（--with-test）— 產品碼後由 test-engineer 補測試{｜plan.md 無 Sxx 時標「建議」}",
+    "3. BDD Test-First（--bdd）— test-engineer 先為每個 Sxx 寫測試取 RED，再實作取 GREEN{｜有 Sxx 時標「建議」；無 Sxx 時標「不可選：規格未宣告 Sxx，請先 /plan spec」}"
+  ],
+  why_required = "策略決定角色順序與 build=done 門檻（E8），並寫進 state.json.testing.policy 供 /plan-next、/plan-verify 沿用；Agent 不代選，沉默／Enter 不算。"
+)
+```
+
+對應畫面（Host 沒有結構化選單時，用一般對話逐字列出同一組編號選項）：
+
+```text
+這次實作用哪種測試策略？
+  1. 不產測試（--no-test）
+  2. 一般測試（--with-test）：產品碼後補測試{（建議）}
+  3. BDD Test-First（--bdd）：先寫 Sxx 測試取 RED，再實作取 GREEN{（建議）｜（不可選：規格未宣告 Sxx）}
+```
+
+#### 4a. 測試策略規則
+
+- Sxx 有無以下列指令列出的 expected 清單判定；清單為空 → 選項 3 標「不可選」，使用者仍選 3 就說明原因並重問。「建議」只是標記（有 Sxx 標在 3、否則標在 2），**不是預設值**。
+
+  ```bash
+  CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+  python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-gate.py" --phase plan \
+    --plan .spec/{slug}/plan.md --slug {slug}
+  ```
+
+- **只有本輪明確選 1／2／3 才算**。沉默、Enter、「繼續」、「ok」、「照建議」都不算選擇，一律重問；團隊只有 1–2 人也照問，不再有「人少不顯示」的例外。
+- 旗標是捷徑：`--no-test`／`--with-test`／`--bdd` 直接採用、不問；`--review-once` 沿用已核准 packet 的 `test_policy`（見本檔開頭），不問。
+- `state.json.type=bug` 的任務不問、不寫 `testing.policy`（bug 的迴歸測試由 `/bug-fix` 契約負責；要在這裡產測試就帶旗標明示）。
+- 選 1 或 2 → 立即寫入後直接進步驟 5（這個選擇就是開工確認；要調整 Teammate 配置或取消，直接說明或回「取消」，本 skill 調整後重新展示並重問，不視為選擇）：
+
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+    --test-policy {no_test|with_test} --by human
+  ```
+
+- 選 3（或帶 `--bdd`）→ 進 4b，**在 4b 確認開工後才寫入** `--test-policy bdd`；`--bdd --no-test` 同時存在則 BLOCK。
+- 無法提問（headless：`--permission-prompts none`、`dontAsk`、排程執行）且沒有任何測試旗標 → **BLOCK**，訊息列出「需 `--no-test`｜`--with-test`｜`--bdd`」，不得代選。
+- test-engineer 的加入／移除在 plugin 根目錄 `references/team-composition.md`（相對 SKILL.md 為 `../../references/`）判斷**之後**操作，不修改判斷表本身；`no_test` 不加、`with_test` 在產品角色之後、`bdd` 強制加入且第一個開始（即使原本是單一角色）。
+
+#### 4b. BDD 開工確認（只在選 3 或 `--bdd` 時）
+
+把 5e-2 的 runner 探索提前到這裡：派 `delegate_readonly`（role=`explorer`、routing=`task: repository_search`、`profile: FAST`、`risk: low`、`complexity: low`）**唯讀**探測既有 JUnit／pytest／Playwright／Cucumber 測試資產與能輸出 `crew-results.json` schema v1 的 runner 或 adapter，不寫任何檔案。然後展示：
+
+```text
+BDD Test-First 開工確認：
+
+🧪 Runner：{runner-id}（例：junit、pytest、vitest；識別碼限英數字與 . _ : + -）→ 輸出 {crew-results.json，或 JUnit XML 經 crew-bdd-junit.py 轉換}
+📂 test-engineer 允許路徑：{專案既有測試目錄、fixture、runner adapter 路徑}
+📋 已核准 Sxx（crew-bdd-gate.py --phase plan）：
+  • {slug}#AC-1#S01 …
+  • {slug}#AC-1#S02 …
+⚠️ 門檻：每個 Sxx 都要 RED→GREEN；任何 missing／BLOCKED／skipped 都不能 build=done（E8）
+{找不到可用 runner：寫「未探測到 runner」，下方選項 1 不可選；改走 5e-2 的三選項}
+```
+
+```text
+ask_user(
+  question     = "確認以上 runner／路徑／Sxx 清單，開始 BDD Test-First？",
+  options      = [
+    "1. 開工（寫入 testing.policy=bdd 與 testing.runner，進步驟 5）",
+    "2. 改選一般測試（--with-test）：不再滿足 Test-First，回報中明示",
+    "3. 取消（零 side effect：不寫 state、不寫 build）"
+  ],
+  why_required = "runner 與 Sxx 清單決定 RED/GREEN 證據能否成立；Agent 不代選，沉默／Enter 不算。"
+)
+```
+
+- 只有本輪明確選 1／2／3 才算；沉默、Enter、「繼續」、「ok」一律重問。
+- 選 1 → 寫入後進步驟 5：
+
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+    --test-policy bdd --test-runner {runner-id} --by human
+  ```
+
+- 選 2 → `crew-state.py set --slug {slug} --test-policy with_test --by human`，後續照一般測試流程（步驟 5 不跑 5e）。
+- 選 3 → 結束，不寫任何狀態。
+- `--dry-run` 只展示本畫面，不問、不寫；`--review-once` 只展示不問（packet 已核准 `bdd`），runner 不在此寫入，由 5e-2 探測後以 `--by packet` 寫入，探不到時照 5e-2 的規則處理（可提問就問，headless BLOCK）。
+- 無法提問（headless）且沒有 `--review-once` → **BLOCK**，列出「需在互動 session 完成 4b，或經 `/plan-run` 以 `--review-once` 授權」。
 
 ### 5. 準備分層脈絡（派唯讀探索官，profile: FAST）
 
@@ -175,16 +254,35 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 #### 5d. 預備交叉引用清單（Layer 3）
 從 `deploy.sql` 與 plan.md 的驗收條件提取跨角色約束（NOT NULL、UNIQUE、必填參數、外鍵、分頁限制）。約束的事實在 `deploy.sql`，不是在文件敘述裡。
 
-### 5e. BDD 選用模式：Test-First RED → GREEN（只在 `--bdd` 執行）
+### 5e. BDD 選用模式：Test-First RED → GREEN（只在 `state.json.testing.policy=bdd` 時執行：第 4 步選 3 並通過 4b，或 `--bdd`）
 
 > **必讀契約**：`../../references/bdd-test-first.md`。不是要求所有任務寫 Gherkin，而是要求已核准的 `Sxx` 行為案例在產品碼修改前有可重現的失敗測試。
 
 1. **重檢 Human approval**：沿用本 Skill 前置的 `crew-state.py validate --require-gate requirement --require-gate architecture`，`--bdd` 不跳過任何關卡。確認 `plan.md` 的 `crew:ac` 至少有一條 `｜例：S01 ...` 且已核准；沒有則 BLOCK，回 `/plan spec`（若規格修改須重新 Human approve）。
-2. **先決定 runner**：探索既有 JUnit / pytest / Playwright／Cucumber 測試資產（JUnit XML 可用內建 `crew-bdd-junit.py` 轉換，見 `bdd-test-first.md`），依專案慣例選擇能輸出 `crew-results.json` schema v1（包含 `{slug}#AC-n#Sxx` `scenario_id`）的 runner 或 adapter。無法輸出可驗證結果 → BDD BLOCK；可由 Human 明確改成一般 `--with-test`，**不可悄悄降級**。
+2. **確認 runner**：先讀 `state.json.testing.runner`——
+   - **非 null**（已經過 4b）→ 沿用，此處只確認它仍能輸出 `crew-results.json` schema v1（包含 `{slug}#AC-n#Sxx` `scenario_id`；JUnit XML 可用內建 `crew-bdd-junit.py` 轉換，見 `bdd-test-first.md`）。
+   - **null**（`--review-once` 路徑沒有 4b 詢問，或其他跳過 4b 的情況）→ 當場派 `delegate_readonly`（role=`explorer`、`profile: FAST`，與 4b 同一套唯讀探測）找出 runner，立即寫入：`crew-state.py set --slug {slug} --test-runner {runner-id} --by human`（`--review-once` 路徑改 `--by packet`）。
+
+   找不到 runner、或無法輸出可驗證結果 → **不可悄悄降級**，問 Human：
+
+   ```text
+   ask_user(
+     question     = "找不到可輸出 Sxx 結果的測試 runner，要怎麼處理？",
+     options      = [
+       "1. 指定 runner／adapter（識別碼或路徑）後重探",
+       "2. 降級為一般測試（set --test-policy with_test；回報中明示不再滿足 Test-First）",
+       "3. 暫停（BLOCK，不寫 build，保留目前狀態）"
+     ],
+     why_required = "沒有可驗證的 runner 就沒有 RED/GREEN 證據；降級是放寬門檻，必須由 Human 決定，沉默／Enter 不算。"
+   )
+   ```
+
+   只有本輪明確選 1／2／3 才算，沉默、Enter、「繼續」一律重問；選 2 執行 `crew-state.py set --slug {slug} --test-policy with_test --by human`；無法提問（headless）→ BLOCK。
 3. **測試先行（獨立 write scope）**：僅委派 `test-engineer`，其 allowed paths 限制為專案既有測試目錄、測試 fixture 與 runner adapter；此時禁止任何 backend/API/frontend/DB 產品實作角色寫入。針對每個已核准 Sxx 建立或補足可執行的 assertion 與 Scenario ID，缺漏案例不可宣稱完成。
 4. **執行 RED**：確認 test discovery/config/fixture 均正常，執行測試並把機器可讀輸出保留在 `.spec/{slug}/.cache/bdd-red.json`（來源為實際 runner；不能手寫合成測試結果），然後執行：
 
    ```bash
+   CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
    python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-gate.py" \
      --plan .spec/{slug}/plan.md --slug {slug} \
      --phase red --results .spec/{slug}/.cache/bdd-red.json
@@ -196,15 +294,44 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 7. **執行 GREEN**：重新執行同一套測試得到 `.spec/{slug}/.cache/bdd-green.json`，執行：
 
    ```bash
+   CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
    python3 "${CREW_PLUGIN_ROOT}/scripts/crew-bdd-gate.py" \
      --plan .spec/{slug}/plan.md --slug {slug} \
      --phase green --results .spec/{slug}/.cache/bdd-green.json \
      --red-results .spec/{slug}/.cache/bdd-red.json
    ```
 
-   所有宣告 Sxx 必須 `passed + coverage=full`；任何 missing/failed/flaky/BLOCKED/skipped/manual 都不能 GREEN。RED/GREEN 不可使用同一份檔案或相同 run_id。GREEN 未通過 → build 保持 in_progress、保留 `work_unit`，不得標 `build=done`。
+   所有宣告 Sxx 必須 `passed + coverage=full`；任何 missing/failed/flaky/BLOCKED/skipped/manual 都不能 GREEN。RED/GREEN 不可使用同一份檔案或相同 run_id。GREEN 未通過 → build 保持 in_progress、保留 `work_unit`，不得標 `build=done`，並問 Human（**不提供降級**：RED 成立後改一般測試等於放寬門檻）：
 
-**`--bdd --resume`**：`remaining` 裡的 `bdd-green` 只需執行 GREEN gate、不可委派為 worker；已完成的 test-engineer 不重跑。若產品碼曾開始修改，先重新驗證既有 RED artifact 與 approval gate，並確認 RED 是修改產品碼**之前**執行（比較實際 Git diff 與本次紀錄；單靠 JSON 不足以證明時間順序）。證據遺失、時序不可證明或 Sxx 已變更 → BLOCK 並請 Human 決定重啟任務或改為一般 `--with-test`；絕不補造 RED。可降級 inline/sequential 委派，但**不降級 Test-First 順序及證據門檻**。
+   ```text
+   ask_user(
+     question     = "GREEN 未通過（{失敗／missing 的 Sxx 清單}），下一步？",
+     options      = [
+       "1. 續修產品碼再跑 GREEN（不得改 assertion、不得改 Sxx）",
+       "2. 規格有誤 → 回 /plan spec（requirement gate 轉 pending、重新核准後重做 RED）",
+       "3. 暫停（保留 work_unit 與 RED 證據，之後 /plan-build --bdd --resume）"
+     ],
+     why_required = "GREEN 是 build=done 的門檻（E8）；是改碼還是改規格只有 Human 能決定，沉默／Enter 不算。"
+   )
+   ```
+
+   只有本輪明確選 1／2／3 才算，沉默、Enter、「繼續」一律重問；無法提問（headless）→ BLOCK（保留 `work_unit`）。
+
+**`--bdd --resume`**：`remaining` 裡的 `bdd-green` 只需執行 GREEN gate、不可委派為 worker；已完成的 test-engineer 不重跑。若產品碼曾開始修改，先重新驗證既有 RED artifact 與 approval gate，並確認 RED 是修改產品碼**之前**執行（比較實際 Git diff 與本次紀錄；單靠 JSON 不足以證明時間順序）。證據遺失、時序不可證明或 Sxx 已變更 → 停下問 Human，絕不補造 RED：
+
+```text
+ask_user(
+  question     = "找不到有效 RED 證據（{原因：遺失／時序不可證明／Sxx 已變更}），要怎麼續跑？",
+  options      = [
+    "1. 重啟 Test-First：crew-state.py unit --slug {slug} --clear 後從 5e 重跑（已寫的產品碼不自動 revert，由新的 RED 重新判定）",
+    "2. 改為一般測試（set --test-policy with_test；回報中明示不再滿足 Test-First）",
+    "3. 暫停（BLOCK，不寫 build）"
+  ],
+  why_required = "RED 證據是 Test-First 的時序保證；重啟、降級或暫停都改變門檻，必須由 Human 決定，沉默／Enter 不算。"
+)
+```
+
+只有本輪明確選 1／2／3 才算，沉默、Enter、「繼續」一律重問；無法提問（headless）→ BLOCK。可降級 inline/sequential 委派，但**不降級 Test-First 順序及證據門檻**。
 
 ### 6. 啟動實作 Agent（逐一具名 delegate_write，profile: DEEP）
 
@@ -227,6 +354,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 先取得正式實作者的 Router mapping：
 
 ```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 python3 "${CREW_PLUGIN_ROOT}/scripts/crew-model-route.py" route \
   --task high_risk_implementation --risk high --complexity high \
   --host portable --format json
@@ -329,7 +457,7 @@ Leader 在回傳結果前，逐項檢查以下退出條件：
 | E7 | `deploy.sql` 校驗（若 DB_REQUIRED != false） | 見下方 E7 詳細邏輯 | 見下方 E7 詳細邏輯 |
 | E8 | BDD RED / GREEN 證據（僅 `--bdd`） | `crew-bdd-gate.py` 對核准 Sxx 比對 RED+GREEN，確認無漏跑／無 BLOCKED | **BLOCK，不得將 build=done**；保留 work_unit 供續跑 |
 
-> **測試已跳過時**：若使用者選否（不含測試），E6 仍執行但不檢查測試檔案，驗證結果中標記「測試已跳過」。
+> **測試已跳過時**：若測試策略為 `no_test`（第 4 步選 1 或 `--no-test`），E6 仍執行但不檢查測試檔案，驗證結果中標記「測試已跳過」。
 
 #### E5／E6 詳細邏輯（錨點有效性，維持 WARN 不阻擋）
 
@@ -383,13 +511,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 
 ### 10. 回傳結果
 
-測試相關兩處依使用者選擇填寫：**選是（含測試）** 用斜線前變體，**預設（跳過測試）** 用斜線後變體，已於行內以 `／` 標出。
+測試相關兩處依第 4 步選定的策略填寫：**`with_test`／`bdd`（含測試）** 用斜線前變體，**`no_test`（跳過測試）** 用斜線後變體，已於行內以 `／` 標出。
 
 ```
 程式碼產生完成！
 
 📁 變更檔案（git diff --name-only）：N 個
 📊 統計：N 個後端 + M 個前端{ + K 個測試 ／ 跳過測試時改為「（測試已跳過）」}
+🧪 測試策略：{no_test|with_test|bdd}（state.json.testing.policy{；bdd 時加 runner={runner-id}，RED/GREEN 皆 VALID}）
 
 已完成：
   {✅ db-engineer       — Migration SQL + 索引建議 + 效能報告}
@@ -439,6 +568,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 
 ## Gotchas
 
+- **測試策略沒有預設**：沒帶旗標就要在第 4 步問三選一；Enter／沉默／「繼續」不算選擇，headless 無旗標要 BLOCK 並列出三個旗標。選 BDD 後 RED 一旦成立就不再提供降級（GREEN 未過只有續修／回 spec／暫停）；找不到 runner 與 `--bdd --resume` 無 RED 證據這兩處才有「改一般測試」選項，且必須在回報中明示不再滿足 Test-First。
 - **有獨立 worker 時 Leader 不寫 code**：避免與 worker 同時修改相同檔案。只有 Host adapter 明確降級為 inline 時，主 Agent 才能按 `delegate_write` 的單一角色 scope 依序實作。
 - **Teammate 之間的檔案衝突**：雖然設計上各 Teammate 負責不同目錄，但 API 工程師的 DTO 和後端工程師的 Entity 可能放在相近的 package 下。如果兩者同時寫同一個 DTO 類別，後寫的會覆蓋先寫的。確保在 prompt 中明確劃分 DTO 歸屬。
 - **Host 沒有 parallel capability**：不是錯誤；依 `host-capabilities.md` 退化為序列委派，正確性不可依賴平行。
@@ -461,6 +591,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check-spec-drift.py" \
 - **無平行委派能力**：自動退化為序列委派，不阻擋
 - **--dry-run 模式**：不建立任何檔案，只展示清單和關鍵片段
 - **Teammate 失敗**：提供選項：重試 / 跳過 / 終止
+- **BDD 途中的三個決定**（找不到 runner／GREEN 未過／`--bdd --resume` 無 RED 證據）：各自用 5e 的 `ask_user` 三選項問 Human，無法提問（headless）一律 BLOCK，不自行降級
 - **API 契約不一致**：以 API 工程師為準，其他成員調整
 - **避免重疊寫入執行單元**：同一工作階段若已有未完成的可寫 role，先依 `state.json.work_unit` 續跑或收斂，再啟動新的實作單元
 - **僅後端模式**：依角色數使用 `delegate_write` 或序列委派；每個實作者仍帶 `task: high_risk_implementation` + `profile: DEEP`

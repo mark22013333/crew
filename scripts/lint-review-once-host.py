@@ -79,6 +79,8 @@ class HostBridgeScenarios(unittest.TestCase):
             "import pathlib, subprocess, sys\n"
             "project, slug, instruction = sys.argv[1:]\n"
             "assert instruction.startswith('/plan-build --')\n"
+            "print('worker-stdout-marker', flush=True)\n"
+            "print('worker-stderr-marker', file=sys.stderr, flush=True)\n"
             f"behavior = {behavior!r}\n"
             "if behavior == 'fail': sys.exit(9)\n"
             "if behavior == 'revoke':\n"
@@ -183,6 +185,39 @@ class HostBridgeScenarios(unittest.TestCase):
         state = json.loads((self.spec_dir / "state.json").read_text())
         self.assertEqual(state["autonomy"]["status"], "consumed")
         self.assertEqual(state["autonomy"]["execution"]["checkpoint"], "build")
+
+    def test_bridge_refuses_dialogue_grant(self):
+        # 同 session 對話核准不得交給 trusted-host 無人值守 worker
+        self.prepare_repo()
+        self.assertEqual(self.state("grant", "--action", "revoke").returncode, 0)
+        dialogue = self.state("grant", "--action", "issue", "--proof", "dialogue",
+                              "--packet", str(self.packet_file),
+                              "--approved-sha", self.packet["packet_sha256"],
+                              "--max-duration", "3600")
+        self.assertEqual(dialogue.returncode, 0, dialogue.stderr)
+        with self.assertRaisesRegex(bridge.BridgeError, "只接受簽章授權"):
+            self.drive("success")
+        state = json.loads((self.spec_dir / "state.json").read_text())
+        self.assertEqual(state["autonomy"]["proof"], "dialogue")
+        # Bridge 在 run start 之前就拒收：不得留下 Bridge 擁有的 Runner
+        execution = state["autonomy"].get("execution")
+        self.assertTrue(not execution or execution.get("status") == "not_started", execution)
+        self.assertEqual(state["steps"]["spec"]["status"], "pending")
+        self.assertEqual(self.git("diff", "--name-only"), "")
+
+    def test_worker_output_logged(self):
+        self.prepare_repo()
+        result = self.drive("success")
+        self.assertEqual(result["status"], "completed_build")
+        log = (self.spec_dir / ".cache" / f"review-once-worker-{result['run_id']}.log")
+        content = log.read_text(encoding="utf-8")
+        self.assertIn("worker-stdout-marker", content)
+        self.assertIn("worker-stderr-marker", content)
+        # 明確指定 --worker-log 時寫到指定檔，失敗訊息附上路徑
+        self.assertEqual(bridge.worker_log_path(self.project, self.slug, "abc", Path("/x/w.log")),
+                         Path("/x/w.log").resolve())
+        with self.assertRaises(bridge.BridgeError):
+            bridge.worker_log_path(self.project, self.slug, "../evil")
 
     def test_reject_unprotected_or_workspace_controlled_adapter(self):
         self.prepare_repo()

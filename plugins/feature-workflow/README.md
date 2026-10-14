@@ -1,4 +1,4 @@
-# Feature Workflow Plugin `v5.2.1`
+# Feature Workflow Plugin `v5.3.0`
 
 跨 Host 的 Feature lifecycle：本地 `.spec/` 規劃、Human approval gates、正式實作、安全/驗證/review、Human UAT 與結案同步。核心 contract 不依賴單一 Host 的 team、subagent 或 provider model 名稱。
 
@@ -215,12 +215,12 @@ Portable root：
 |---|---|
 | `/plan-setup` | 建立/更新 Feature portable config |
 | `/plan-stack` | 掃描專案並建立自訂 stack definition |
-| `/plan-start <任務>` | Refine raw request → Human confirm → 建立 Notion + `.spec/` + Git branch |
+| `/plan-start <任務>` | Refine raw request → Human confirm → 建立 Notion + `.spec/` + Git branch；`--from-review-once --proof dialogue\|signed` 供 `/plan-run` 以已核准 packet 建任務 |
 | `/plan-explore` | 想法探索、問題調查、方案比較 |
 | `/plan-browse` | 深讀/比較既有規劃 |
-| `/plan [spec\|db\|arch]` | 三 pass 規劃與 approval loop |
-| `/plan-build` | 依核准規格執行正式實作；支援 dry-run / scoped build / 選用 `--bdd` Test-First |
-| `/plan-run` | 可選 Review Once：一次人工審查、最長 4 小時授權、Host 派工至 Build Done；需額外安全整合 |
+| `/plan [spec\|db\|arch]` | 三 pass 規劃與 approval loop；spec pass 先問 Sxx 行為案例深度（`--scenarios none\|risky\|all` 可跳過詢問，不是預設） |
+| `/plan-build` | 依核准規格執行正式實作；支援 dry-run / scoped build；第 4 步測試策略三選一（不產測試／一般測試／BDD Test-First，無隱含預設），`--bdd` 先寫 Sxx 測試取 RED 再實作取 GREEN、開工前確認 runner／路徑／Sxx |
+| `/plan-run` | 先問推進方式：互動逐站／同 session 一次審查連跑（核准一次 packet 後在本對話連跑到 build 或 arch，**不是無人值守**）／trusted-host 簽章；子指令 `status\|pause\|resume\|revoke\|reclaim` |
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Browser/API 驗證、evidence、Word/Excel/E2E 選項 |
 | `/plan-review` | 邏輯、品質、效能 review；可 quick |
@@ -235,30 +235,39 @@ Portable root：
 
 ---
 
-## Review Once：一次審查到 Build Done（需 Host 整合）
+## `/plan-run`：先問要怎麼推進（三種模式）
 
-此模式適用於想減少逐步確認的 **Feature Workflow**。預設的 `/plan-start → /plan → /plan-build` 仍保持 Interactive；Review Once **不支援 Bug Workflow，也不授權自動 UAT、部署或 Git merge**。
+此 Skill 適用於想減少逐步確認的 **Feature Workflow**。預設的 `/plan-start → /plan → /plan-build` 仍保持 Interactive；Review Once **不支援 Bug Workflow，也不授權自動 UAT、部署或 Git merge**。
 
-### 使用者流程
+無旗標時先以結構化提問問「要用哪種方式推進這個 Feature？」——**只有本輪明確選擇才算**，沉默、Enter、「繼續」一律重問；旗標是跳過詢問的捷徑，不是預設。無法提問的 headless 環境（權限提示關閉、排程、`claude -p` 非互動）旗標不齊一律 BLOCK 並列出缺少的旗標。
 
 ```text
-/plan-run --mode review-once --until build --max-duration 4h
-/plan-run status
-/plan-run pause
-/plan-run resume
-/plan-run revoke
+/plan-run                                   # 無旗標：先問三種模式
+/plan-run --mode interactive                # 1. 互動逐站
+/plan-run --mode session --until build --max-duration 4h --test with_test   # 2. 同 session（review-once 為別名）
+/plan-run --mode trusted-host               # 3. 需工作區外簽章 Host 與受保護 adapter
+/plan-run status | pause | resume | revoke | reclaim
 ```
 
-1. CREW 先以唯讀探索準備完整 Spec、AC／BDD Sxx、DB SQL 提案、Architecture、測試策略及允許修改的路徑。
-2. Human 閱讀**整份提案**並明確核准；可信任 Host 才可簽署綁定提案 SHA-256 的 Grant。修改提案須重新審查，不能沿用舊核准。
-3. 授權自核准時起最多 **4 小時（Wall-clock）**，暫停／續跑不延長。Runner 合法套用 Requirement／Architecture Approval Gates，再依核准範圍呼叫 Build。
-4. Build 完成後停止；`/plan-security`、`/plan-verify`、`/plan-review` 與 **Human UAT** 仍需另外執行，且不能由 Grant 代核准。
+### 模式 1：互動逐站
 
-### Host Bridge（已實作執行契約，非開箱即用的無人值守服務）
+只讀 state 並回報 `/plan-next` 建議的下一步，不派工、不建立 grant；每站的 Approval Gate 照既有 `/plan`／`/plan-build` 由 Human 核准。
 
-須先由**工作區外的受保護 Host／Operator** 建立可信任的 Human 簽章來源、限制 Worker 可寫路徑、禁止未授權提權並提供取消機制。普通 `claude -p`、`codex exec` 或將 `host_guarantees` 設為 `true` **不等於具備這些安全能力**。
+### 模式 2：同 session 一次審查連跑（建議；**不是無人值守**）
 
-當 Human 已核准提案，且 Host 已安全核發並用 `crew-state.py grant --action issue` 綁定 Grant，才可使用以下 Bridge 指令（`{slug}` 和路徑為示意）：
+1. 第二層一次問三題：跑到哪一站（`--until build|arch`）、時限（`--max-duration 4h|2h|1h`）、測試策略（`--test with_test|bdd`；選 bdd 時 packet 必須含 Sxx）。`git commit` 不問、固定不允許。
+2. CREW 以唯讀探索準備整份 Review Packet（Spec、AC／Sxx、DB SQL、Architecture、允許修改的路徑、測試策略、禁止動作、`packet_sha256`），展示後問核准題：核准並連跑／修改重產（舊 sha 作廢）／取消（零 side effect）。
+3. 核准後 `/plan-start --from-review-once --proof dialogue` 以 `review-once-packet.py verify` 驗 hash 建任務，再 `crew-state.py grant --action issue --proof dialogue` 綁定；**時限從這一刻起算**。
+4. 主對話迴圈依 `crew-state.py run --action next` 連跑 Spec → DB → Arch（`review-once-apply.py --step X`）→ Build（`/plan-build --with-test|--bdd --review-once`），到 `completed_build` 或 `--until arch` 的 `completed_plan` 結束。
+5. 停止點（TEST_FAILED／E0-E3／E8、NEED_HUMAN、範圍衝突、到期）都以編號選項問 Human，**不提供「跳過」**。
+
+**誠實定位**：dialogue grant 的 packet hash 只保證「套用的＝審過的」，信任等級等同 Interactive 的 `gate --by human`，**不是不可偽造的核准**。迴圈在目前對話裡同步執行，session 結束即 paused，`/plan-run resume` 續跑；原 session 已死而 Runner 仍 `running` 時先 `/plan-run reclaim`（running→paused、`SESSION_LOST`），再經「原 worker 已停止？」確認後接管。Claude Code／Codex 的一般 CLI 都可用此模式，但不得稱為無人值守。
+
+### 模式 3：trusted-host 簽章（Host Bridge）
+
+需要 Host 在**工作區外**提供受保護的 Human approval 簽章端與 worker adapter；入口會多問一題要求 adapter 絕對路徑並確認四項 `host_guarantees`（`protected_human_approval`／`enforced_write_scope`／`worker_cancellation`／`no_unattended_escalation`）已由 Host 實際實施——這是人工確認，不是密碼學證明。普通 `claude -p`、`codex exec` 或把 `host_guarantees` 設為 `true` **不等於具備這些能力**，請改用模式 2。
+
+packet 經 Host 簽署（`approval.json`＋`approval.sig`）後，以 `/plan-start --from-review-once --packet … --event … --signature …` 建任務並綁定 `signed` grant（時限自 Host 簽發事件的 `issued_at` 起算，≤4h），再由 Bridge 同步派工（`{slug}` 和路徑為示意）：
 
 ```bash
 CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
@@ -268,19 +277,26 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
   --project . --slug {slug} \
   --adapter /host-managed/review-once-adapter.json --action probe
 
-# 同步執行至 Build Done、暫停或 Grant 到期
+# 同步執行至 Build Done、暫停或 Grant 到期；worker 輸出寫到 .cache 供事後檢視
 python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
   --project . --slug {slug} --owner {host-runner-id} \
-  --adapter /host-managed/review-once-adapter.json --action start
+  --adapter /host-managed/review-once-adapter.json --action start \
+  --worker-log .spec/{slug}/.cache/review-once-worker-{run_id}.log
 
-# 可從另一個終端查詢目前已保存的進度
+# 可從另一個終端查詢目前已保存的進度（含 grant_proof、target_step）
 python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
   --project . --slug {slug} --action status
 ```
 
-`status` 只顯示 Runner 狀態，不保證 Worker 此刻仍在執行。中斷後必須先確認原 Worker **確實停止**，才可用 `resume --reconcile --reason "已確認原工作程序結束"`；不得直接重複派工。Host Session 一旦結束，Bridge 不會自行在背景接手。
+Bridge **只接受 `signed` grant**，對 `dialogue` grant 一律 BLOCK；它是同步執行器，Host Session 結束後不會自行在背景接手。`status` 只顯示 Runner checkpoint，不保證 Worker 此刻仍在執行；中斷後必須先確認原 Worker **確實停止**，才可用 `resume --reconcile --reason "已確認原工作程序結束"`，不得直接重複派工。
 
-詳細文件：[Host Bridge 安全與設定](references/review-once-host.md)、[Runner／Pause／Resume](references/review-once-runner.md)、[Grant／Gate](references/review-once-grants.md)、[Review Packet](references/review-once.md)。若 Host 不具備上述隔離能力，請繼續使用 Interactive 模式。
+### 共同邊界
+
+- 授權只涵蓋當時那一份完整 packet；AC／架構／scope 有任何改變就要重產 packet 重審，不得沿用舊 grant。
+- 時限上限 4 小時且自 grant 簽發起算，暫停／續跑不延長；到期只能重審新 packet 或轉 Interactive。
+- Build 完成後停止；`/plan-security`、`/plan-verify`、`/plan-review` 與 **Human UAT** 仍需另外執行，且不能由 grant 代核准。
+
+詳細文件：[Review Packet](references/review-once.md)、[Grant／Gate（含 dialogue 節）](references/review-once-grants.md)、[Runner／Pause／Resume／Reclaim](references/review-once-runner.md)、[Host Bridge 安全與設定](references/review-once-host.md)。
 
 ---
 

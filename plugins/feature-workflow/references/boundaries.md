@@ -17,11 +17,16 @@
 
 ### 🟡 ASK FIRST（顯示計畫，等使用者確認）
 - 啟動多角色實作（步驟 4 的確認提示；探索 `model: sonnet`、實作 `model: opus`；執行方式由 Host adapter 決定）
+- 測試策略三選一（不產測試／一般測試／BDD Test-First）：沒有預設，只有 `--no-test`／`--with-test`／`--bdd` 旗標可跳過；沉默、Enter、「繼續」不算選擇
+- BDD 開工確認（4b）：展示 runner、test-engineer 允許路徑、Sxx 清單後才寫 `testing.policy=bdd` 與 `testing.runner`
+- BDD 途中的三個決定：找不到 runner、GREEN 未過（不給降級）、`--bdd --resume` 無 RED 證據
 - Teammate 失敗時的處理策略（重試 / 跳過 / 終止）
 - API 契約不一致時的調整方向
 - 退出驗證中 WARN 項目的處理
 
 ### 🔴 NEVER（禁止，即使使用者要求也應警告）
+- 把沉默、Enter、「繼續」當成測試策略或開工的選擇；無法提問（headless）又沒旗標時替使用者選
+- RED 成立後自行降級為一般測試、刪 assertion 或改 Sxx 讓 GREEN 通過
 - 有獨立 worker 可用時 Leader 自己寫應用程式碼；若 Host 明確降級為 inline，主 Agent 只能依單一 `delegate_write` role 的 scope 依序實作
 - 在 plan.md 決策紀錄沒有 `[arch]` 條目（`state.json` 的 `steps.arch` 既非 `done` 也非 `skipped`）時開工 —— 這是 hard block
 - 自動補寫架構決策條目來繞過上述 hard block
@@ -136,6 +141,7 @@
 ### 🟢 ALWAYS
 - 呼叫 `crew-state.py list --format json` 定位任務、`crew-state.py next --slug <slug> --format json` 取得下一步（`state.json` 是流程位置的唯一權威）
 - 照實轉述回傳的 `command` 與 `reason`，`command` 為 `null` 就只轉述 `reason`
+- `command` 已依 `state.json.testing.policy` 帶上 `--no-test`／`--with-test`／`--bdd`（斷點時 `--bdd --resume`），照實轉述、不自行增刪旗標；`policy` 為 null 時連同 reason 裡「/plan-build 將詢問測試策略」的提示一起轉述
 - 多個活躍任務時列出讓使用者選擇，或用 `--all` 全部列出
 
 ### 🟡 ASK FIRST

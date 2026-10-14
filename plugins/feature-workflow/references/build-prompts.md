@@ -15,6 +15,9 @@
 | {db_mcp_instruction} | 步驟 5 檢查 | DB MCP 可用時的指示 |
 | {dry_run_instruction} | 使用者參數 | --dry-run 指示 |
 | {scout_handoff} | 步驟 5 探索官產出 | 「實作交接」內容（相關檔案、呼叫關係、風格範本片段、限制） |
+| {test_policy} | `state.json.testing.policy`（步驟 4 詢問或旗標） | `no_test`／`with_test`／`bdd` |
+| {test_runner} | `state.json.testing.runner`（4b 開工確認） | BDD 的 runner 識別碼（例：junit、pytest） |
+| {sxx_list} | `crew-bdd-gate.py --phase plan` 輸出 | 已核准 Sxx 清單（`{slug}#AC-n#Sxx`），BDD 必帶 |
 
 ---
 
@@ -201,8 +204,10 @@
 - 使用繁體中文
 
 【成員 4：測試工程師】Test Engineer
+- 測試策略：{test_policy}（Human 在步驟 4 選定；`no_test` 時本角色不 spawn）
 - 測試慣例用探索官交接（{scout_handoff}）提供的既有測試範本片段，不足時只讀交接指定的檔案
-- 一般模式：等待後端工程師完成後開始。**BDD `--bdd` 模式：必須第一個開始，只能先寫測試／fixture／runner adapter，取得 `crew-bdd-gate.py --phase red` 證據之後才能放行後端／API／前端角色。**
+- 一般模式（`with_test`）：等待後端工程師完成後開始。**BDD 模式（`bdd`）：必須第一個開始，只能先寫測試／fixture／runner adapter，取得 `crew-bdd-gate.py --phase red` 證據之後才能放行後端／API／前端角色。**
+- **BDD 模式輸入**：已核准 Sxx 清單 {sxx_list}（每個都要有對應 assertion 與 `{slug}#AC-n#Sxx` Scenario ID，缺任何一個不得宣稱完成）、runner {test_runner}（必須輸出 `crew-results.json` schema v1，JUnit XML 經 `crew-bdd-junit.py` 轉換）、allowed paths 只限測試目錄／fixture／runner adapter；不得碰產品碼，缺 Sxx 或 runner 無法輸出時回報 Lead，由 Lead 在主對話問 Human，本角色不得自行提問或降級
 {若有 DB 工程師：參考 DB 工程師提供的約束條件和索引資訊，設計更完整的測試案例}
 - 任務：
   * 為 Service 層產生單元測試（JUnit + Mockito）

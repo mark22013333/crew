@@ -1,7 +1,7 @@
 ---
 name: plan
 description: CREW 規劃 —— spec / db / arch 三個 pass 把決策與驗收條件寫進 .spec/{slug}/plan.md，DB 設計另產 deploy.sql（零 Notion 呼叫）。當使用者提到 /plan、「CREW 完整規劃」、「一次跑完 spec/db/arch」時觸發此 Skill。
-argument-hint: "[spec|db|arch]"
+argument-hint: "[spec|db|arch] [--scenarios none|risky|all]"
 ---
 
 # plan — 規劃三 pass（零 Notion 呼叫）
@@ -19,11 +19,14 @@ argument-hint: "[spec|db|arch]"
 ## 使用方式
 
 ```
-/plan            # 全跑：spec → db → arch
-/plan spec       # 只跑規格 pass
-/plan db         # 只跑 DB pass
-/plan arch       # 只跑架構 pass
+/plan                          # 全跑：spec → db → arch（spec pass 先問 Sxx 深度）
+/plan spec                     # 只跑規格 pass（先問 Sxx 深度）
+/plan spec --scenarios risky   # 旗標直接指定深度、不問（none|risky|all；/plan 全跑也可帶）
+/plan db                       # 只跑 DB pass
+/plan arch                     # 只跑架構 pass
 ```
+
+`--scenarios` 只是跳過 1-0 詢問的捷徑，**不是預設值**：沒帶旗標就一定要問（見 Pass 1 的 1-0）。
 
 適用類型 **Feature**。活躍任務 `type=bug` → 提示改走 `/bug-investigate` → `/bug-fix`，本 skill 不執行。
 
@@ -56,6 +59,46 @@ argument-hint: "[spec|db|arch]"
 
 > 只在 `/plan` 或 `/plan spec` 時執行。
 
+#### 1-0. 詢問行為案例（Sxx）深度（必須執行；旗標可跳過）
+
+派工之前先問 Human 要為驗收條件附多少行為案例。這個答案決定 `/plan-build` 能否走 Test-First、`/plan-verify` 能否逐情境驗收，**AI 不代選**。依 `../../references/host-capabilities.md` 的 `ask_user` 契約：
+
+```text
+ask_user(
+  question     = "驗收條件要附多少行為案例（Sxx）？",
+  options      = [
+    "1. 不用（純技術／重構任務，AC 不附例）",
+    "2. 只標高風險或有歧義的 AC（建議）",
+    "3. 每條 AC 都要（之後可走 BDD Test-First；代價：每個 Sxx 都要 GREEN 才能 build=done，UI 類情境容易 BLOCKED）"
+  ],
+  why_required = "案例深度決定 /plan-build 能否 Test-First 與 /plan-verify 逐情境驗收；AI 不代選，沉默／Enter 不算。"
+)
+```
+
+對應畫面（Host 沒有結構化選單時，用一般對話逐字列出同一組編號選項）：
+
+```text
+驗收條件要附多少行為案例（Sxx）？
+  1. 不用（純技術／重構任務，AC 不附例）
+  2. 只標高風險或有歧義的 AC（建議）
+  3. 每條 AC 都要（之後可走 BDD Test-First；代價：每個 Sxx 都要 GREEN，UI 類情境容易 BLOCKED）
+{若 state.json.testing.scenario_depth 已有值：上次選擇：{值}（本輪仍需明確重選）}
+```
+
+規則：
+
+- **只有本輪明確選 1／2／3 才算**。沉默、Enter、「繼續」、「ok」、「照建議」都不算選擇，一律重問；「建議」只是標記，Agent 不得替使用者選它。
+- 旗標 `--scenarios none|risky|all` 是跳過詢問的捷徑，不是預設值：有旗標直接採用、不問。
+- 答案立即寫進 `state.json`（唯一寫者 `crew-state.py`；`none`／`risky`／`all` 對應選項 1／2／3）：
+
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" set --slug {slug} \
+    --scenario-depth {none|risky|all} --by human
+  ```
+
+- 無法提問（headless：`--permission-prompts none`、`dontAsk`、排程執行）且沒有 `--scenarios` → **BLOCK**，訊息列出「需 `--scenarios none|risky|all`」，不得用猜的補一個深度。
+- 深度只決定「附多少例」；Sxx 內容本身仍在 1-3 的確認迴圈與規格一起由 Human 核准。
+
 #### 1-1. 派工
 
 先取得 requirement analysis 的 Router mapping：
@@ -77,13 +120,14 @@ routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`c
 > - 🔴 不得只因需求文件多或內容長就自行升級 DEEP；範圍過大就分節產出。只有 risk/complexity/sensitive policy 真正升級時才依 Router 結果調整。
 > - 規格確認迴圈（1-3）照原樣執行，不可略過。
 
-**輸入**：`.spec/{slug}/plan.md` 現有內容 ＋ 步驟 0 載入的專案上下文 ＋ 使用者在指令中補充的需求。
+**輸入**：`.spec/{slug}/plan.md` 現有內容 ＋ 步驟 0 載入的專案上下文 ＋ 使用者在指令中補充的需求 ＋ **1-0 選定的 Sxx 深度**（`scenario_depth=none|risky|all`，subagent 依 `agents/feature-spec-analyst.md` 的深度規則決定附多少例）。
 
 **要求 subagent 回傳（不得寫檔）**：
 
 ```text
 [goal]  ≤12 行：為何做、In Scope、Out of Scope
-[ac]    ≤15 行：- [ ] AC-1 {可機器驗證的一句話}（有必要時同行追加 `｜例：S01 正常：...；S02 邊界：...`；依 `references/behavior-examples.md`）
+[ac]    ≤15 行：- [ ] AC-1 {可機器驗證的一句話}（依 1-0 深度同行追加 `｜例：S01 正常：...；S02 邊界：...`：
+        none 不附、risky 只附高風險／歧義 AC、all 每條至少 S01 正常＋S02 例外且 ≤3 例；依 `references/behavior-examples.md`）
 [dec]   範圍判斷條目（固定第一條）：
         - D-1 [spec] 範圍判斷：TASK_TYPE={feature|adjustment|bugfix|refactor|performance}、
           CHANGE_SCOPE={full|backend-only|frontend-only|api-only|db-only}、
@@ -97,7 +141,7 @@ routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`c
 
 🔴 回傳中不得出現 API 端點表、欄位清單、方法簽章 —— 那些是程式碼的事實，用 `[map]` 錨點指過去。
 
-規格探索時依 `../../references/behavior-examples.md` 針對高風險或有歧義的 AC 用具體例子確認正向／例外／邊界情境。**不可自行補齊未知的業務規則**；未釐清者呈給 Human。每條 AC 仍只佔一行、同一份 plan.md、沿用原本行數限制。純技術任務可不加案例。
+規格探索時依 `../../references/behavior-examples.md` 與 1-0 選定的深度產生案例：`risky` 只對高風險或有歧義的 AC 用具體例子確認正向／例外／邊界情境；`all` 每條 AC 都附；`none` 一律不附。**不可自行補齊未知的業務規則**；未釐清者呈給 Human。每條 AC 仍只佔一行、同一份 plan.md、沿用原本行數限制。深度由 Human 在 1-0 決定，subagent 不得自行加深或減少。
 
 #### 1-2. 寫入 plan.md
 
@@ -107,7 +151,7 @@ routing=`task: requirement_analysis`、`profile: STANDARD`、`risk: medium`、`c
 
 > ⚠️ **硬性規則**：spec pass 寫入後，🔴 禁止自動進入 db／arch pass，🔴 禁止直接開始寫程式碼。必須進入以下迴圈，直到使用者明確表示沒問題。
 
-摘要「目標與範圍」「驗收條件（含適用的 S01/S02 行為案例）」「D-1 範圍判斷」給使用者。對新增的例外／邊界規則明示是**已確認**還是**待決策**，讓 Human 一併核准，再進以下確認迴圈：
+摘要「目標與範圍」「驗收條件（含依 1-0 深度附上的 S01/S02 行為案例）」「D-1 範圍判斷」給使用者。對新增的例外／邊界規則明示是**已確認**還是**待決策**，讓 Human 一併核准，再進以下確認迴圈：
 
 ```
 規格已寫入 .spec/{slug}/plan.md（目標與範圍／驗收條件／決策紀錄）
@@ -320,6 +364,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 📁 .spec/{slug}/plan.md（{N} 行）
 🗄️ .spec/{slug}/deploy.sql（{M} 個部署步驟；DB_REQUIRED=false 時不顯示此行）
 📊 階段：{spec|db|arch}
+🧪 Sxx 深度：{none|risky|all}（state.json.testing.scenario_depth；只在跑過 spec pass 時顯示）
 
 本次新增條目：
   • 驗收條件 {n} 條
@@ -348,6 +393,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/crew-state.py" validate --slug {slug} \
 
 - **「取代整段」是這份文件最大的風險**：三個 pass 共用決策紀錄／風險／指路三節。任何一個 pass 用整節取代，都會靜默吃掉別的 pass 寫的條目，而 lint 與測試都抓不到。收工前用 `git diff -U0 .spec/{slug}/plan.md | grep '^-'` 確認刪除行數為 0（修訂 goal／ac 除外）。
 - **錨點註解不可美化**：`<!-- crew:dec  append-only -->` 的空白數量都是插入點比對的一部分，不要重新對齊或翻譯。
+- **Sxx 深度沒有預設值**：沒帶 `--scenarios` 就一定要在 1-0 問；Enter／沉默／「繼續」不算選擇，headless 無旗標要 BLOCK 並列出旗標。「建議」只是標記，不是替使用者選好的答案。
 - **單跑不等於可以跳過確認**：`/plan spec` 必須完成 requirement confirmation；`/plan arch` 必須完成 architecture confirmation；`/plan db` 寫入後仍要摘要結果，但沒有獨立人類 approval gate。
 - **DB_REQUIRED=false 要留痕**：跳過 db pass 時務必寫 `--status skipped --reason`，否則下游只會看到「沒有 deploy.sql」而必須用猜的。
 - **委派的 routing 目標**：prompt 中只寫「用強模型」不算；capability request 必須帶結構化 `task/profile/risk/complexity`，實際模型／reasoning 由 Router + Host adapter 對映，降級必須明示 `routing_degraded=true`。

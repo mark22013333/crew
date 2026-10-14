@@ -1,6 +1,8 @@
-# Review Once Signed Grant — Phase PR-B
+# Review Once Grant — signed 與 dialogue
 
-> **Security prerequisite:** The signed Human approval event MUST originate from a trusted Host/Broker outside the Agent's writable filesystem. This PR provides deterministic verification and state gating; it **does not implement a trusted Host approval UI or background Runner**. Do not enable fully autonomous execution until the Host provides an actual trusted approval channel.
+> 兩種 grant：**signed**（`autonomy.proof=signed`，trusted-host 模式，本節以下到「State transitions」皆屬之）與 **dialogue**（`autonomy.proof=dialogue`，同 session 模式，見文末「Dialogue Grant」節）。
+>
+> **Security prerequisite (signed):** The signed Human approval event MUST originate from a trusted Host/Broker outside the Agent's writable filesystem. CREW provides deterministic verification and state gating; it **does not implement a trusted Host approval UI or background Runner**. Do not enable fully autonomous execution until the Host provides an actual trusted approval channel.
 
 ## Host approval contract
 
@@ -27,18 +29,18 @@ The Host signs **canonical JSON UTF-8** (sort keys, compact separators, ensure_a
 ## State transitions (crew-state.py is the only writer)
 
 ```bash
-python3 crew-state.py grant --slug {slug} --action issue \
+python3 crew-state.py grant --slug {slug} --action issue --project . \
   --packet packet.json --approval-event approval.json --signature approval.sig
-python3 crew-state.py set --slug {slug} --step spec --status done
-python3 crew-state.py grant --slug {slug} --action approve-requirement
-python3 crew-state.py set --slug {slug} --step db --status skipped --reason DB_REQUIRED=false
-python3 crew-state.py set --slug {slug} --step arch --status done
-python3 crew-state.py grant --slug {slug} --action approve-architecture
-python3 crew-state.py grant --slug {slug} --action check
+python3 crew-state.py set --slug {slug} --step spec --status done --project .
+python3 crew-state.py grant --slug {slug} --action approve-requirement --project .
+python3 crew-state.py set --slug {slug} --step db --status skipped --reason DB_REQUIRED=false --project .
+python3 crew-state.py set --slug {slug} --step arch --status done --project .
+python3 crew-state.py grant --slug {slug} --action approve-architecture --project .
+python3 crew-state.py grant --slug {slug} --action check --project .
 # After the later Runner reaches build done:
-python3 crew-state.py grant --slug {slug} --action consume
+python3 crew-state.py grant --slug {slug} --action consume --project .
 # On request:
-python3 crew-state.py grant --slug {slug} --action revoke
+python3 crew-state.py grant --slug {slug} --action revoke --project .
 ```
 
 - `issue`: verifies signed event, matching packet SHA, slug, task branch and four-hour wall-clock bound. Requires existing Feature state; will not extend an active grant.
@@ -50,6 +52,29 @@ python3 crew-state.py grant --slug {slug} --action revoke
 - `grant consume` requires `build=done`; it is not `uat=approved`. Human UAT is never granted automatically.
 - Existing Interactive/Legacy/Bug paths without active Review Once remain unchanged.
 
-## Required follow-up PR-C
+## Dialogue Grant（`autonomy.proof=dialogue`，`/plan-run` 模式 2）
 
-Only after Host-trusted approval integration exists should `/plan-run` orchestrate independent stages using the existing `crew-state.py next`, locks, `work_unit`, verified scopes, pause/resume and Host cancellation. This PR explicitly **does not assert that long-running autonomous execution works yet**.
+不需要工作區外簽章端。使用者在 `/plan-run` 主對話看過**整份** packet，並對 `ask_user` 的核准題明確選「1. 核准並連跑」（沉默／Enter／「繼續」／「ok」不算）後：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/crew-state.py" grant --slug {slug} --action issue \
+  --proof dialogue --packet packet.json --approved-sha {packet_sha256} \
+  --max-duration {600..14400 秒} --until build --project .
+```
+
+- `issue --proof dialogue`：重算 packet hash 必須等於 `--approved-sha`；`--max-duration` 介於 600 秒與 packet 上限（14400）之間；不接受 `--approval-event`／`--signature`。寫入 `autonomy{proof:"dialogue", by:"human-dialogue", grant_id, issued_at, expires_at, target_step}`，**時限從 issue 這一刻起算**。
+- `--proof` 省略＝signed 原路徑，行為不變（向後相容）。
+- 之後的 `approve-requirement`／`approve-architecture`／`check`／`consume`／`revoke` 與 signed 相同；Gate 仍記 `by=delegated-review-once`。`grant check` 對 dialogue 改為重讀 packet、重算 hash 並比對 `packet_sha256`、到期與 `expires_at − issued_at ≤ 14400`。
+- 有效 dialogue grant 期間，直接 `gate --by human` 一樣被擋；要改人工請先 `grant --action revoke`。
+- `review-once-host.py`（trusted-host Bridge）對 dialogue grant 一律 BLOCK。
+
+**誠實定位**（與 `skills/plan-run/SKILL.md`、`review-once.md` 一致）：
+
+- dialogue grant 的 packet hash 只保證「**套用的＝審過的**」；信任等級等同 Interactive 的 `gate --by human`，**不是不可偽造的核准**。
+- 補充：能寫 state.json 的程序同樣能自行 issue dialogue grant；它的價值是「一次審查、多站套用且不漂移」，不是密碼學證明。
+- 同 session 模式**不是無人值守**：迴圈在目前對話裡同步執行，session 結束即 paused，`/plan-run resume` 續跑。
+
+## 與 `/plan-run` 的關係
+
+`/plan-run` 依入口詢問分三種模式：互動逐站（不建 grant）、同 session（dialogue grant，見上節）、trusted-host（signed grant＋Host Bridge，見 `review-once-host.md`）。Runner 契約見 `review-once-runner.md`。

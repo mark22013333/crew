@@ -1,7 +1,7 @@
 ---
 name: plan-start
 description: 先用唯讀 Intake Refiner 整理使用者原始需求並取得 Human 明確確認，再建立 Notion + .spec/{slug}/ + Git branch 的統一任務入口（支援 feature 與 bug）。當使用者提到 /plan-start、「開新 CREW 任務」、「建立規劃任務」時觸發此 Skill。
-argument-hint: "<任務簡述> [選項] [--from-review-once]"
+argument-hint: "<任務簡述> [選項] [--from-review-once --proof dialogue|signed --packet <packet.json> (--approved-sha <sha> | --event <approval.json> --signature <approval.sig>)]"
 ---
 
 # plan-start — 統一任務入口（本地規劃模式）
@@ -15,20 +15,39 @@ argument-hint: "<任務簡述> [選項] [--from-review-once]"
 
 ## Review Once 授權快速路徑（僅 `--from-review-once`）
 
-> 只有受保護 Host 的 `/plan-run` 委派可啟用。Interactive／Bug 預設不變；不能把使用者一般聊天的「可以」推定成 Review Once 授權。
+> 只有 `/plan-run` 的模式 2（同 session，`--proof dialogue`）或模式 3（trusted-host 簽章）委派可啟用。Interactive／Bug 預設不變；不能把使用者一般聊天的「可以」推定成 Review Once 授權。
 
-在建立任何 `.spec/{slug}/` 正式檔案、Git branch 或 Notion 資源**之前**，必須先驗證可信任 Host 簽署事件：
+在建立任何 `.spec/{slug}/` 正式檔案、Git branch 或 Notion 資源**之前**，依 proof 種類先驗證：
+
+**A. dialogue（`--from-review-once --proof dialogue --packet <packet.json> --approved-sha <sha>`）**——使用者剛在 `/plan-run` 主對話中，對展示的整份 packet 明確選了「核准並連跑」：
 
 ```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-packet.py" verify \
+  --packet <packet.json>
+```
+
+- 輸出的 `packet_sha256` 必須與 `--approved-sha` 完全相同；不符、packet 無效或 slug 衝突 → **BLOCK**，不建任何檔案。
+- 此路徑**不跑** `review-once-proof.py`。hash 只保證「套用的＝審過的」，信任等級等同 Interactive 的 `gate --by human`，不是不可偽造的核准。
+
+**B. signed（`--from-review-once` 搭配 Host 簽章事件，trusted-host 模式）**——驗證可信任 Host 簽署事件：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
 python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-proof.py" \
   --project . --packet <packet.json> --event <approval.json> --signature <approval.sig>
 ```
 
 - 缺可信任的簽章驗證、公鑰在專案工作區、Hash/slug/branch/4h 不符、Host 不具備受保護 Human Approval → **BLOCK**，改走原始互動模式，不得模擬簽名。
+
+兩條路徑共同規則：
+
 - 通過後，**只省略本 Skill 對同一份使用者已審查 Spec 的重複 Intake 確認**；原始需求與精煉需求須能由核准提案完整對應。不同或衝突時回到 Human 決策，不能沿用 Hash。
 - 建立正式 `plan.md` 六章節空白骨架與 `state.json`，沿用現有原子式 `crew-state.py init` 與分支設置、前置檢查；以 packet 的 slug/branch 為準，不能任意自選。
 - v1 不在這條路徑自動建立／修改 Notion 或其他外部系統；若原始專案流程強制要求同步，請停止並要求 Human 確認，勿偷偷繞過。
-- 初始化後 **立即**呼叫 `crew-state.py grant --action issue --packet ... --approval-event ... --signature ...` 綁定同一 signed packet；若失敗停在未授權的 start 階段，絕不自動執行 Spec 或 Build。
+- 初始化後 **立即**綁定同一份 packet；失敗則停在未授權的 start 階段，絕不自動執行 Spec 或 Build：
+  - dialogue：`crew-state.py grant --slug {slug} --action issue --proof dialogue --packet <packet.json> --approved-sha <sha> --max-duration <秒> --until build|arch --project .`（時限從這一刻起算）
+  - signed：`crew-state.py grant --slug {slug} --action issue --packet ... --approval-event ... --signature ... --project .`
 - 此 Flag **不代表自動核准**；之後只有 `/plan-run` 使用 `review-once-apply.py` 套用已核准內容，並使用 `grant approve-requirement/approve-architecture` 完成既有 Gate。
 
 ---

@@ -360,12 +360,12 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 |---|---|
 | `/plan-setup` | 建立/更新 portable Feature config |
 | `/plan-stack` | 建立自訂 stack definition |
-| `/plan-start <任務>` | 先由 Intake Refiner 潤飾 raw request 並 Human 確認，再建立 Notion + `.spec/` + Git branch |
+| `/plan-start <任務>` | 先由 Intake Refiner 潤飾 raw request 並 Human 確認，再建立 Notion + `.spec/` + Git branch；`--from-review-once --proof dialogue\|signed` 供 `/plan-run` 以已核准 packet 建任務 |
 | `/plan-explore` | 自由探索與方案比較 |
 | `/plan-browse` | 深讀/比較既有 `.spec/` |
-| `/plan [spec\|db\|arch]` | 三 pass 規劃與 Human approval loop |
-| `/plan-build` | 依核准規格產生正式程式碼；可選 `--bdd` Test-First RED→GREEN（需 Sxx 情境） |
-| `/plan-run` | 可選 Review Once：一次審查、最長 4 小時，由受保護 Host 派工至 Build Done；需額外 Host 整合 |
+| `/plan [spec\|db\|arch]` | 三 pass 規劃與 Human approval loop；spec pass 先問 Sxx 行為案例深度（`--scenarios none\|risky\|all` 可跳過詢問，不是預設） |
+| `/plan-build` | 依核准規格產生正式程式碼；第 4 步測試策略三選一（不產測試／一般測試／BDD Test-First，無隱含預設）；`--bdd` 先為 Sxx 寫測試取 RED 再實作取 GREEN，開工前確認 runner／路徑／Sxx 清單 |
+| `/plan-run` | 先問推進方式：互動逐站／同 session 一次審查連跑（核准一次 packet 後在本對話連跑到 build 或 arch，**不是無人值守**）／trusted-host 簽章；子指令 `status\|pause\|resume\|revoke\|reclaim` |
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Verification Router + BLOCKED 語意 + Playwright draft/result/promotion；產出 UAT 前 machine evidence |
 | `/plan-review` | 邏輯/品質/效能 review |
@@ -378,16 +378,21 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 | `/plan-demo` | 純本地評估模式 |
 | `/crew-cockpit` | 開啟 CREW Cockpit Pane：任務總覽／列表／驗收唯讀儀表板（僅 Claude Code ≥ 2.1.289） |
 
-### Review Once（選用，需受保護 Host）
+### `/plan-run`：先問要怎麼推進（三種模式）
 
-`/plan-run --mode review-once --until build --max-duration 4h` 會先**準備完整 Spec／DB／Architecture 提案，讓 Human 明確審查一次**。取得可信任 Host 簽署授權後，Runner 才能依核准內容推進至 Build Done。授權自核准時起最多四小時，暫停或重開 Session 不會延長。
+`/plan-run` 無旗標時先以結構化提問問「要用哪種方式推進這個 Feature？」，**沉默、Enter、「繼續」都不算選擇**；旗標（`--mode interactive|session|trusted-host`）只是跳過詢問的捷徑，不是預設。無法提問的 headless 環境旗標不齊一律 BLOCK 並列出缺少的旗標。
 
-- **預設仍是 Interactive**：既有 `/plan-start`、`/plan` 與 `/plan-build` 的逐階段人工核准沒有改變。
-- **不是安裝 plugin 就能無人值守**：Claude Code／Codex 的一般 CLI 不提供 CREW 所需的檔案級寫入隔離或受保護的 Human 簽章。正式執行需由 Host 另外提供 Approval Broker、Worker Sandbox 與中止／續跑能力；缺少任何一項都必須阻擋。
-- **Host Bridge**：`review-once-host.py` 可依已簽署 Grant 啟動 Host 管理的 Worker、保存 Checkpoint、支援 `status / pause / revoke / resume`。它是**同步執行器**，不是跨 Session 的常駐背景服務。
-- **停止於 Build Done**：不自動執行正式部署、Git push／merge、Security／Verify／Review 或 Human UAT。最後的人類驗收仍由原流程處理。
+| 模式 | 做什麼 | 授權證明 | 適用 |
+|---|---|---|---|
+| 1. 互動逐站 | 只回 `/plan-next` 建議的下一步，每站照既有 `/plan`／`/plan-build` 由 Human 核准 | 既有 Approval Gate | 預設流程，所有 Host |
+| 2. 同 session 一次審查連跑（建議） | 再問三題（`--until build\|arch`、`--max-duration 4h\|2h\|1h`、`--test with_test\|bdd`）→ 展示整份 Review Packet → 對話核准 → 在**本對話**連跑 Spec → DB → Arch（→ Build） | `dialogue` grant：只以 packet hash 綁定，信任等級等同 Interactive 的 `gate --by human`，**不是不可偽造的核准** | Claude Code／Codex 一般 CLI 可用；**不是無人值守**，session 結束即 paused，`/plan-run resume` 續跑（原 session 已死時先 `reclaim`） |
+| 3. trusted-host 簽章 | 多問一題要求 adapter 絕對路徑並確認四項 `host_guarantees` 已由 Host 實施，packet 經工作區外私鑰簽署後由 Host Bridge 同步派工 | `signed` grant：RSA／ECDSA 簽章事件 | 只有能提供受保護簽章端與 worker 隔離的 Host；一般 `claude -p`／`codex exec` **不符合** |
 
-部署前置、操作指令及安全界線請先閱讀 [Review Once Host Bridge 指南](plugins/feature-workflow/references/review-once-host.md)。
+- **預設仍是 Interactive**：既有 `/plan-start`、`/plan` 與 `/plan-build` 的逐階段人工核准沒有改變；Review Once 只支援 Feature，不支援 Bug Workflow。
+- **時限從 grant 簽發起算**（dialogue 在 `/plan-start` 之後 issue；signed 自 Host 簽發事件起算），上限 4 小時，暫停或重開 Session 不會延長；到期只能重審新 packet 或轉 Interactive。
+- **停止點不提供「跳過」**：TEST_FAILED、NEED_HUMAN、範圍衝突、到期都以編號選項問 Human（續修／暫停／撤銷轉 Interactive）；`git commit` 固定不允許。
+- **停止於 Build Done**（或 `--until arch` 的 `completed_plan`）：不自動執行正式部署、Git push／merge、Security／Verify／Review 或 Human UAT。最後的人類驗收仍由原流程處理。
+- **trusted-host 的 Host Bridge**：`review-once-host.py` 只接受 `signed` grant（對 `dialogue` 一律 BLOCK），依序執行 Spec → DB → Arch → Build、保存 Checkpoint、worker 輸出寫到 `.spec/{slug}/.cache/`；它是**同步執行器**，不是跨 Session 的常駐背景服務。部署前置與安全界線見 [Review Once Host Bridge 指南](plugins/feature-workflow/references/review-once-host.md)。
 
 詳見 [Feature Workflow README](plugins/feature-workflow/README.md)。
 

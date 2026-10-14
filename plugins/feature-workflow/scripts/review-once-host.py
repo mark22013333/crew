@@ -142,6 +142,10 @@ def check_runtime(project: Path, slug: str, owner: str) -> dict:
     status = cmd(project, slug, "run", "--action", "status")
     assert_ok(status["status"] == "running" and status["owner"] == owner,
               "Runner 已暫停、撤銷或被其他 Host 接管，停止 worker")
+    # trusted-host Bridge 只接受外部簽章授權；同 session 對話核准（dialogue）不得交給無人值守 worker
+    assert_ok(status.get("grant_proof") == "signed",
+              "trusted-host Bridge 只接受簽章授權（proof=signed）；"
+              f"目前為 {status.get('grant_proof')}，請改用同 session 模式")
     dt = datetime.fromisoformat(status["expires_at"].replace("Z", "+00:00"))
     assert_ok(dt.tzinfo is not None and datetime.now(timezone.utc) < dt.astimezone(timezone.utc),
               "Review Once 四小時 Grant 已到期")
@@ -167,18 +171,38 @@ def terminate(child: subprocess.Popen) -> None:
             child.wait(timeout=4)
 
 
+def worker_log_path(project: Path, slug: str, run_id: object,
+                    override: Path | None = None) -> Path:
+    """worker 輸出檔；預設落在 .spec/{slug}/.cache/（review-once-build.py 的 scope 檢查已排除）。"""
+    if override is not None:
+        return override.expanduser().resolve()
+    assert_ok(isinstance(run_id, str) and bool(OWNER_RE.fullmatch(run_id)),
+              "Runner run_id 不合法，無法決定 worker log 路徑")
+    return project / ".spec" / slug / ".cache" / f"review-once-worker-{run_id}.log"
+
+
 def run_worker(project: Path, slug: str, owner: str,
-               config: dict, instruction: str, poll: float = 2.0) -> None:
+               config: dict, instruction: str, poll: float = 2.0,
+               worker_log: Path | None = None) -> None:
     values = {"{project}": str(project), "{slug}": slug,
               "{instruction}": instruction}
     argv = [values.get(v, v) for v in config["worker_argv"]]
+    status = cmd(project, slug, "run", "--action", "status")
+    log_path = worker_log_path(project, slug, status.get("run_id"), worker_log)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     # OS/Host-level containment is supplied by the protected adapter. A
     # generic 'claude -p' / 'codex exec' without that containment is unsafe.
-    child = subprocess.Popen(
-        argv, cwd=str(project), stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=(os.name == "posix"),
-    )
+    # worker 的 stdout／stderr 一律保存（附加寫入），失敗時才有證據可查。
+    log_handle = open(log_path, "ab")
+    try:
+        child = subprocess.Popen(
+            argv, cwd=str(project), stdin=subprocess.DEVNULL,
+            stdout=log_handle, stderr=subprocess.STDOUT,
+            start_new_session=(os.name == "posix"),
+        )
+    except BaseException:
+        log_handle.close()
+        raise
     last_heartbeat = time.monotonic()
     try:
         while child.poll() is None:
@@ -189,9 +213,10 @@ def run_worker(project: Path, slug: str, owner: str,
             time.sleep(poll)
         check_runtime(project, slug, owner)
         assert_ok(child.returncode == 0,
-                  f"Host Build worker 失敗，exit={child.returncode}")
+                  f"Host Build worker 失敗，exit={child.returncode}（輸出見 {log_path}）")
     finally:
         terminate(child)
+        log_handle.close()
 
 
 def safe_pause(project: Path, slug: str, owner: str, reason: str) -> None:
@@ -204,7 +229,8 @@ def safe_pause(project: Path, slug: str, owner: str, reason: str) -> None:
 
 
 def execute_dispatch(project: Path, slug: str, owner: str,
-                     config: dict, item: dict, poll: float) -> None:
+                     config: dict, item: dict, poll: float,
+                     worker_log: Path | None = None) -> None:
     step = item["step"]
     assert_ok(step in EXPECTED, "Runner 下達未知階段")
     check_runtime(project, slug, owner)
@@ -218,7 +244,7 @@ def execute_dispatch(project: Path, slug: str, owner: str,
         assert_ok(instruction.startswith("/plan-build ") and
                   instruction.endswith(" --review-once"),
                   "只允許已核准的 Build Skill 指令")
-        run_worker(project, slug, owner, config, instruction, poll)
+        run_worker(project, slug, owner, config, instruction, poll, worker_log)
         build_guard(project, slug)
         current = cmd(project, slug, "run", "--action", "status")
         assert_ok(current["step_build"] == "done",
@@ -228,9 +254,15 @@ def execute_dispatch(project: Path, slug: str, owner: str,
 
 def drive(project: Path, slug: str, owner: str, config: dict,
           mode: str, *, max_stages: int = 6, poll: float = 2.0,
-          reconcile: bool = False, reason: str = "") -> dict:
+          reconcile: bool = False, reason: str = "",
+          worker_log: Path | None = None) -> dict:
     assert_ok(bool(OWNER_RE.fullmatch(owner)), "Host Runner owner 不合法")
     assert_ok(mode in ("start", "continue", "resume"), "未知啟動模式")
+    # 任何 run start／resume 之前先確認授權種類：dialogue 授權直接 BLOCK，不建立或接管 Runner
+    preflight = cmd(project, slug, "run", "--action", "status")
+    assert_ok(preflight.get("grant_proof") == "signed",
+              "trusted-host Bridge 只接受簽章授權（proof=signed）；"
+              f"目前為 {preflight.get('grant_proof')}，請改用同 session 模式")
     try:
         if mode == "start":
             cmd(project, slug, "run", "--action", "start", "--owner", owner)
@@ -256,17 +288,18 @@ def drive(project: Path, slug: str, owner: str, config: dict,
                     if "--resume" not in command.split():
                         command = command.replace(" --review-once", " --resume --review-once")
                     previous = {**prior, "command": command}
-                execute_dispatch(project, slug, owner, config, previous, poll)
+                execute_dispatch(project, slug, owner, config, previous, poll, worker_log)
         for _ in range(max_stages):
             result = cmd(project, slug, "run", "--action", "next", "--owner", owner)
-            if result["status"] == "completed_build":
-                return {"status": "completed_build", "slug": slug,
+            if result["status"] in ("completed_build", "completed_plan"):
+                # completed_plan＝--until arch 已套用 Spec／DB／Arch，不進 build
+                return {"status": result["status"], "slug": slug,
                         "run_id": result["run_id"]}
             assert_ok(result["action"] == "next" and
                       result.get("inflight") is not None,
                       "未完成派工尚未對帳，不得重複呼叫 Worker")
             item = result["inflight"]
-            execute_dispatch(project, slug, owner, config, item, poll)
+            execute_dispatch(project, slug, owner, config, item, poll, worker_log)
         raise BridgeError("超過階段派工上限；停止以避免失控迴圈")
     except (BridgeError, OSError, ValueError, subprocess.TimeoutExpired,
             KeyboardInterrupt) as exc:
@@ -287,6 +320,8 @@ def main() -> int:
     parser.add_argument("--reconcile", action="store_true")
     parser.add_argument("--reason", default="")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
+    parser.add_argument("--worker-log", type=Path, default=None,
+                        help="worker stdout／stderr 輸出檔（預設 .spec/{slug}/.cache/review-once-worker-{run_id}.log）")
     args = parser.parse_args()
     try:
         project = project_path(args.project)
@@ -309,7 +344,8 @@ def main() -> int:
                           "poll-seconds 應介於 0.1～30 秒")
                 result = drive(project, args.slug, args.owner, config,
                                args.action, poll=args.poll_seconds,
-                               reconcile=args.reconcile, reason=args.reason)
+                               reconcile=args.reconcile, reason=args.reason,
+                               worker_log=args.worker_log)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (BridgeError, OSError, subprocess.TimeoutExpired) as exc:

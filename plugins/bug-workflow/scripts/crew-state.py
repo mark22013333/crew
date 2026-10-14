@@ -36,7 +36,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 
 SCHEMA_VERSION = 2
@@ -70,6 +71,17 @@ TRANSITION_GATES = {
 # 標成 skipped 時必須帶 --reason 與 --by（決策者），runtime 才接受；
 # 跳過只免除該檢查，不免除 Human UAT（close 仍受 TRANSITION_GATES["close"] 硬擋）。
 QUICK_CLOSE_STEPS = ["security", "verify", "review"]
+
+# 測試策略（state.json 頂層 testing 區段）。值域與 Review Once packet 的 test_policy 同字串；
+# 由 skill 詢問 Human（--by human）或由已核准 packet 鏡像（--by packet）寫入，後續 skill 只讀不重問。
+TEST_POLICIES = ["no_test", "with_test", "bdd"]
+SCENARIO_DEPTHS = ["none", "risky", "all"]
+TESTING_DECIDERS = ["human", "packet"]
+TEST_RUNNER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:+-]{0,79}")
+BUILD_POLICY_FLAG = {"bdd": "--bdd", "with_test": "--with-test", "no_test": "--no-test"}
+
+# Review Once 同 session（dialogue）授權的時限下限；上限為 packet.max_duration_seconds（固定 4h）。
+DIALOGUE_MIN_SECONDS = 600
 
 HISTORY_LIMIT = 50
 LOCK_RETRIES = 3
@@ -282,6 +294,8 @@ def new_state(slug: str, name: str = "", task_type: str = "feature") -> dict:
             "ambiguities": [],
         },
         "autonomy": None,  # Review Once optional; old tasks remain interactive
+        # 測試策略：全 null＝尚未詢問；/plan-next 依 policy 推薦 /plan-build 旗標
+        "testing": {"policy": None, "scenario_depth": None, "runner": None, "by": None, "at": None},
         "gates": {
             gate: {
                 "status": "pending",
@@ -384,7 +398,7 @@ def normalize(state: dict, slug: str = "") -> dict:
                 "reason": "legacy state：任務已於 approval gate 導入前結案",
             }
 
-    for section in ("resume_hint", "git", "notion", "deploy", "results"):
+    for section in ("resume_hint", "git", "notion", "deploy", "results", "testing"):
         value = state.get(section)
         if not isinstance(value, dict):
             value = {}
@@ -395,6 +409,13 @@ def normalize(state: dict, slug: str = "") -> dict:
     for kind in ("verify", "review", "security"):
         if not isinstance(state["results"].get(kind), dict):
             state["results"][kind] = {}
+
+    # testing 的列舉值不合法時視為「尚未決定」，避免推薦出不存在的旗標（同 gate status 的處理）
+    testing = state["testing"]
+    if testing.get("policy") not in TEST_POLICIES:
+        testing["policy"] = None
+    if testing.get("scenario_depth") not in SCENARIO_DEPTHS:
+        testing["scenario_depth"] = None
 
     if state.get("phase") not in active_steps:
         last_done = "start"
@@ -605,6 +626,26 @@ def _compute_bug_lifecycle_rule(state: dict) -> dict:
     return {"command": BUG_STEP_COMMAND["close"], "reason": "Human UAT 已通過，可以結案"}
 
 
+def _testing_policy(state: dict):
+    testing = state.get("testing")
+    policy = testing.get("policy") if isinstance(testing, dict) else None
+    return policy if policy in TEST_POLICIES else None
+
+
+def _build_command(state: dict) -> str:
+    """依 testing.policy 回傳 /plan-build 指令；尚未決定時回裸指令（由 /plan-build 詢問）。"""
+    flag = BUILD_POLICY_FLAG.get(_testing_policy(state))
+    return f"{STEP_COMMAND['build']} {flag}" if flag else STEP_COMMAND["build"]
+
+
+def _build_reason(state: dict, reason: str) -> str:
+    """policy 尚未決定但規格宣告了 Sxx 深度時，提示 /plan-build 會詢問是否 Test-First。"""
+    testing = state.get("testing") if isinstance(state.get("testing"), dict) else {}
+    if _testing_policy(state) is None and testing.get("scenario_depth") in ("risky", "all"):
+        return reason + "；規格含 Sxx，/plan-build 將詢問是否 Test-First"
+    return reason
+
+
 def _compute_next_rule(state: dict, slug: str) -> dict:
     parked = state.get("parked")
     if parked:
@@ -631,6 +672,9 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
     if skill and total > 0 and done < total:
         command = skill if str(skill).startswith("/") else f"/{skill}"
         label = work_unit.get("label") or ""
+        if command == STEP_COMMAND["build"] and _testing_policy(state) == "bdd":
+            # BDD 斷點必須沿用 Test-First 契約續跑，不可被當成一般 build 續跑
+            command += " --bdd"
         return {
             "command": f"{command} --resume",
             "reason": f"{skill} 中斷於 {done}/{total}{label}，先續跑未完成的工作單元",
@@ -663,7 +707,8 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
         }
 
     if step_status(state, "build") not in DONE_LIKE:
-        return {"command": STEP_COMMAND["build"], "reason": "設計已齊備，可進入程式碼產生階段"}
+        return {"command": _build_command(state),
+                "reason": _build_reason(state, "設計已齊備，可進入程式碼產生階段")}
 
     verify = result_of(state, "verify")
     verify_status = str(verify.get("status") or "").upper()
@@ -672,8 +717,8 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
     # verify FAIL 優先於下方任何缺檔判斷
     if verify_status == "FAIL":
         return {
-            "command": STEP_COMMAND["build"],
-            "reason": "驗收有 FAIL 項目要優先處理；修完再跑 /plan-verify --recheck",
+            "command": _build_command(state),
+            "reason": _build_reason(state, "驗收有 FAIL 項目要優先處理；修完再跑 /plan-verify --recheck"),
         }
     # verify 已被（快速結案）標 skipped 時，殘留的 WARN 不再導向重驗
     if verify_status == "WARN" and step_status(state, "verify") != "skipped":
@@ -695,8 +740,8 @@ def _compute_next_rule(state: dict, slug: str) -> dict:
     review = result_of(state, "review")
     if as_int(review.get("critical")) > 0:
         return {
-            "command": STEP_COMMAND["build"],
-            "reason": f"審查有 {as_int(review.get('critical'))} 個 🔴 嚴重發現要先修",
+            "command": _build_command(state),
+            "reason": _build_reason(state, f"審查有 {as_int(review.get('critical'))} 個 🔴 嚴重發現要先修"),
         }
     if step_status(state, "review") in DONE_LIKE:
         if not gate_passed(state, "uat"):
@@ -781,10 +826,24 @@ def _apply_set(state: dict, args) -> list:
         normalize(state, state.get("slug") or "unknown")
         changes.append(f"type={args.type}")
 
-    if args.by and not args.step:
+    testing_requested = any(
+        value is not None for value in (args.test_policy, args.scenario_depth, args.test_runner)
+    )
+    if args.by and not args.step and not testing_requested:
         raise CrewError(
-            "--by 必須搭配 --step 使用",
-            "修法：例 `--step security --status skipped --by human --reason \"...\"`",
+            "--by 必須搭配 --step 或測試策略欄位（--test-policy／--scenario-depth／--test-runner）使用",
+            "修法：例 `--step security --status skipped --by human --reason \"...\"`，"
+            "或 `--test-policy bdd --by human`",
+        )
+    if testing_requested and args.by and args.by not in TESTING_DECIDERS:
+        raise CrewError(
+            f"測試策略的決策者只能是 {'/'.join(TESTING_DECIDERS)}（收到 --by {args.by}）",
+            "修法：Human 在對話中選擇用 --by human；由已核准 Review Once packet 鏡像用 --by packet",
+        )
+    if args.test_runner is not None and not TEST_RUNNER_RE.fullmatch(args.test_runner):
+        raise CrewError(
+            f"--test-runner 不合法：{args.test_runner!r}",
+            "修法：runner 識別碼限 1–80 個英數字與 . _ : + -，且以英數字開頭（例：junit、pytest、vitest）",
         )
 
     if args.step:
@@ -872,6 +931,28 @@ def _apply_set(state: dict, args) -> list:
         state["inferred"] = args.inferred == "true"
         changes.append(f"inferred={state['inferred']}")
 
+    if testing_requested:
+        testing = state["testing"]
+        testing_changes = []
+        if args.test_policy is not None:
+            testing["policy"] = args.test_policy
+            testing_changes.append(f"testing.policy={args.test_policy}")
+        if args.scenario_depth is not None:
+            testing["scenario_depth"] = args.scenario_depth
+            testing_changes.append(f"testing.scenario_depth={args.scenario_depth}")
+        if args.test_runner is not None:
+            testing["runner"] = args.test_runner
+            testing_changes.append(f"testing.runner={args.test_runner}")
+        testing["by"] = args.by or None
+        testing["at"] = now_iso()
+        change = "；".join(testing_changes)
+        if args.by:
+            change += f" by={args.by}"
+        if args.reason and not args.step:
+            # 有 --step 時 reason 已寫進該步驟；只改測試策略時留在 history 供稽核
+            change += f" reason={args.reason}"
+        changes.append(change)
+
     if not changes:
         raise CrewError(
             "沒有指定任何要修改的欄位",
@@ -930,6 +1011,70 @@ def _validate_review_once(project: Path, slug: str, state: dict, stage: str) -> 
         raise CrewError(f"Review Once 授權檢查未通過：{exc}") from exc
 
 
+def _issue_dialogue_grant(project: Path, slug: str, state: dict, args) -> dict:
+    """同 session 對話核准（--proof dialogue）：免簽章，只以 packet hash 綁定「套用的＝審過的」。
+
+    信任等級等同 Interactive 的 `gate --by human`，不是不可偽造的核准；
+    trusted-host Bridge（review-once-host.py）一律拒絕這種授權。
+    """
+    if args.approval_event or args.signature:
+        raise CrewError(
+            "--proof dialogue 不接受 --approval-event／--signature",
+            "修法：簽章核准請改用 --proof signed（預設）；對話核准只給 --packet --approved-sha --max-duration --until",
+        )
+    if not args.packet or not args.approved_sha or args.max_duration is None:
+        raise CrewError("issue --proof dialogue 需要 --packet、--approved-sha、--max-duration")
+    if not re.fullmatch(r"[0-9a-f]{64}", args.approved_sha):
+        raise CrewError("--approved-sha 必須是 64 碼小寫十六進位的 packet_sha256")
+    until = args.until or "build"
+    verifier = _review_once_mod()
+    contract = verifier.packet_contract
+    packet_file = Path(args.packet)
+    try:
+        packet = contract.parse_object(packet_file)
+        proposal = contract.verify_packet(packet)
+    except (contract.PacketError, OSError, KeyError, TypeError, ValueError) as exc:
+        raise CrewError(f"審查封包不合法：{exc}") from exc
+    if packet["packet_sha256"] != args.approved_sha:
+        raise CrewError(
+            "packet 重算 hash 與 Human 核准的 sha 不一致；封包已變更或核准對象錯誤",
+            "修法：重新展示 packet 並取得 Human 對新 sha 的核准，舊 sha 作廢",
+        )
+    limit = proposal["max_duration_seconds"]
+    if not DIALOGUE_MIN_SECONDS <= args.max_duration <= limit:
+        raise CrewError(
+            f"--max-duration 必須介於 {DIALOGUE_MIN_SECONDS}～{limit} 秒（收到 {args.max_duration}）"
+        )
+    if proposal["slug"] != slug:
+        raise CrewError("packet slug 與任務不符")
+    if (state.get("git") or {}).get("branch") != proposal["repository"]["branch"]:
+        raise CrewError("本地 task 分支與核准分支不符")
+    if step_status(state, "start") not in DONE_LIKE:
+        raise CrewError("Review Once 必須先由合法的 plan-start 建立任務")
+    if step_status(state, "build") in DONE_LIKE:
+        raise CrewError("Build 已完成，不需要額外授權")
+    if until == "arch" and step_status(state, "arch") in DONE_LIKE and gate_passed(state, "architecture"):
+        raise CrewError("Architecture 已完成並核准，--until arch 沒有可執行的階段")
+    issued = datetime.now().astimezone().replace(microsecond=0)
+    expires = issued + timedelta(seconds=args.max_duration)
+    return {
+        "mode": "review_once",
+        "status": "active",
+        "proof": "dialogue",
+        "by": "human-dialogue",
+        "grant_id": str(uuid.uuid4()),
+        "packet_sha256": packet["packet_sha256"],
+        "packet_path": str(packet_file.resolve()),
+        "event_path": None,
+        "signature_path": None,
+        "trusted_key_sha256": None,
+        "issued_at": issued.isoformat(),
+        "expires_at": expires.isoformat(),
+        "target_step": until,
+        "gates_applied": [],
+    }
+
+
 def cmd_grant(args) -> int:
     """Bind a Host-signed one-time review packet to existing Feature gates."""
     project = project_root(args)
@@ -947,9 +1092,23 @@ def cmd_grant(args) -> int:
             raise CrewError("Review Once v1 僅支援 Feature")
         existing = state.get("autonomy") or {}
 
-        if args.action == "issue":
+        if args.action != "issue" and any([args.approved_sha, args.max_duration is not None, args.until]):
+            raise CrewError("--approved-sha／--max-duration／--until 只用於 grant --action issue --proof dialogue")
+        if args.action == "issue" and args.proof == "dialogue":
             if existing.get("status") == "active":
                 raise CrewError("已有有效授權；必須先撤銷，不可直接延長")
+            state["autonomy"] = _issue_dialogue_grant(project, slug, state, args)
+            push_history(state, "autonomy",
+                         f"issue review_once grant={state['autonomy']['grant_id']} proof=dialogue "
+                         f"until={state['autonomy']['target_step']}")
+        elif args.action == "issue":
+            if existing.get("status") == "active":
+                raise CrewError("已有有效授權；必須先撤銷，不可直接延長")
+            if any([args.approved_sha, args.max_duration is not None, args.until]):
+                raise CrewError(
+                    "簽章授權（--proof signed）的期限與目標站由簽署事件決定；"
+                    "--approved-sha／--max-duration／--until 只用於 --proof dialogue"
+                )
             if not all([args.packet, args.approval_event, args.signature]):
                 raise CrewError("issue 需要 --packet、--approval-event、--signature")
             verifier = _review_once_mod()
@@ -972,6 +1131,7 @@ def cmd_grant(args) -> int:
             state["autonomy"] = {
                 "mode": "review_once",
                 "status": "active",
+                "proof": "signed",
                 "grant_id": event["grant_id"],
                 "packet_sha256": packet["packet_sha256"],
                 "packet_path": str(Path(args.packet).resolve()),
@@ -1013,6 +1173,9 @@ def cmd_grant(args) -> int:
             gate["at"] = now_iso()
             gate["by"] = "delegated-review-once"
             gate["reason"] = f"trusted Review Once packet={existing['packet_sha256']}, grant={existing['grant_id']}"
+            if existing.get("proof") == "dialogue":
+                # dialogue 只保證「套用的＝審過的」，信任等級等同 Interactive 的 Human 核准，須留痕區分
+                gate["reason"] += ", proof=dialogue"
             existing.setdefault("gates_applied", []).append(target)
             push_history(state, "gate", f"{target}=approved via review_once grant={existing['grant_id']}")
         else:
@@ -1062,14 +1225,15 @@ def _run_done(state: dict, step: str) -> bool:
 
 
 def _run_next_command(state: dict, grant: dict) -> tuple[str, str] | None:
+    # 規劃階段回傳可直接執行的套用指令（Host Bridge 依 step 分派，不依 command 字串）
     if step_status(state, "spec") not in DONE_LIKE:
-        return ("spec", "apply-spec")
+        return ("spec", "review-once-apply.py --step spec")
     if not gate_passed(state, "requirement"):
         raise CrewError("Requirement Gate 未通過；請先用 grant approve-requirement 核對已核准提案")
     if step_status(state, "db") not in DONE_LIKE:
-        return ("db", "apply-db")
+        return ("db", "review-once-apply.py --step db")
     if step_status(state, "arch") not in DONE_LIKE:
-        return ("arch", "apply-arch")
+        return ("arch", "review-once-apply.py --step arch")
     if not gate_passed(state, "architecture"):
         raise CrewError("Architecture Gate 未通過；請先用 grant approve-architecture 核對已核准提案")
     if step_status(state, "build") not in DONE_LIKE:
@@ -1094,7 +1258,10 @@ def _run_output(state: dict, action: str, **additional) -> int:
     out = {"action": action, "status": running.get("status") or "not_started",
            "run_id": running.get("run_id"), "owner": running.get("owner"),
            "checkpoint": running.get("checkpoint"), "inflight": running.get("inflight"),
-           "expires_at": grant.get("expires_at")}
+           "expires_at": grant.get("expires_at"),
+           # 舊授權沒有 proof 欄位＝簽章路徑；trusted-host Bridge 只接受 signed
+           "grant_proof": grant.get("proof", "signed") if grant else None,
+           "target_step": grant.get("target_step")}
     out.update(additional)
     print(json.dumps(out, ensure_ascii=False))
     return 0
@@ -1113,6 +1280,27 @@ def cmd_run(args) -> int:
         state = normalize(read_state(project, slug), slug)
         grant = state.get("autonomy") or {}
         run = grant.get("execution") or {}
+        if args.action == "reclaim":
+            # reclaim 只把「running 但原 session 已死」轉成 paused（只會停、不會推進），
+            # 因此不先驗證授權；續跑仍須走 resume 既有規則（inflight 要 --reconcile）。
+            if run.get("status") != "running":
+                raise CrewError("只有 running 的 Runner 可 reclaim；paused 請直接 resume")
+            if run.get("owner") == owner:
+                raise CrewError("reclaim 是給新 session 接手用；同一個 owner 請用 run --action pause")
+            if not args.reason:
+                raise CrewError("reclaim 需要 --reason，說明原 session 已結束的依據")
+            previous_owner = run.get("owner")
+            run["status"] = "paused"
+            run["stop_reason"] = "SESSION_LOST"
+            run["previous_owner"] = previous_owner
+            run["owner"] = owner
+            run["reclaimed_at"] = now_iso()
+            run["heartbeat_at"] = now_iso()
+            push_history(state, "runner",
+                         f"reclaim {previous_owner} -> {owner}: {args.reason}"[:240])
+            refresh_next(state)
+            write_state(project, slug, state)
+            return _run_output(state, "reclaim", previous_owner=previous_owner)
         try:
             _run_grant(project, slug, state)
         except CrewError as exc:
@@ -1133,7 +1321,10 @@ def cmd_run(args) -> int:
                 "owner": owner, "checkpoint": "start", "inflight": None,
                 "heartbeat_at": now_iso(), "stop_reason": None,
             }
-            push_history(state, "runner", "start: existing Human-signed 4h grant")
+            if grant.get("proof") == "dialogue":
+                push_history(state, "runner", "start: existing Human-dialogue grant（同 session，非無人值守）")
+            else:
+                push_history(state, "runner", "start: existing Human-signed 4h grant")
         elif args.action == "pause":
             if run.get("status") != "running" or run.get("owner") != owner:
                 raise CrewError("只有目前 Runner 可暫停運行中的工作")
@@ -1186,7 +1377,16 @@ def cmd_run(args) -> int:
                                        instruction="先完成或對帳上次派工，不得重複啟動")
                 run["checkpoint"] = previous["step"]
                 run["inflight"] = None
-            if _run_done(state, "build"):
+            if (grant.get("target_step") == "arch" and
+                    step_status(state, "arch") in DONE_LIKE and
+                    gate_passed(state, "architecture")):
+                # --until arch：Spec／DB／Arch 已套用且 Architecture Gate 通過即收工，不進 build
+                run["status"] = "completed_plan"
+                run["checkpoint"] = "arch"
+                grant["status"] = "consumed"
+                run["stop_reason"] = "PLAN_DONE"
+                push_history(state, "runner", "completed_plan")
+            elif _run_done(state, "build"):
                 if not (gate_passed(state, "requirement") and
                         gate_passed(state, "architecture")):
                     raise CrewError("Build Done 缺已核准 Requirement/Architecture Gate")
@@ -2024,7 +2224,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--by",
         default="",
-        help="決策者（需搭配 --step；快速結案把 security/verify/review 標 skipped 時必填，慣例 human）",
+        help="決策者（需搭配 --step 或測試策略欄位；快速結案把 security/verify/review 標 skipped 時必填，"
+        "慣例 human；測試策略只接受 human／packet）",
     )
     p.add_argument("--phase", choices=STEPS, help="直接指定當前階段")
     p.add_argument("--name", default="", help="任務名稱")
@@ -2040,6 +2241,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--read-first", action="append", help="復工時要先讀的檔案（可重複或逗號分隔）")
     p.add_argument("--services", action="append", help="復工時要啟動的服務（可重複或逗號分隔）")
     p.add_argument("--inferred", choices=["true", "false"], help="標記／解除「狀態為推測」")
+    p.add_argument("--test-policy", choices=TEST_POLICIES, default=None,
+                   help="測試策略（testing.policy）；可單獨使用或與 --step 併用")
+    p.add_argument("--scenario-depth", choices=SCENARIO_DEPTHS, default=None,
+                   help="Sxx 行為案例深度（testing.scenario_depth）")
+    p.add_argument("--test-runner", default=None,
+                   help="BDD／測試 runner 識別碼（testing.runner，例：junit、pytest）")
     p.set_defaults(func=cmd_set)
 
     p = sub.add_parser("gate", help="更新人類 Approval Gate 決策")
@@ -2052,10 +2259,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("run", help="Review Once Runner：有限派工／暫停／續跑（不直接啟動 Host）")
     add_target(p)
-    p.add_argument("--action", choices=["start", "next", "heartbeat", "pause", "resume", "status"],
+    p.add_argument("--action", choices=["start", "next", "heartbeat", "pause", "resume", "status",
+                                        "reclaim"],
                    required=True)
-    p.add_argument("--owner", default="", help="合作式 Runner owner 識別碼（不是安全憑證）")
-    p.add_argument("--reason", default="", help="暫停／明確接管的原因")
+    p.add_argument("--owner", default="", help="合作式 Runner owner 識別碼（不是安全憑證）；reclaim 時為新 owner")
+    p.add_argument("--reason", default="", help="暫停／明確接管／reclaim 的原因")
     p.add_argument("--takeover", action="store_true", help="僅 paused 時接受帶原因的 owner 轉移")
     p.add_argument("--reconcile", action="store_true", help="人工確認原工作單元已停止並要求顯式續跑")
     p.set_defaults(func=cmd_run)
@@ -2067,6 +2275,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--packet", default="", help="Human 已完整審查的 packet.json")
     p.add_argument("--approval-event", default="", help="外部可信任 Host 已簽署的 approval event JSON")
     p.add_argument("--signature", default="", help="外部 Host event 的 raw signature file")
+    p.add_argument("--proof", choices=["signed", "dialogue"], default="signed",
+                   help="issue 的核准證明：signed＝外部 Host 簽章（預設）；dialogue＝同 session 對話核准（非無人值守）")
+    p.add_argument("--approved-sha", default="",
+                   help="dialogue：Human 在對話中核准的 packet_sha256（會以 packet 重算比對）")
+    p.add_argument("--max-duration", type=int, default=None,
+                   help="dialogue：授權時限秒數，介於 600～packet.max_duration_seconds，自 issue 起算")
+    p.add_argument("--until", choices=["build", "arch"], default=None,
+                   help="dialogue：跑到哪一站（預設 build；arch＝只套用 Spec／DB／Arch）")
     p.set_defaults(func=cmd_grant)
 
     p = sub.add_parser("unit", help="更新工作單元進度（斷點續跑用）")

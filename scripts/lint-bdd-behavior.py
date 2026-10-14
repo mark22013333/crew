@@ -226,5 +226,152 @@ class BddBehaviorScenarios(unittest.TestCase):
         )
 
 
+class TestingPolicyScenarios(unittest.TestCase):
+    """state.json.testing：測試策略由詢問／旗標決定、寫入 state，/plan-next 依策略推薦。"""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.slug = "reservation"
+        self.state_file = self.root / ".spec" / self.slug / "state.json"
+
+    def state(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(STATE), *args, "--project", str(self.root)],
+            capture_output=True, text=True, check=False,
+        )
+
+    def ok(self, *args: str) -> subprocess.CompletedProcess[str]:
+        proc = self.state(*args)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        return proc
+
+    def next_command(self) -> dict:
+        return json.loads(self.ok("next", "--slug", self.slug).stdout)
+
+    def build_ready(self) -> None:
+        """Given 規格／DB／架構皆完成且兩道 Human gate 已核准；When 問下一步，Then 該進 build。"""
+        self.ok("init", "--slug", self.slug)
+        self.ok("set", "--slug", self.slug, "--step", "spec", "--status", "done")
+        self.ok("gate", "--slug", self.slug, "--name", "requirement", "--status", "approved", "--by", "human")
+        self.ok("set", "--slug", self.slug, "--step", "db", "--status", "skipped", "--reason", "DB_REQUIRED=false")
+        self.ok("set", "--slug", self.slug, "--step", "arch", "--status", "done")
+        self.ok("gate", "--slug", self.slug, "--name", "architecture", "--status", "approved", "--by", "human")
+
+    def test_given_bdd_policy_when_next_then_plan_build_bdd(self) -> None:
+        """Given Human 選 BDD；When /plan-next；Then 推薦 /plan-build --bdd 且選擇被持久化。"""
+        self.build_ready()
+        self.assertEqual(self.next_command()["command"], "/plan-build")
+        self.ok("set", "--slug", self.slug, "--test-policy", "bdd", "--by", "human")
+        saved = json.loads(self.state_file.read_text(encoding="utf-8"))["testing"]
+        self.assertEqual(saved["policy"], "bdd")
+        self.assertEqual(saved["by"], "human")
+        self.assertIsNotNone(saved["at"])
+        self.assertEqual(self.next_command()["command"], "/plan-build --bdd")
+        for policy, flag in (("with_test", "--with-test"), ("no_test", "--no-test")):
+            self.ok("set", "--slug", self.slug, "--test-policy", policy, "--by", "human")
+            self.assertEqual(self.next_command()["command"], f"/plan-build {flag}")
+
+    def test_given_bdd_policy_when_build_interrupted_then_resume_keeps_bdd(self) -> None:
+        """Given BDD build 中斷；When /plan-next；Then 續跑仍走 Test-First（--bdd --resume）。"""
+        self.build_ready()
+        self.ok("set", "--slug", self.slug, "--test-policy", "bdd", "--by", "human",
+                "--step", "build", "--status", "in_progress")
+        self.ok("unit", "--slug", self.slug, "--skill", "plan-build", "--done", "1", "--total", "3")
+        self.assertEqual(self.next_command()["command"], "/plan-build --bdd --resume")
+
+    def test_given_bdd_policy_when_verify_fails_or_review_critical_then_back_to_bdd_build(self) -> None:
+        """Given BDD 任務；When 驗收 FAIL 或審查有 🔴；Then 回到 /plan-build --bdd 而非一般 build。"""
+        self.build_ready()
+        self.ok("set", "--slug", self.slug, "--test-policy", "bdd", "--by", "human")
+        self.ok("set", "--slug", self.slug, "--step", "build", "--status", "done")
+        self.ok("result", "--slug", self.slug, "--kind", "verify", "--status", "FAIL")
+        self.assertEqual(self.next_command()["command"], "/plan-build --bdd")
+        self.ok("result", "--slug", self.slug, "--kind", "verify", "--status", "PASS")
+        self.ok("set", "--slug", self.slug, "--step", "security", "--status", "done")
+        self.ok("set", "--slug", self.slug, "--step", "verify", "--status", "done")
+        self.ok("set", "--slug", self.slug, "--step", "review", "--status", "done")
+        self.ok("result", "--slug", self.slug, "--kind", "review", "--set", "critical=2")
+        self.assertEqual(self.next_command()["command"], "/plan-build --bdd")
+
+    def test_given_illegal_testing_values_when_set_then_exit_nonzero(self) -> None:
+        """Given 任務；When 寫入不合法策略／深度／runner／決策者；Then CLI 拒絕且不寫入。"""
+        self.ok("init", "--slug", self.slug)
+        before = self.state_file.read_text(encoding="utf-8")
+        for argv in (
+            ("--test-policy", "tdd"),
+            ("--scenario-depth", "deep"),
+            ("--test-runner", "../junit"),
+            ("--test-runner", "junit;rm"),
+            ("--test-policy", "bdd", "--by", "agent"),
+        ):
+            proc = self.state("set", "--slug", self.slug, *argv)
+            self.assertNotEqual(proc.returncode, 0, argv)
+        self.assertEqual(self.state_file.read_text(encoding="utf-8"), before)
+        self.ok("set", "--slug", self.slug, "--scenario-depth", "risky", "--by", "human")
+        self.ok("set", "--slug", self.slug, "--test-runner", "junit", "--by", "human")
+        saved = json.loads(self.state_file.read_text(encoding="utf-8"))["testing"]
+        self.assertEqual((saved["scenario_depth"], saved["runner"]), ("risky", "junit"))
+
+    def test_given_legacy_state_without_testing_when_next_then_bare_plan_build(self) -> None:
+        """Given 升級前的 state（無 testing）；When normalize 後問下一步；Then 行為不變、回裸 /plan-build。"""
+        self.build_ready()
+        raw = json.loads(self.state_file.read_text(encoding="utf-8"))
+        del raw["testing"]
+        self.state_file.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        result = self.next_command()
+        self.assertEqual(result["command"], "/plan-build")
+        self.assertNotIn("Test-First", result["reason"])
+        self.ok("set", "--slug", self.slug, "--services", "db")
+        saved = json.loads(self.state_file.read_text(encoding="utf-8"))["testing"]
+        self.assertEqual(saved, {"policy": None, "scenario_depth": None, "runner": None,
+                                 "by": None, "at": None})
+
+    def test_given_sxx_depth_without_policy_when_next_then_reason_mentions_test_first(self) -> None:
+        """Given 規格宣告 Sxx 但尚未選策略；When /plan-next；Then 仍回裸指令並提示將詢問 Test-First。"""
+        self.build_ready()
+        self.ok("set", "--slug", self.slug, "--scenario-depth", "risky", "--by", "human")
+        result = self.next_command()
+        self.assertEqual(result["command"], "/plan-build")
+        self.assertIn("規格含 Sxx，/plan-build 將詢問是否 Test-First", result["reason"])
+        self.ok("set", "--slug", self.slug, "--scenario-depth", "none", "--by", "human")
+        self.assertNotIn("Test-First", self.next_command()["reason"])
+
+    def test_given_plan_with_sxx_when_gate_plan_phase_then_lists_expected_only(self) -> None:
+        """Given plan.md 宣告 Sxx；When --phase plan；Then 只列宣告的情境、不讀 results。"""
+        plan = self.root / ".spec" / self.slug / "plan.md"
+        plan.parent.mkdir(parents=True)
+        plan.write_text(
+            "## 驗收條件 <!-- crew:ac owner=spec -->\n"
+            "- [ ] AC-1 預約不可重疊｜例：S01 正常：成功；S02 衝突：拒絕\n"
+            "- [ ] AC-2 列表分頁\n", encoding="utf-8")
+        base = [sys.executable, str(GATE), "--plan", str(plan), "--slug", self.slug, "--phase", "plan"]
+        listed = subprocess.run(base, capture_output=True, text=True, check=False)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        out = json.loads(listed.stdout)
+        self.assertEqual(out["status"], "SCENARIOS_DECLARED")
+        self.assertEqual(out["scenario_ids"], ["reservation#AC-1#S01", "reservation#AC-1#S02"])
+        rejected = subprocess.run(base + ["--results", str(plan)], capture_output=True, text=True, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        plan.write_text("## 驗收條件\n- [ ] AC-1 既有規格\n", encoding="utf-8")
+        empty = subprocess.run(base, capture_output=True, text=True, check=False)
+        self.assertEqual(empty.returncode, 0, empty.stderr)
+        self.assertEqual(json.loads(empty.stdout)["status"], "NO_SCENARIOS")
+
+    def test_skill_text_contract_asks_strategy_without_host_tool_names(self) -> None:
+        """Given SKILL 文字；Then plan-build 有三選一、plan 有 --scenarios，且不出現 Host 工具名。"""
+        skills = ROOT / "plugins" / "feature-workflow" / "skills"
+        build = (skills / "plan-build" / "SKILL.md").read_text(encoding="utf-8")
+        plan = (skills / "plan" / "SKILL.md").read_text(encoding="utf-8")
+        for flag in ("--no-test", "--with-test", "--bdd"):
+            self.assertIn(flag, build)
+        self.assertIn("ask_user(", build)
+        self.assertIn("--scenarios", plan)
+        self.assertIn("ask_user(", plan)
+        for text in (build, plan):
+            self.assertNotIn("AskUserQuestion", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
