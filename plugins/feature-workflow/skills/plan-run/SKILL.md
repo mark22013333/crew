@@ -60,6 +60,28 @@ python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-apply.py" \
 - 只有 `build=done`、`work_unit` 清空、Gate 正確及授權仍有效，才回 `status=completed_build` 並將 Grant `consumed`。
 - **遇到 TEST_FAILED、NEED_HUMAN、範圍衝突或 Host 不支援時必須停止**，不得偽造 `build=done`。不轉進 Security/Verify/Review/close。
 
+## 第三階段前：使用受保護 Host Bridge 同步執行（PR-D）
+
+現有 `run start/next` 是 deterministic 派工契約。Host 若能提供**工作區外的受保護 Worker Adapter**，可使用以下真實執行入口，由 Bridge 依序呼叫既有 `crew-state.py run`、`review-once-apply.py` 和 Host worker：
+
+```bash
+python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
+  --project . --slug {slug} --owner {host-runner-id} \
+  --adapter /host-managed/review-once-adapter.json --action start
+```
+
+- **前提**：Review Packet 已由 Host 真正展示給 Human，可信任簽署事件已經用 `crew-state.py grant issue` 綁定到這個 Feature task。Bridge 不會自行簽署、核准或建立 Grant。
+- Bridge 在同一個 Host Session 真正啟動子程序，不建立 Daemon、不保證 Session 結束後背景執行。
+- Adapter 設定檔和 Worker Executable 必須由 Host 控制、位於專案工作區外。其 `host_guarantees` 四種能力都必須已由 Host **實際實施**，不能讓 Agent 單純寫入 `true`。
+- `claude -p` 和 `codex exec --sandbox workspace-write` 的現有命令模式**不等同於檔案級 Scope Sandbox**。若只能使用這些一般 CLI 而無額外外部隔離，不能打開 Review Once 自主寫入。
+- 每個 Build 工作單元前後執行 Git-scope 檢查。若 Worker exit=0，但 `crew-state.py` 的 Build 階段沒有完成，Bridge 仍拒絕標記完成。
+- Bridge 輪詢 Grant／Runner status，撤銷、到期、暫停及 worker 失敗會終止已啟動的子程序，保留 checkpoint；不可依靠 CLI 提示詞來保證可取消。
+- `--action status|pause|revoke` 可在另一個終端呼叫，`resume --reconcile --reason` 只有確認舊 Worker 已停止、結果已對帳才可使用，不能直接重派。
+
+設定檔 Schema、Host 信任邊界與完整指令見 `../../references/review-once-host.md`。
+
+---
+
 ## 第三階段：Pause / Resume
 
 ```bash

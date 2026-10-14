@@ -220,7 +220,7 @@ Portable root：
 | `/plan-browse` | 深讀/比較既有規劃 |
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 approval loop |
 | `/plan-build` | 依核准規格執行正式實作；支援 dry-run / scoped build / 選用 `--bdd` Test-First |
-| `/plan-run` | Review Once：一次審查，四小時內由受保護 Host 驅動至 Build Done，支援暫停／續跑 |
+| `/plan-run` | 可選 Review Once：一次人工審查、最長 4 小時授權、Host 派工至 Build Done；需額外安全整合 |
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Browser/API 驗證、evidence、Word/Excel/E2E 選項 |
 | `/plan-review` | 邏輯、品質、效能 review；可 quick |
@@ -232,6 +232,55 @@ Portable root：
 | `/plan-drift` | `plan.md` anchor / code drift 檢查 |
 | `/plan-demo` | 純本地評估模式 |
 | `/crew-cockpit` | 開啟 CREW Cockpit Pane（總覽／任務／驗收，唯讀；僅 Claude Code ≥ 2.1.289） |
+
+---
+
+## Review Once：一次審查到 Build Done（需 Host 整合）
+
+此模式適用於想減少逐步確認的 **Feature Workflow**。預設的 `/plan-start → /plan → /plan-build` 仍保持 Interactive；Review Once **不支援 Bug Workflow，也不授權自動 UAT、部署或 Git merge**。
+
+### 使用者流程
+
+```text
+/plan-run --mode review-once --until build --max-duration 4h
+/plan-run status
+/plan-run pause
+/plan-run resume
+/plan-run revoke
+```
+
+1. CREW 先以唯讀探索準備完整 Spec、AC／BDD Sxx、DB SQL 提案、Architecture、測試策略及允許修改的路徑。
+2. Human 閱讀**整份提案**並明確核准；可信任 Host 才可簽署綁定提案 SHA-256 的 Grant。修改提案須重新審查，不能沿用舊核准。
+3. 授權自核准時起最多 **4 小時（Wall-clock）**，暫停／續跑不延長。Runner 合法套用 Requirement／Architecture Approval Gates，再依核准範圍呼叫 Build。
+4. Build 完成後停止；`/plan-security`、`/plan-verify`、`/plan-review` 與 **Human UAT** 仍需另外執行，且不能由 Grant 代核准。
+
+### Host Bridge（已實作執行契約，非開箱即用的無人值守服務）
+
+須先由**工作區外的受保護 Host／Operator** 建立可信任的 Human 簽章來源、限制 Worker 可寫路徑、禁止未授權提權並提供取消機制。普通 `claude -p`、`codex exec` 或將 `host_guarantees` 設為 `true` **不等於具備這些安全能力**。
+
+當 Human 已核准提案，且 Host 已安全核發並用 `crew-state.py grant --action issue` 綁定 Grant，才可使用以下 Bridge 指令（`{slug}` 和路徑為示意）：
+
+```bash
+CREW_PLUGIN_ROOT="${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+
+# 僅檢查設定檔契約；通過不代表 Host 沙箱已驗證
+python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
+  --project . --slug {slug} \
+  --adapter /host-managed/review-once-adapter.json --action probe
+
+# 同步執行至 Build Done、暫停或 Grant 到期
+python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
+  --project . --slug {slug} --owner {host-runner-id} \
+  --adapter /host-managed/review-once-adapter.json --action start
+
+# 可從另一個終端查詢目前已保存的進度
+python3 "${CREW_PLUGIN_ROOT}/scripts/review-once-host.py" \
+  --project . --slug {slug} --action status
+```
+
+`status` 只顯示 Runner 狀態，不保證 Worker 此刻仍在執行。中斷後必須先確認原 Worker **確實停止**，才可用 `resume --reconcile --reason "已確認原工作程序結束"`；不得直接重複派工。Host Session 一旦結束，Bridge 不會自行在背景接手。
+
+詳細文件：[Host Bridge 安全與設定](references/review-once-host.md)、[Runner／Pause／Resume](references/review-once-runner.md)、[Grant／Gate](references/review-once-grants.md)、[Review Packet](references/review-once.md)。若 Host 不具備上述隔離能力，請繼續使用 Interactive 模式。
 
 ---
 

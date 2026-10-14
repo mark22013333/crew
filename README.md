@@ -365,7 +365,7 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 | `/plan-browse` | 深讀/比較既有 `.spec/` |
 | `/plan [spec\|db\|arch]` | 三 pass 規劃與 Human approval loop |
 | `/plan-build` | 依核准規格產生正式程式碼；可選 `--bdd` Test-First RED→GREEN（需 Sxx 情境） |
-| `/plan-run` | Review Once：四小時 Host 授權範圍內派工至 Build Done，支援暫停／續跑 |
+| `/plan-run` | 可選 Review Once：一次審查、最長 4 小時，由受保護 Host 派工至 Build Done；需額外 Host 整合 |
 | `/plan-security` | 安全審查 |
 | `/plan-verify` | Verification Router + BLOCKED 語意 + Playwright draft/result/promotion；產出 UAT 前 machine evidence |
 | `/plan-review` | 邏輯/品質/效能 review |
@@ -377,6 +377,17 @@ raw request → /plan-start（refine + Human confirm） → /plan → /plan-buil
 | `/plan-drift` | `plan.md` anchor / code drift 檢查 |
 | `/plan-demo` | 純本地評估模式 |
 | `/crew-cockpit` | 開啟 CREW Cockpit Pane：任務總覽／列表／驗收唯讀儀表板（僅 Claude Code ≥ 2.1.289） |
+
+### Review Once（選用，需受保護 Host）
+
+`/plan-run --mode review-once --until build --max-duration 4h` 會先**準備完整 Spec／DB／Architecture 提案，讓 Human 明確審查一次**。取得可信任 Host 簽署授權後，Runner 才能依核准內容推進至 Build Done。授權自核准時起最多四小時，暫停或重開 Session 不會延長。
+
+- **預設仍是 Interactive**：既有 `/plan-start`、`/plan` 與 `/plan-build` 的逐階段人工核准沒有改變。
+- **不是安裝 plugin 就能無人值守**：Claude Code／Codex 的一般 CLI 不提供 CREW 所需的檔案級寫入隔離或受保護的 Human 簽章。正式執行需由 Host 另外提供 Approval Broker、Worker Sandbox 與中止／續跑能力；缺少任何一項都必須阻擋。
+- **Host Bridge**：`review-once-host.py` 可依已簽署 Grant 啟動 Host 管理的 Worker、保存 Checkpoint、支援 `status / pause / revoke / resume`。它是**同步執行器**，不是跨 Session 的常駐背景服務。
+- **停止於 Build Done**：不自動執行正式部署、Git push／merge、Security／Verify／Review 或 Human UAT。最後的人類驗收仍由原流程處理。
+
+部署前置、操作指令及安全界線請先閱讀 [Review Once Host Bridge 指南](plugins/feature-workflow/references/review-once-host.md)。
 
 詳見 [Feature Workflow README](plugins/feature-workflow/README.md)。
 
