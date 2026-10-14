@@ -8,6 +8,76 @@
 
 ---
 
+## [feature-workflow@5.3.0] - 2026-10-14
+
+> **BDD 與 `/plan-run` 改成「先問再做」，並補記 PR #44～#51 的 BDD／Review Once 功能。** 5.2.1 之後合進 main 的 BDD 行為案例、`--bdd` Test-First 與 Review Once（審查封包／簽章授權／Runner／Host Bridge）從未升版、也沒進 CHANGELOG，`claude plugin update` 因此判定「已是最新」而抓不到；本版一併補記。同時把兩條線所有決策點改為結構化提問（`ask_user` 契約）：`/plan spec` 問 Sxx 深度、`/plan-build` 測試策略三選一、`/plan-run` 入口三模式，並新增不需簽章的「同 session 一次審查連跑」模式。
+
+### Added — 補記 PR #44～#51（2026-10-13～14 合入 main，未發版）
+
+- **漸進式 BDD 行為案例與 E2E Scenario 追溯（#44）**：`feature-spec-analyst` 與 `/plan spec` 對高風險／有歧義的 AC 在同一行附精簡 `S01/S02` 正向、例外與邊界案例（`references/behavior-examples.md`），保留 `plan.md` 100 行／15 AC 限制與原有 Approval Gate；`/plan-verify` 要求宣告的每個 Sxx 都驗到才可報 PASS；Verification IR 選填 `acs.AC-n.scenarios[]`、Playwright Reporter 選填 `crew-scenario-id` annotation（`scenario_id={slug}#AC-n#Sxx`）；`crew-e2e-results.py summarize --plan` 以核准情境清單確定性比對，缺漏或 partial coverage → WARN、錯誤所屬 AC → 失敗。
+- **`/plan-build --bdd` Test-First（#45，#50 補合進 main）**：test-engineer 先在獨立測試 scope 為每個 `{slug}#AC-n#Sxx` 寫測試，RED gate 通過前不得 spawn 產品實作角色；新增 portable `crew-bdd-gate.py` 檢查 runner `crew-results.json` 的 RED／GREEN 證據（全部核准 Sxx 存在、full coverage、RED 有 assertion failure、GREEN 全 passed、RED/GREEN 不得重用同一份紀錄），`crew-bdd-junit.py` 轉換 JUnit／Surefire XML；`--bdd --resume` 須驗 RED 歷史證據、不得補造；無 runner 明確 BLOCK。新增 `scripts/lint-bdd-behavior.py` 與 CI job `bdd-behavior`。
+- **Review Once 一次審查封包（#46）**：`review-once-packet.py prepare/verify` 產生固定 schema 的 Spec／AC／DB／Architecture／scope／test policy 快照，`stage_sha256`＋`packet_sha256` 以 canonical JSON 綁定整份提案；封包本身不寫 `state.json`／`plan.md`／產品碼，也不代表核准（`references/review-once.md`）。CI job `review-once-packet`。
+- **Review Once 簽署授權與 Gate 綁定（#47，#48 補合進 main）**：`crew-state.py grant --action issue|check|approve-requirement|approve-architecture|revoke|consume`；需完整 packet SHA 與工作區外 Host 以 RSA／ECDSA SHA-256 簽署的核准事件，缺公鑰、簽章無效、過期、超過 4 小時、packet 改動、slug／branch 不符一律 BLOCK；`state.json.autonomy` 為選填，Interactive 任務不受影響；經 grant 通過的 Gate 記 `by=delegated-review-once`，Active Grant 期間直接 `gate --by human` 會被拒絕，UAT 永不自動通過（`references/review-once-grants.md`、`scripts/lint-review-once-grants.py`）。
+- **`/plan-run` Review Once Runner（#49）**：`crew-state.py run --action start|next|pause|resume|heartbeat|status`——有效 grant 才可執行、到期檢查、單一 owner、inflight 併發抑制、checkpoint、顯式 `--reconcile`／`--takeover`、Build Done 時 consume grant；`review-once-apply.py` 依核准 packet 把 Spec／DB／Arch 內容插進 `plan.md` 既有錨點並經 `crew-state.py` 合法過 Gate；`review-once-proof.py` 在 `/plan-start --from-review-once` 前驗簽章；`review-once-build.py` 核對 Git branch、packet base commit 與 allowed paths，阻擋範圍外變更；`/plan-build --review-once` 只在 grant 有效時略過重複詢問（`references/review-once-runner.md`、`scripts/lint-review-once-runner.py`）。
+- **Review Once Host Bridge（#51）**：`review-once-host.py` 同步執行器，依簽署 grant 依序跑 Spec → DB → Arch，Build 呼叫工作區外受保護 JSON adapter 指定的 worker；持續檢查 grant／snapshot／branch／owner／時限，以進程群組取消 worker，worker exit=0 不等於 build=done；拒絕 Agent 可修改路徑或危險 CLI 權限選項的 adapter（`references/review-once-host.md`、`scripts/lint-review-once-host.py`）。
+
+### Added — 本版「先問再做」重設計
+
+- **`/plan spec` 問 Sxx 深度（1-0）**：派工前以結構化提問「驗收條件要附多少行為案例？」三選一（不用／只標高風險或有歧義的 AC／每條 AC 都要），答案寫入 `state.json.testing.scenario_depth`（`crew-state.py set --scenario-depth none|risky|all --by human`）；`--scenarios none|risky|all` 旗標可跳過詢問但不是預設值；`/plan` 全跑也可帶；重跑時顯示上次選擇但本輪仍需明確重選。
+- **`/plan-build` 第 4 步改測試策略三選一**：不產測試（`--no-test`）／一般測試（`--with-test`）／BDD Test-First（`--bdd`），**沒有隱含預設**；plan.md 無 Sxx 時選項 3 標「不可選」；「建議」只是標記；選定後寫入 `state.json.testing.policy` 供 `/plan-next`、`/plan-verify` 沿用；取消「團隊 1–2 人不顯示測試選項」的例外。
+- **4b BDD 開工確認**：選 BDD（或 `--bdd`）後先以 FAST 唯讀探測 runner，展示 runner 識別碼、test-engineer 允許路徑與 `crew-bdd-gate.py --phase plan` 列出的已核准 Sxx 清單，確認後才寫入 `testing.policy=bdd` 與 `testing.runner`；`crew-bdd-gate.py` 新增 `--phase plan`（只列宣告的 Sxx，不讀測試結果）。
+- **`/plan-run` 入口三模式**：無 `--mode` 時先問「要用哪種方式推進？」——1. 互動逐站（只回 `/plan-next` 建議）、2. 同 session 一次審查連跑、3. trusted-host 簽章（需工作區外簽章 Host 與受保護 adapter，多問一題要求 adapter 絕對路徑並確認四項 `host_guarantees` 已由 Host 實施）；`--mode review-once` 視為 `session` 的別名；SKILL 拆出 `phases/session.md`、`phases/trusted-host.md`。
+- **同 session 一次審查連跑（dialogue grant）**：第二層一次問三題——`--until build|arch`、`--max-duration 4h|2h|1h`、`--test with_test|bdd`——再展示整份 packet 以對話核准（核准並連跑／修改重產／取消）；`crew-state.py grant --action issue --proof dialogue --packet --approved-sha --max-duration --until` 免簽章、只以 packet hash 綁定；`/plan-start --from-review-once --proof dialogue` 以 `review-once-packet.py verify` 驗 hash、不跑 `review-once-proof.py`；主對話迴圈上限 6 站。**誠實定位**（SKILL、`review-once.md`、`review-once-grants.md` 三處一致）：hash 只保證「套用的＝審過的」，信任等級等同 Interactive 的 `gate --by human`、**不是不可偽造的核准**；本模式**不是無人值守**，session 結束即 paused，`/plan-run resume` 續跑。`git commit` 固定不允許。
+- **`run --action reclaim`**：Runner 仍是 `running` 但原 session 已死時，新 owner 以 `--reason` 接手——running→paused、stop_reason=`SESSION_LOST`、記錄舊 owner；之後仍須 Human 確認舊 worker 已停止才可 `resume --takeover --reconcile`。
+- **`--until arch`**：只套用 Spec／DB／Arch 不進 build；arch 完成且 architecture Gate 通過即 `completed_plan`、stop_reason=`PLAN_DONE`、grant consumed。
+- **停止點全部改為結構化提問、不提供「跳過」**：TEST_FAILED／E0-E3／E8、NEED_HUMAN、範圍衝突、到期／`GRANT_OR_SCOPE_INVALID` 各有三個編號選項（續修／暫停／撤銷轉 Interactive 等）。
+- **`/plan-next` 依 `testing.policy` 推薦**：`no_test`／`with_test`／`bdd` 分別推 `--no-test`／`--with-test`／`--bdd`，斷點推 `--bdd --resume`；policy 未定但規格含 Sxx 時提示 `/plan-build` 會詢問是否 Test-First。
+- **`lint-host-portability` 新規則**：`ASK_USER_TOOL` 禁止 SKILL／phases／references 出現 Claude 專用的提問工具名（一律寫 `ask_user(question, options, why_required)` 契約），並把 `skills/*/phases/*.md` 納入掃描。
+
+### Changed
+
+- **BDD 三處「Human 決定」改為編號選項**（`plan-build` 5e）：找不到可輸出 Sxx 結果的 runner（指定 runner／降級一般測試／暫停）、GREEN 未通過（續修產品碼／回 `/plan spec`／暫停，**不提供降級**）、`--bdd --resume` 找不到有效 RED 證據（重啟 Test-First／改一般測試／暫停）；headless 一律 BLOCK，不自行降級。
+- **`review-once-host.py` 只接受 signed grant**：`autonomy.proof=dialogue` 一律 BLOCK，dialogue grant 只能在 `/plan-run` 主對話迴圈使用；`status` 輸出加 `grant_proof`、`target_step`。
+- **worker 輸出不再丟棄**：Bridge 新增 `--worker-log`，預設寫 `.spec/{slug}/.cache/review-once-worker-{run_id}.log`（`review-once-build.py` 的 scope 檢查已排除 `.cache`）。
+- **`run next` 的 `inflight.command` 改為可執行指令**：spec／db／arch 回 `review-once-apply.py --step X`，build 回 `/plan-build --with-test|--bdd [--resume] --review-once`，不再是 token。
+- **plan-run 所有指令補 `--project .` 與 `CREW_PLUGIN_ROOT` 定義**；`references/review-once-host.md` 指令同步改用 `${CREW_PLUGIN_ROOT}`；`review-once-runner.md`、`review-once-host.md` 改寫測試路徑為「repo 根 `scripts/`，不隨 plugin 安裝」。
+- **heartbeat 改為派 build 前後各一次**：`run next` 本身會刷新 heartbeat，30 秒週期只屬 trusted-host Bridge。
+- **時限自 grant 簽發起算**：dialogue 自 `grant issue`（在 `/plan-start` 之後）起算，上限為所選 4h／2h／1h；signed 自 Host 簽發事件的 `issued_at` 起算（≤4h）；都不從 packet 產生起算。
+- **`/plan-build --review-once` 前提改寫**：接受 `dialogue` 或 `signed` 兩種有效 grant（`grant --action check` 驗證），`test_policy` 由已核准 packet 鏡像進 `testing.policy`、第 4 步不再詢問、4b 只展示不問。
+- **`host-capabilities.md`**：新增 `ask_user` 共通規則（沉默／Enter／「繼續」不算選擇、旗標是捷徑不是預設、答案只經 `crew-state.py` 寫入、headless 無旗標 BLOCK、subagent 不得提問）與 Claude Code／Codex adapter 說明；`trusted_human_approval` 分 `dialogue`／`signed` 兩級；末句改為「沒有簽章能力的 Host 只能用 session 模式且不得稱為無人值守」。
+- **Review Once 文件改寫為三模式**：根 README 與 feature-workflow README 的 `/plan-run` 說明與 Review Once 章節重寫；「一般 CLI 不夠格」改為「一般 CLI 可用 session 模式，但不是無人值守」；Host Bridge 降為 trusted-host 子節；`review-once.md` 由「staged」改為正式說明並加「誠實定位」段，註明 Review Once 僅適用 feature 任務、bug 共用檔的同文段由 `crew-state.py grant` 擋。
+
+### 設計取捨
+
+- **headless fallback**：無法提問（權限提示關閉、排程、`claude -p` 非互動）時旗標齊全才執行，否則 BLOCK 並列出缺少的旗標，不得代選。
+- **`--bdd` 在 headless 不能跳過 4b 開工確認**：只有 `/plan-run` 以 `--review-once` 授權（packet 已核准 `bdd`）才只展示不問；缺 runner 仍 BLOCK。
+- **bug 型任務不問測試策略**、不寫 `testing.policy`；迴歸測試由 `/bug-fix` 契約負責，要在 `/plan-build` 產測試就帶旗標明示。
+- **`/plan spec` 重跑照問**：Sxx 深度顯示上次選擇，但本輪仍需明確重選。
+
+### Known issues
+
+- `scripts/lint-review-once-host.py` 的 `test_reject_unprotected_or_workspace_controlled_adapter` 在 macOS 本機失敗（`fedc44d` 即如此；GitHub Actions Linux 通過，原因未查證）。
+- 沿用 5.2.0：殘留的 `plugins/feature-workflow/.claude-plugin/marketplace.json`（4.24.3）與 `category` 欄位使 `claude plugin validate --strict` 失敗；另案處理。
+- 只核准到 arch 的 dialogue grant（`--until arch`）在 `/plan-build --review-once` 的守門層（`review-once-build.py`）會擋 Build，但 state 層的 `grant check` 與手動 `set --step build --status in_progress` 不擋；Review Once 自動路徑已封住，手動寫入仍需人為自律。
+
+### Compatibility
+
+- 既有 `/plan-build --with-test`／`--no-test`、Approval Gate、`crew-state.py` 單一寫者、Human UAT 契約不變；`state.json` 新增頂層 `testing` 區段（`policy`／`scenario_depth`／`runner`），只經 `crew-state.py set --test-policy|--scenario-depth|--test-runner` 寫入。
+- `crew-state.py grant --action issue` 省略 `--proof` 即為原 signed 路徑；`--approved-sha`／`--max-duration`／`--until` 只用於 `--proof dialogue`。
+
+---
+
+## [bug-workflow@4.0.6] - 2026-10-14
+
+> **共用 `crew-state.py` 與 `host-capabilities.md` 同步。** 隨 feature-workflow@5.3.0 同步共用檔；bug 流程行為不變。
+
+### Changed
+
+- 同步共用 `scripts/crew-state.py`：新增頂層 `testing` 區段與 `set --test-policy|--scenario-depth|--test-runner`、`_build_command` 依 `testing.policy` 推薦 `/plan-build` 旗標、`grant --action issue --proof dialogue`、`run --action reclaim`（`SESSION_LOST`）與 `--until arch`（`completed_plan`／`PLAN_DONE`）。bug 任務不問測試策略、`grant` 對非 Feature 任務一律拒絕，因此不受影響。
+- 同步共用 `references/host-capabilities.md`：新增 `ask_user` 共通規則與 Claude Code／Codex adapter 說明；Review Once 段註明僅 feature-workflow 的 `/plan-run` 使用。
+
+---
+
 ## [feature-workflow@5.2.1] - 2026-10-07
 
 > **修正 Claude Desktop 看不到 `/crew-cockpit`。** 5.2.0 的 Mod 在 Claude Code 2.1.289（Claude Desktop 內建版本）載入失敗；5.2.1 修正，並在 HUD 上方加上分隔線。
